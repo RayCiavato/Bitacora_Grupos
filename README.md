@@ -53,6 +53,25 @@ Recordatorios opcionales:
 - `REMINDER_TIMEZONE`
 - `SMTP_*` o `SLACK_WEBHOOK_URL` / `TEAMS_WEBHOOK_URL`
 
+## Acceso admin inmediato
+
+Crear o resetear admin en caliente (incluye desbloqueo y reinicio de MFA):
+
+```bash
+bash scripts/provision-admin.sh
+```
+
+Credenciales por defecto del script:
+
+- Correo: `admin@n1njahack.local`
+- Contrasena: `N1njaHack@2026!`
+
+Tambien puedes definir las tuyas:
+
+```bash
+bash scripts/provision-admin.sh admin@tu-dominio.com 'TuPasswordSegura@2026' 'Administrador Principal'
+```
+
 ## 2) Levantar plataforma
 
 ```bash

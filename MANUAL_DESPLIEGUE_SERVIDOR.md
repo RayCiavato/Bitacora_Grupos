@@ -204,6 +204,28 @@ Parar todo:
 docker compose down
 ```
 
+### Recuperar o crear admin rapido
+
+Desde la raiz del proyecto en el servidor:
+
+```bash
+cd ~/apps/bitacora
+bash scripts/provision-admin.sh
+```
+
+Credenciales por defecto del script:
+
+- Correo: `admin@n1njahack.local`
+- Contrasena: `N1njaHack@2026!`
+
+Personalizar credenciales:
+
+```bash
+bash scripts/provision-admin.sh admin@tudominio.com 'TuPasswordSegura@2026' 'Administrador Principal'
+```
+
+Este proceso reinicia MFA del admin para forzar una configuracion nueva al siguiente login.
+
 ## 11) Actualizar version en servidor
 
 ```bash

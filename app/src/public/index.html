@@ -20,7 +20,29 @@
 
     <main class="shell">
       <aside class="hero card">
-        <p class="eyebrow">BITACORA DIARIA</p>
+        <div class="brand-lockup" aria-label="identidad-de-marca">
+          <div class="brand-logo" aria-hidden="true">
+            <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="brandGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#2ce6ff" />
+                  <stop offset="55%" stop-color="#4f78ff" />
+                  <stop offset="100%" stop-color="#ff3f8e" />
+                </linearGradient>
+              </defs>
+              <rect x="6" y="6" width="108" height="108" rx="28" fill="#0a1534" />
+              <path
+                d="M28 86V34h26c16 0 26 8 26 21 0 9-4 15-11 18l17 13H65L50 74h-6v12H28zm16-23h9c7 0 11-3 11-9s-4-9-11-9h-9v18z"
+                fill="url(#brandGradient)"
+              />
+              <circle cx="89" cy="33" r="9" fill="#2ce6ff" />
+            </svg>
+          </div>
+          <div>
+            <p class="eyebrow">BITACORA DIARIA</p>
+            <p class="brand-caption">N1NJA // SECURE OPS</p>
+          </div>
+        </div>
         <h1>Control real del trabajo de tu equipo</h1>
         <p class="subtitle">
           Registro diario, trazabilidad por persona, reportes exportables y flujo seguro con MFA.
@@ -331,7 +353,24 @@
       </section>
     </main>
 
-    <p class="signature-lock" aria-label="firma-inmutable">Firma inmutable: N1njaHack</p>
+    <footer class="copyright-dock" aria-label="derechos-autor">
+      <div class="copyright-logo" aria-hidden="true">
+        <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="copyrightGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#2ce6ff" />
+              <stop offset="100%" stop-color="#ff3f8e" />
+            </linearGradient>
+          </defs>
+          <rect x="12" y="12" width="96" height="96" rx="26" fill="#0d1c40" />
+          <path d="M40 72V48h14l18 24V48h8v24H66L48 48v24h-8z" fill="url(#copyrightGradient)" />
+        </svg>
+      </div>
+      <div class="copyright-copy">
+        <p class="copyright-title">N1njaHack Labs</p>
+        <p class="copyright-subtitle">Copyright 2026. Diseno exclusivo y marca registrada.</p>
+      </div>
+    </footer>
     <div id="toast" class="toast hidden" aria-live="polite"></div>
     <script src="/app.js"></script>
   </body>
