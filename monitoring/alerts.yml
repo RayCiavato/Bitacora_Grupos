@@ -1,0 +1,39 @@
+groups:
+  - name: bitacora_alerts
+    rules:
+      - alert: ApiDown
+        expr: up{job="app"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API fuera de servicio"
+          description: "La API no responde hace mas de 2 minutos."
+
+      - alert: High5xxRate
+        expr: |
+          (
+            sum(rate(http_requests_total{job="app",status_code=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(http_requests_total{job="app"}[5m])), 0.001)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alta tasa de errores 5xx"
+          description: "Mas de 5% de respuestas 5xx en los ultimos 5 minutos."
+
+      - alert: HostDiskAlmostFull
+        expr: |
+          (
+            node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}
+            /
+            node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}
+          ) < 0.15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disco cercano al limite"
+          description: "El espacio libre en / esta por debajo del 15%."

@@ -1,0 +1,24 @@
+{
+  "name": "Bitacora Operativa",
+  "short_name": "Bitacora",
+  "description": "Registro diario de actividades operativas del equipo.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fff9f1",
+  "theme_color": "#13678f",
+  "lang": "es",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

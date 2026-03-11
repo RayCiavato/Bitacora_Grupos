@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bitacora - Vista Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-layer bg-layer-a"></div>
+    <div class="bg-layer bg-layer-b"></div>
+    <main class="layout">
+      <section class="panel dashboard">
+        <header class="topbar card">
+          <div>
+            <p class="eyebrow">PANEL DIARIO</p>
+            <h2>Bitacora del equipo</h2>
+            <p class="subtitle">Sesion: Carlos Perez (Administrador)</p>
+          </div>
+          <button class="btn btn-ghost">Cerrar sesion</button>
+        </header>
+
+        <section class="grid-kpi">
+          <article class="card kpi">
+            <p>Total registros</p>
+            <h3>24</h3>
+          </article>
+          <article class="card kpi">
+            <p>Prioridad alta</p>
+            <h3>4</h3>
+          </article>
+          <article class="card kpi">
+            <p>Dias con actividad</p>
+            <h3>6</h3>
+          </article>
+        </section>
+
+        <section class="grid-main">
+          <article class="card">
+            <h3>Nuevo registro</h3>
+            <form class="form">
+              <label>
+                Encargado
+                <input type="text" value="Carlos Perez" disabled />
+              </label>
+              <label>
+                Fecha
+                <input type="date" value="2026-02-26" />
+              </label>
+              <label>
+                Descripcion de actividad
+                <textarea rows="4">Revision de incidentes y seguimiento de tickets criticos.</textarea>
+              </label>
+              <label>
+                Observacion
+                <textarea rows="3">No hubo interrupciones de servicio.</textarea>
+              </label>
+              <label>
+                Prioridad
+                <select>
+                  <option>Baja</option>
+                  <option selected>Media</option>
+                  <option>Alta</option>
+                </select>
+              </label>
+              <button type="button" class="btn btn-primary">Guardar en bitacora</button>
+            </form>
+          </article>
+
+          <article class="card">
+            <h3>Informe por fecha</h3>
+            <form class="filter-row">
+              <label>
+                Desde
+                <input type="date" value="2026-02-20" />
+              </label>
+              <label>
+                Hasta
+                <input type="date" value="2026-02-26" />
+              </label>
+              <button type="button" class="btn btn-primary">Consultar</button>
+            </form>
+            <div class="chips">
+              <span class="chip">2026-02-26: 6 registro(s)</span>
+              <span class="chip">2026-02-25: 3 registro(s)</span>
+              <span class="chip">2026-02-24: 4 registro(s)</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Encargado</th>
+                    <th>Actividad</th>
+                    <th>Observacion</th>
+                    <th>Prioridad</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>2026-02-26</td>
+                    <td>Carlos Perez</td>
+                    <td>Actualizacion de agentes de monitoreo</td>
+                    <td>Operacion completada sin impactos</td>
+                    <td><span class="priority priority-media">media</span></td>
+                  </tr>
+                  <tr>
+                    <td>2026-02-26</td>
+                    <td>Laura Gomez</td>
+                    <td>Atencion de alerta de disco al 82%</td>
+                    <td>Se liberaron logs antiguos del sistema</td>
+                    <td><span class="priority priority-alta">alta</span></td>
+                  </tr>
+                  <tr>
+                    <td>2026-02-25</td>
+                    <td>Miguel Torres</td>
+                    <td>Prueba de restauracion de backup</td>
+                    <td>Restore validado en entorno de staging</td>
+                    <td><span class="priority priority-baja">baja</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
+

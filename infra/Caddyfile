@@ -1,0 +1,22 @@
+http://{$APP_DOMAIN} {
+  redir https://{$APP_DOMAIN}{uri}
+}
+
+https://{$APP_DOMAIN} {
+  tls internal
+  encode zstd gzip
+
+  @blocked_metrics path /metrics
+  respond @blocked_metrics 404
+
+  header {
+    -Server
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "strict-origin-when-cross-origin"
+    Permissions-Policy "geolocation=(), camera=(), microphone=()"
+  }
+
+  reverse_proxy app:3000
+}
