@@ -611,6 +611,210 @@ th {
   display: none !important;
 }
 
+/* Dark neon visual mode for production dashboard */
+:root {
+  --bg: #050913;
+  --bg-alt: #0d1530;
+  --surface: rgba(9, 16, 38, 0.82);
+  --surface-solid: #111d3a;
+  --ink: #e8f1ff;
+  --muted: #99b0d0;
+  --line: rgba(120, 154, 212, 0.26);
+  --primary: #2ce6ff;
+  --primary-strong: #1a89ff;
+  --secondary: #ff3f8e;
+  --secondary-strong: #a93fff;
+  --success: #19cd87;
+  --danger: #ff5373;
+  --shadow: 0 24px 54px rgba(0, 0, 0, 0.44);
+}
+
+body {
+  background:
+    radial-gradient(circle at 10% 12%, rgba(0, 214, 255, 0.2), transparent 44%),
+    radial-gradient(circle at 88% 18%, rgba(255, 56, 149, 0.2), transparent 40%),
+    radial-gradient(circle at 52% 100%, rgba(104, 78, 255, 0.25), transparent 55%),
+    linear-gradient(150deg, var(--bg) 0%, var(--bg-alt) 100%);
+  color: var(--ink);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  color: #f4f7ff;
+}
+
+.ambient-a {
+  background: rgba(25, 142, 255, 0.5);
+}
+
+.ambient-b {
+  background: rgba(255, 44, 150, 0.42);
+}
+
+.card {
+  background: var(--surface);
+  border-color: var(--line);
+  box-shadow: var(--shadow);
+}
+
+.hero {
+  background:
+    linear-gradient(156deg, rgba(14, 26, 57, 0.95), rgba(9, 16, 38, 0.92)),
+    linear-gradient(122deg, rgba(32, 181, 255, 0.16), rgba(196, 68, 255, 0.14));
+}
+
+.hero-grid article {
+  border-color: rgba(128, 166, 225, 0.28);
+  background: rgba(13, 23, 49, 0.7);
+}
+
+.eyebrow {
+  color: #52e5ff;
+}
+
+label {
+  color: #bbcfec;
+}
+
+input,
+textarea,
+select {
+  border-color: rgba(124, 157, 216, 0.3);
+  background: var(--surface-solid);
+  color: var(--ink);
+}
+
+input:disabled {
+  background: rgba(23, 35, 66, 0.85);
+  color: #8199bd;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(44, 230, 255, 0.18);
+}
+
+.btn-primary {
+  color: #021223;
+  background: linear-gradient(122deg, var(--primary), var(--primary-strong));
+  box-shadow: 0 12px 24px rgba(22, 134, 255, 0.35);
+}
+
+.btn-secondary {
+  color: #fef7ff;
+  background: linear-gradient(122deg, var(--secondary), var(--secondary-strong));
+  box-shadow: 0 12px 24px rgba(184, 69, 255, 0.34);
+}
+
+.btn-ghost {
+  color: #d8e7ff;
+  background: rgba(14, 27, 56, 0.82);
+  border-color: rgba(122, 155, 212, 0.36);
+}
+
+.help-text,
+.subtitle,
+.secret-key,
+.pagination p,
+.bar-meta,
+.template-item p {
+  color: var(--muted);
+}
+
+.qr {
+  border-color: rgba(118, 154, 215, 0.26);
+  background: #f5f8ff;
+}
+
+.kpi {
+  background:
+    linear-gradient(160deg, rgba(14, 31, 64, 0.9), rgba(9, 21, 46, 0.88)),
+    linear-gradient(130deg, rgba(0, 193, 255, 0.13), rgba(220, 66, 255, 0.1));
+}
+
+.kpi::after {
+  background: linear-gradient(145deg, rgba(57, 216, 255, 0.16), rgba(64, 100, 255, 0.04));
+}
+
+.table-wrap {
+  border-color: rgba(118, 150, 206, 0.23);
+  background: rgba(10, 19, 42, 0.74);
+}
+
+th,
+td {
+  border-bottom-color: rgba(116, 150, 207, 0.2);
+}
+
+th {
+  background: rgba(17, 30, 62, 0.95);
+  color: #d9e8ff;
+}
+
+.chip {
+  border-color: rgba(116, 153, 213, 0.35);
+  background: rgba(17, 31, 63, 0.8);
+  color: #c6d9f8;
+}
+
+.priority-baja {
+  color: #5ff4b0;
+  background: rgba(26, 166, 107, 0.2);
+  border-color: rgba(63, 224, 157, 0.4);
+}
+
+.priority-media {
+  color: #ffc77a;
+  background: rgba(232, 133, 35, 0.2);
+  border-color: rgba(255, 171, 73, 0.44);
+}
+
+.priority-alta {
+  color: #ff9db2;
+  background: rgba(255, 78, 117, 0.2);
+  border-color: rgba(255, 108, 142, 0.44);
+}
+
+.bar-track {
+  background: rgba(76, 115, 179, 0.26);
+}
+
+.bar-fill {
+  background: linear-gradient(90deg, #27e1ff, #5169ff, #ff4baa);
+}
+
+.attachment-item,
+.template-item {
+  border-color: rgba(113, 148, 208, 0.26);
+  background: rgba(16, 30, 61, 0.74);
+}
+
+.attachment-item a,
+.btn-link {
+  color: #68ecff;
+}
+
+.toast {
+  border-color: rgba(119, 154, 214, 0.34);
+  background: rgba(12, 25, 53, 0.95);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.38);
+  color: #ddedff;
+}
+
+.toast.success {
+  border-color: rgba(54, 210, 144, 0.44);
+  color: #6ff3b8;
+}
+
+.toast.error {
+  border-color: rgba(255, 106, 137, 0.44);
+  color: #ff9fb6;
+}
+
 @keyframes panel-in {
   from {
     opacity: 0;

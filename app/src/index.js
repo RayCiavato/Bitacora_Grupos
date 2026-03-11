@@ -26,6 +26,7 @@ function buildHelmetConfig() {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "https://fonts.googleapis.com"],
+        upgradeInsecureRequests: null,
         fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
         imgSrc: ["'self'", "data:", "blob:"],
         connectSrc: ["'self'"],
