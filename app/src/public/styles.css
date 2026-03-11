@@ -657,6 +657,11 @@ h4 {
   background: var(--surface);
   border-color: var(--line);
   box-shadow: var(--shadow);
+  will-change: transform;
+  transition:
+    transform 0.22s ease,
+    box-shadow 0.22s ease,
+    border-color 0.22s ease;
 }
 
 .hero {
@@ -813,6 +818,42 @@ th {
 .toast.error {
   border-color: rgba(255, 106, 137, 0.44);
   color: #ff9fb6;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .card.mouse-reactive {
+    transform:
+      perspective(880px)
+      rotateX(var(--rx, 0deg))
+      rotateY(var(--ry, 0deg))
+      translateY(var(--lift, 0px));
+  }
+
+  .card.mouse-reactive:hover {
+    --lift: -4px;
+    border-color: rgba(133, 177, 255, 0.44);
+    box-shadow: 0 34px 62px rgba(0, 0, 0, 0.52);
+  }
+}
+
+.signature-lock {
+  position: fixed;
+  left: 0.9rem;
+  bottom: 0.9rem;
+  z-index: 25;
+  margin: 0;
+  padding: 0.4rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(128, 173, 246, 0.42);
+  background: rgba(8, 16, 37, 0.9);
+  color: #6be9ff;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  pointer-events: none;
+  user-select: none;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.34);
 }
 
 @keyframes panel-in {

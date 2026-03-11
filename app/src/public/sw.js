@@ -1,4 +1,4 @@
-const CACHE_NAME = "bitacora-v2";
+const CACHE_NAME = "bitacora-v3";
 const PRECACHE = [
   "/",
   "/index.html",

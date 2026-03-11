@@ -52,6 +52,8 @@ const uploadReady = fs.mkdir(config.uploadDir, { recursive: true });
 const allowedMimeTypes = new Set([
   "image/png",
   "image/jpeg",
+  "image/webp",
+  "image/gif",
   "application/pdf",
   "text/plain",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -95,11 +97,11 @@ function toISODate(date) {
   return new Date(date.getTime() - tzOffsetMs).toISOString().slice(0, 10);
 }
 
-function isManagementRole(userRole) {
-  return userRole === "admin" || userRole === "supervisor";
+function isAdminRole(userRole) {
+  return userRole === "admin";
 }
 
-function buildReportFilters(query, user) {
+function buildReportFilters(query) {
   const params = [];
   const whereParts = [];
 
@@ -119,14 +121,9 @@ function buildReportFilters(query, user) {
     whereParts.push(`e.prioridad = $${priorityIndex}`);
   }
 
-  if (query.encargadoId && isManagementRole(user.role)) {
+  if (query.encargadoId) {
     const encargadoIndex = params.push(query.encargadoId);
     whereParts.push(`e.encargado_id = $${encargadoIndex}`);
-  }
-
-  if (!isManagementRole(user.role)) {
-    const ownIndex = params.push(user.sub);
-    whereParts.push(`e.encargado_id = $${ownIndex}`);
   }
 
   return {
@@ -270,8 +267,8 @@ async function getEventWithOwner(eventId) {
   return eventResult.rows[0];
 }
 
-function ensureEventAccessOrForbidden(req, res, event) {
-  if (isManagementRole(req.user.role)) {
+function ensureEventWriteAccessOrForbidden(req, res, event) {
+  if (isAdminRole(req.user.role)) {
     return true;
   }
 
@@ -350,7 +347,7 @@ router.post("/", authenticate, async (req, res, next) => {
 router.get("/report", authenticate, async (req, res, next) => {
   try {
     const query = reportQuerySchema.parse(req.query);
-    const { whereSql, params } = buildReportFilters(query, req.user);
+    const { whereSql, params } = buildReportFilters(query);
 
     const countResult = await pool.query(
       `
@@ -438,7 +435,7 @@ router.get("/report", authenticate, async (req, res, next) => {
 router.get("/report/export", authenticate, async (req, res, next) => {
   try {
     const query = exportQuerySchema.parse(req.query);
-    const { whereSql, params } = buildReportFilters(query, req.user);
+    const { whereSql, params } = buildReportFilters(query);
 
     const eventsResult = await pool.query(
       `
@@ -507,7 +504,7 @@ router.get("/trends", authenticate, async (req, res, next) => {
       pageSize: 50
     };
 
-    const { whereSql, params } = buildReportFilters(reportQuery, req.user);
+    const { whereSql, params } = buildReportFilters(reportQuery);
 
     const byDateResult = await pool.query(
       `
@@ -569,7 +566,7 @@ router.post("/:id/attachments", authenticate, async (req, res, next) => {
       return res.status(404).json({ error: "event_not_found" });
     }
 
-    if (!ensureEventAccessOrForbidden(req, res, event)) {
+    if (!ensureEventWriteAccessOrForbidden(req, res, event)) {
       return;
     }
 
@@ -636,10 +633,6 @@ router.get("/:id/attachments", authenticate, async (req, res, next) => {
       return res.status(404).json({ error: "event_not_found" });
     }
 
-    if (!ensureEventAccessOrForbidden(req, res, event)) {
-      return;
-    }
-
     const result = await pool.query(
       `
         SELECT
@@ -692,10 +685,6 @@ router.get("/attachments/:attachmentId/download", authenticate, async (req, res,
     }
 
     const attachment = attachmentResult.rows[0];
-    if (!isManagementRole(req.user.role) && String(attachment.encargado_id) !== String(req.user.sub)) {
-      return res.status(403).json({ error: "forbidden" });
-    }
-
     const filePath = path.join(config.uploadDir, attachment.stored_name);
     await fs.access(filePath);
 

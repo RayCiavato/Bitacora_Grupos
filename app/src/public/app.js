@@ -102,6 +102,8 @@ const state = {
     totalPages: 1
   },
   selectedEventId: null,
+  selectedEventOwnerId: null,
+  eventOwners: {},
   pendingRefresh: null
 };
 
@@ -208,6 +210,44 @@ function canFilterByUser() {
   return state.user?.role === "admin" || state.user?.role === "supervisor";
 }
 
+function canUploadToEvent(eventOwnerId) {
+  if (!state.user || !eventOwnerId) {
+    return false;
+  }
+
+  if (isAdminSession()) {
+    return true;
+  }
+
+  return String(eventOwnerId) === String(state.user.id);
+}
+
+function refreshAttachmentUploadState() {
+  const submitButton = attachmentForm.querySelector('button[type="submit"]');
+  const hasSelection = Boolean(state.selectedEventId);
+  const ownerId = state.selectedEventOwnerId || state.eventOwners[String(state.selectedEventId)];
+  const canUpload = hasSelection && canUploadToEvent(ownerId);
+
+  attachmentFileInput.disabled = !canUpload;
+
+  if (submitButton) {
+    submitButton.disabled = !canUpload;
+  }
+
+  if (!hasSelection) {
+    selectedEventLabel.textContent = "Selecciona un registro para ver o subir adjuntos.";
+    return;
+  }
+
+  if (canUpload) {
+    selectedEventLabel.textContent = `Registro #${state.selectedEventId}`;
+    return;
+  }
+
+  selectedEventLabel.textContent =
+    `Registro #${state.selectedEventId} en modo lectura. Solo admin o dueno puede subir adjuntos.`;
+}
+
 function clearSession() {
   state.user = null;
   state.users = [];
@@ -219,6 +259,8 @@ function clearSession() {
     totalPages: 1
   };
   state.selectedEventId = null;
+  state.selectedEventOwnerId = null;
+  state.eventOwners = {};
 
   setKpi({});
   dateSummary.innerHTML = "";
@@ -228,8 +270,9 @@ function clearSession() {
   trendTopUsers.innerHTML = "";
   templateList.innerHTML = "";
   attachmentList.innerHTML = "";
-  selectedEventLabel.textContent = "Selecciona un registro para ver o subir adjuntos.";
   attachmentEventId.value = "";
+  attachmentFileInput.value = "";
+  refreshAttachmentUploadState();
 }
 
 function setKpi(report) {
@@ -276,6 +319,7 @@ function renderPagination(pagination) {
 function renderReportRows(report) {
   reportBody.innerHTML = "";
   const rows = Array.isArray(report.events) ? report.events : [];
+  state.eventOwners = {};
 
   if (rows.length === 0) {
     const row = document.createElement("tr");
@@ -320,8 +364,11 @@ function renderReportRows(report) {
     button.type = "button";
     button.className = "btn-link attachment-open";
     button.dataset.eventId = String(item.id);
+    button.dataset.ownerId = String(item.encargadoId || "");
     button.textContent = `Adjuntos (${item.attachmentsCount || 0})`;
     tdAttachments.appendChild(button);
+
+    state.eventOwners[String(item.id)] = Number(item.encargadoId || 0) || null;
 
     row.appendChild(tdFecha);
     row.appendChild(tdEncargado);
@@ -550,6 +597,7 @@ function renderDashboardView() {
   }
 
   userFilterInput.disabled = !canFilterByUser();
+  refreshAttachmentUploadState();
 }
 
 function buildReportParams(includePagination = true) {
@@ -758,10 +806,13 @@ async function loadTrends() {
   renderTrends(data);
 }
 
-async function loadAttachments(eventId) {
+async function loadAttachments(eventId, eventOwnerId = null) {
   state.selectedEventId = Number(eventId);
+  const ownerIdFromState = state.eventOwners[String(eventId)];
+  const parsedOwnerId = Number(eventOwnerId || ownerIdFromState || 0);
+  state.selectedEventOwnerId = Number.isFinite(parsedOwnerId) && parsedOwnerId > 0 ? parsedOwnerId : null;
   attachmentEventId.value = String(eventId);
-  selectedEventLabel.textContent = `Registro #${eventId}`;
+  refreshAttachmentUploadState();
 
   const { response, data, networkError } = await apiAuth(`/events/${eventId}/attachments`);
 
@@ -1030,10 +1081,17 @@ async function handleAttachmentSubmit(event) {
 
   const eventId = Number(attachmentEventId.value);
   const file = attachmentFileInput.files?.[0];
+  const ownerId = state.selectedEventOwnerId || state.eventOwners[String(eventId)];
 
   if (!eventId) {
     setButtonBusy(submitButton, false);
     showToast("Selecciona un registro en la tabla para adjuntar.", "error");
+    return;
+  }
+
+  if (!canUploadToEvent(ownerId)) {
+    setButtonBusy(submitButton, false);
+    showToast("Solo admin o dueno del registro puede subir adjuntos.", "error");
     return;
   }
 
@@ -1346,7 +1404,9 @@ async function handleReportTableClick(event) {
     return;
   }
 
-  await loadAttachments(Number(eventId));
+  const ownerId = Number(button.dataset.ownerId || 0);
+  const normalizedOwnerId = Number.isFinite(ownerId) && ownerId > 0 ? ownerId : null;
+  await loadAttachments(Number(eventId), normalizedOwnerId);
 }
 
 async function handlePrevPage() {
@@ -1365,6 +1425,41 @@ async function handleNextPage() {
 
   state.report.page += 1;
   await loadReport();
+}
+
+function setupCardPointerMotion() {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    return;
+  }
+
+  if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
+    return;
+  }
+
+  const cards = document.querySelectorAll(".card");
+  cards.forEach((card) => {
+    card.classList.add("mouse-reactive");
+
+    card.addEventListener("pointermove", (event) => {
+      const bounds = card.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) {
+        return;
+      }
+
+      const relativeX = (event.clientX - bounds.left) / bounds.width;
+      const relativeY = (event.clientY - bounds.top) / bounds.height;
+      const rotateY = (relativeX - 0.5) * 8;
+      const rotateX = (0.5 - relativeY) * 7;
+
+      card.style.setProperty("--rx", `${rotateX.toFixed(2)}deg`);
+      card.style.setProperty("--ry", `${rotateY.toFixed(2)}deg`);
+    });
+
+    card.addEventListener("pointerleave", () => {
+      card.style.setProperty("--rx", "0deg");
+      card.style.setProperty("--ry", "0deg");
+    });
+  });
 }
 
 async function bootstrap() {
@@ -1398,6 +1493,8 @@ async function bootstrap() {
   exportButtons.forEach((button) => {
     button.addEventListener("click", handleExportClick);
   });
+
+  setupCardPointerMotion();
 
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
