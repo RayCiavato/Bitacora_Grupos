@@ -19,6 +19,11 @@ const resetPasswordSchema = z.object({
   newPassword: z.string().min(1)
 });
 
+const selfPasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(1)
+});
+
 router.post("/", authenticate, requireRole(["admin"]), async (req, res, next) => {
   try {
     const payload = createUserSchema.parse(req.body);
@@ -73,6 +78,74 @@ router.get("/", authenticate, requireRole(["admin", "supervisor"]), async (_req,
     );
     return res.json(result.rows);
   } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/me/password", authenticate, requireRole(["admin"]), async (req, res, next) => {
+  try {
+    const payload = selfPasswordSchema.parse(req.body);
+
+    const currentUserResult = await pool.query(
+      `
+        SELECT id, name, email, role, password_hash
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [req.user.sub]
+    );
+
+    if (currentUserResult.rowCount === 0) {
+      return res.status(404).json({ error: "user_not_found" });
+    }
+
+    const currentUser = currentUserResult.rows[0];
+    const currentPasswordOk = await bcrypt.compare(payload.currentPassword, currentUser.password_hash);
+    if (!currentPasswordOk) {
+      return res.status(401).json({ error: "invalid_current_password" });
+    }
+
+    const policyResult = validatePasswordPolicy(payload.newPassword);
+    if (!policyResult.valid) {
+      return res.status(400).json({
+        error: "weak_password",
+        details: policyResult.errors
+      });
+    }
+
+    const passwordHash = await bcrypt.hash(payload.newPassword, 12);
+    await pool.query(
+      `
+        UPDATE users
+        SET password_hash = $2,
+            token_version = token_version + 1,
+            failed_attempts = 0,
+            lock_until = NULL
+        WHERE id = $1
+      `,
+      [currentUser.id, passwordHash]
+    );
+
+    await pool.query("DELETE FROM refresh_tokens WHERE user_id = $1", [currentUser.id]);
+
+    await createAuditLog({
+      userId: req.user.sub,
+      action: "users.self_password_changed",
+      entity: "user",
+      entityId: currentUser.id,
+      metadata: { targetUserId: currentUser.id },
+      req
+    });
+
+    return res.json({
+      message: "Contrasena actualizada correctamente. Debes iniciar sesion nuevamente.",
+      forceReauth: true
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+    }
     return next(error);
   }
 });
@@ -134,6 +207,46 @@ router.patch("/:id/password", authenticate, requireRole(["admin"]), async (req, 
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: "validation_error", details: error.flatten() });
     }
+    return next(error);
+  }
+});
+
+router.post("/:id/unlock", authenticate, requireRole(["admin"]), async (req, res, next) => {
+  try {
+    const userId = Number(req.params.id);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ error: "invalid_user_id" });
+    }
+
+    const unlockResult = await pool.query(
+      `
+        UPDATE users
+        SET failed_attempts = 0,
+            lock_until = NULL
+        WHERE id = $1
+        RETURNING id, name, email, role
+      `,
+      [userId]
+    );
+
+    if (unlockResult.rowCount === 0) {
+      return res.status(404).json({ error: "user_not_found" });
+    }
+
+    await createAuditLog({
+      userId: req.user.sub,
+      action: "users.unlocked",
+      entity: "user",
+      entityId: userId,
+      metadata: { targetUserId: userId },
+      req
+    });
+
+    return res.json({
+      message: "Usuario desbloqueado correctamente",
+      user: unlockResult.rows[0]
+    });
+  } catch (error) {
     return next(error);
   }
 });

@@ -48,10 +48,10 @@
           Registro diario, trazabilidad por persona, reportes exportables y flujo seguro con MFA.
         </p>
         <div class="entry-actions">
-          <a class="btn btn-primary" href="/?auth=login" target="_blank" rel="noopener noreferrer">
+          <a class="btn btn-primary auth-launch" data-auth="login" href="/?auth=login&authPopup=1">
             Iniciar sesion
           </a>
-          <a class="btn btn-secondary" href="/?auth=register" target="_blank" rel="noopener noreferrer">
+          <a class="btn btn-secondary auth-launch" data-auth="register" href="/?auth=register&authPopup=1">
             Registrarse
           </a>
         </div>
@@ -73,6 +73,25 @@
       </aside>
 
       <section class="workspace">
+        <section id="landingPanel" class="panel landing-panel hidden">
+          <article class="card">
+            <p class="eyebrow">ACCESO SEGURO</p>
+            <h2>Plataforma operativa de bitacoras</h2>
+            <p class="subtitle">
+              Para continuar, abre una ventana de inicio de sesion o registro. Al autenticarse,
+              el panel principal se actualiza automaticamente.
+            </p>
+            <div class="entry-actions">
+              <a class="btn btn-primary auth-launch" data-auth="login" href="/?auth=login&authPopup=1">
+                Iniciar sesion
+              </a>
+              <a class="btn btn-secondary auth-launch" data-auth="register" href="/?auth=register&authPopup=1">
+                Crear cuenta
+              </a>
+            </div>
+          </article>
+        </section>
+
         <section id="authSection" class="panel auth-panel">
           <div class="card auth-switch">
             <button id="authLoginTab" type="button" class="btn btn-ghost auth-tab is-active">Iniciar sesion</button>
@@ -332,7 +351,31 @@
               <button type="submit" class="btn btn-primary">Asignar/Reiniciar</button>
             </form>
             <button id="adminGeneratePassword" class="btn btn-ghost">Generar contrasena fuerte</button>
+            <button id="adminUnlockUser" class="btn btn-ghost">Desbloquear usuario</button>
             <button id="adminDeleteUser" class="btn btn-ghost">Eliminar usuario</button>
+
+            <form id="adminSelfPasswordForm" class="form">
+              <h4>Cambiar mi contrasena (admin)</h4>
+              <label>
+                Contrasena actual
+                <input id="adminCurrentPassword" type="password" autocomplete="current-password" required />
+              </label>
+              <label>
+                Nueva contrasena
+                <input id="adminSelfNewPassword" type="password" minlength="12" autocomplete="new-password" required />
+              </label>
+              <label>
+                Confirmar nueva contrasena
+                <input
+                  id="adminSelfNewPasswordConfirm"
+                  type="password"
+                  minlength="12"
+                  autocomplete="new-password"
+                  required
+                />
+              </label>
+              <button type="submit" class="btn btn-secondary">Actualizar mi contrasena</button>
+            </form>
             <p class="help-text">
               Solo administrador: permite asignar/reiniciar contrasena y eliminar usuarios.
             </p>
@@ -344,6 +387,10 @@
               <label>
                 Nombre plantilla
                 <input id="templateName" type="text" minlength="3" maxlength="160" required />
+              </label>
+              <label>
+                Grupo / Equipo (opcional)
+                <input id="templateGroup" type="text" minlength="2" maxlength="120" placeholder="Ej: Equipo Norte" />
               </label>
               <label>
                 Descripcion base

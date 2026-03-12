@@ -1,6 +1,7 @@
 
 const authSection = document.getElementById("authSection");
 const dashboardSection = document.getElementById("dashboardSection");
+const landingPanel = document.getElementById("landingPanel");
 const mfaSetupCard = document.getElementById("mfaSetupCard");
 const mfaQr = document.getElementById("mfaQr");
 const mfaManualKey = document.getElementById("mfaManualKey");
@@ -47,11 +48,17 @@ const adminPasswordForm = document.getElementById("adminPasswordForm");
 const adminUserSelect = document.getElementById("adminUserSelect");
 const adminNewPassword = document.getElementById("adminNewPassword");
 const adminGeneratePassword = document.getElementById("adminGeneratePassword");
+const adminUnlockUser = document.getElementById("adminUnlockUser");
 const adminDeleteUser = document.getElementById("adminDeleteUser");
+const adminSelfPasswordForm = document.getElementById("adminSelfPasswordForm");
+const adminCurrentPassword = document.getElementById("adminCurrentPassword");
+const adminSelfNewPassword = document.getElementById("adminSelfNewPassword");
+const adminSelfNewPasswordConfirm = document.getElementById("adminSelfNewPasswordConfirm");
 
 const templateTools = document.getElementById("templateTools");
 const templateForm = document.getElementById("templateForm");
 const templateNameInput = document.getElementById("templateName");
+const templateGroupInput = document.getElementById("templateGroup");
 const templateDescripcionInput = document.getElementById("templateDescripcion");
 const templateObservacionInput = document.getElementById("templateObservacion");
 const templatePrioridadInput = document.getElementById("templatePrioridad");
@@ -65,6 +72,7 @@ const attachmentList = document.getElementById("attachmentList");
 
 const exportButtons = document.querySelectorAll(".export-btn");
 const openReportBtn = document.getElementById("openReportBtn");
+const authLaunchButtons = document.querySelectorAll(".auth-launch");
 
 const ERROR_MESSAGES = {
   unauthorized: "Acceso no autorizado. Inicia sesion.",
@@ -95,6 +103,7 @@ const ERROR_MESSAGES = {
   past_date_not_allowed: "No se permite registrar bitacoras en fechas anteriores.",
   cannot_delete_current_user: "No puedes eliminar tu propio usuario.",
   last_admin_not_allowed: "No puedes eliminar el ultimo admin del sistema.",
+  invalid_current_password: "La contrasena actual es incorrecta.",
   refresh_token_required: "Sesion no disponible. Inicia sesion de nuevo.",
   invalid_refresh_token: "Sesion invalida. Inicia sesion otra vez.",
   refresh_token_expired: "Tu sesion expiro. Inicia sesion nuevamente."
@@ -114,6 +123,7 @@ const state = {
   selectedEventOwnerId: null,
   eventOwners: {},
   authView: "login",
+  authPopup: false,
   pendingRefresh: null
 };
 
@@ -243,6 +253,38 @@ function getRequestedAuthView() {
   return "login";
 }
 
+function getAuthPopupMode() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("authPopup") === "1";
+}
+
+function applyLayoutMode(mode) {
+  document.body.classList.remove("session-active", "landing-mode", "auth-popup-mode");
+  if (mode) {
+    document.body.classList.add(mode);
+  }
+}
+
+function openAuthPopup(view) {
+  const normalizedView = view === "register" ? "register" : "login";
+  const width = 760;
+  const height = 780;
+  const left = Math.max(0, Math.round((window.screen.width - width) / 2));
+  const top = Math.max(0, Math.round((window.screen.height - height) / 2));
+  const popup = window.open(
+    `/?auth=${normalizedView}&authPopup=1`,
+    `bitacora-auth-${normalizedView}`,
+    `popup=yes,width=${width},height=${height},left=${left},top=${top}`
+  );
+
+  if (popup) {
+    popup.focus();
+    return true;
+  }
+
+  return false;
+}
+
 function canUploadToEvent(eventOwnerId) {
   if (!state.user || !eventOwnerId) {
     return false;
@@ -295,6 +337,7 @@ function clearSession() {
   state.selectedEventOwnerId = null;
   state.eventOwners = {};
   state.authView = getRequestedAuthView();
+  state.authPopup = getAuthPopupMode();
 
   setKpi({});
   dateSummary.innerHTML = "";
@@ -643,14 +686,25 @@ function renderAttachments(items) {
 }
 
 function renderAuthView() {
-  authSection.classList.remove("hidden");
+  if (state.authPopup) {
+    applyLayoutMode("auth-popup-mode");
+    authSection.classList.remove("hidden");
+    landingPanel.classList.add("hidden");
+  } else {
+    applyLayoutMode("landing-mode");
+    authSection.classList.add("hidden");
+    landingPanel.classList.remove("hidden");
+  }
+
   dashboardSection.classList.add("hidden");
   mfaSetupCard.classList.add("hidden");
   setAuthView(state.authView);
 }
 
 function renderDashboardView() {
+  applyLayoutMode("session-active");
   authSection.classList.add("hidden");
+  landingPanel.classList.add("hidden");
   dashboardSection.classList.remove("hidden");
   eventForm.reset();
   setDateDefaults();
@@ -722,7 +776,20 @@ function openReportWindow() {
   const params = buildReportParams(false);
   params.set("page", "1");
   params.set("pageSize", String(Math.max(Number(pageSizeInput.value || 20), 100)));
-  const popup = window.open(`/report-view.html?${params.toString()}`, "_blank", "noopener,noreferrer");
+  const width = 1400;
+  const height = 860;
+  const left = Math.max(0, Math.round((window.screen.width - width) / 2));
+  const top = Math.max(0, Math.round((window.screen.height - height) / 2));
+  const popup = window.open(
+    `/report-view.html?${params.toString()}`,
+    "bitacora-report-view",
+    `popup=yes,width=${width},height=${height},left=${left},top=${top}`
+  );
+
+  if (popup) {
+    popup.focus();
+  }
+
   return Boolean(popup);
 }
 
@@ -989,6 +1056,15 @@ async function handleLogin(event) {
       }
     }
 
+    if (state.authPopup) {
+      if (window.opener && !window.opener.closed) {
+        window.opener.location.reload();
+      }
+      window.close();
+      window.location.href = "/";
+      return;
+    }
+
     renderDashboardView();
     await loadDashboardData();
     showToast("Sesion iniciada.", "success");
@@ -1078,6 +1154,15 @@ async function handleMfaEnable(event) {
     }
   }
 
+  if (state.authPopup) {
+    if (window.opener && !window.opener.closed) {
+      window.opener.location.reload();
+    }
+    window.close();
+    window.location.href = "/";
+    return;
+  }
+
   renderDashboardView();
   await loadDashboardData();
   showToast("MFA habilitado y sesion iniciada.", "success");
@@ -1131,6 +1216,15 @@ async function handleRegister(event) {
 
   state.user = data?.user || null;
   if (state.user) {
+    if (state.authPopup) {
+      if (window.opener && !window.opener.closed) {
+        window.opener.location.reload();
+      }
+      window.close();
+      window.location.href = "/";
+      return;
+    }
+
     renderDashboardView();
     await loadDashboardData();
     showToast("Cuenta creada y sesion iniciada.", "success");
@@ -1437,6 +1531,91 @@ async function handleAdminPasswordUpdate(event) {
   showToast("Contrasena actualizada correctamente.", "success");
 }
 
+async function handleAdminUnlockUser() {
+  if (!isAdminSession()) {
+    showToast("Operacion solo disponible para administradores.", "error");
+    return;
+  }
+
+  const userId = Number(adminUserSelect.value || 0);
+  if (!userId) {
+    showToast("Selecciona un usuario.", "error");
+    return;
+  }
+
+  const { response, data, networkError } = await apiAuth(`/users/${userId}/unlock`, {
+    method: "POST"
+  });
+
+  if (networkError) {
+    showToast("No hay conexion para desbloquear usuario.", "error");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  showToast("Usuario desbloqueado correctamente.", "success");
+}
+
+async function handleAdminSelfPasswordUpdate(event) {
+  event.preventDefault();
+  const submitButton =
+    event.submitter || adminSelfPasswordForm.querySelector('button[type="submit"]');
+  setButtonBusy(submitButton, true, "Actualizando...");
+
+  if (!isAdminSession()) {
+    setButtonBusy(submitButton, false);
+    showToast("Operacion solo disponible para administradores.", "error");
+    return;
+  }
+
+  const currentPassword = adminCurrentPassword.value;
+  const newPassword = adminSelfNewPassword.value;
+  const confirmPassword = adminSelfNewPasswordConfirm.value;
+
+  if (newPassword !== confirmPassword) {
+    setButtonBusy(submitButton, false);
+    showToast("La nueva contrasena y su confirmacion no coinciden.", "error");
+    return;
+  }
+
+  const { response, data, networkError } = await apiAuth("/users/me/password", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ currentPassword, newPassword })
+  });
+
+  setButtonBusy(submitButton, false);
+
+  if (networkError) {
+    showToast("No hay conexion para cambiar tu contrasena.", "error");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  adminSelfPasswordForm.reset();
+  await api("/auth/logout", { method: "POST" });
+  clearSession();
+  renderAuthView();
+  setDateDefaults();
+  showToast("Contrasena actualizada. Inicia sesion nuevamente.", "success");
+}
+
 async function handleAdminUserDelete() {
   if (!isAdminSession()) {
     showToast("Operacion solo disponible para administradores.", "error");
@@ -1485,8 +1664,12 @@ async function handleTemplateCreate(event) {
   const submitButton = event.submitter || templateForm.querySelector('button[type="submit"]');
   setButtonBusy(submitButton, true, "Guardando...");
 
+  const templateName = templateNameInput.value.trim();
+  const templateGroup = templateGroupInput.value.trim();
+  const scopedName = templateGroup ? `${templateGroup} :: ${templateName}` : templateName;
+
   const payload = {
-    name: templateNameInput.value.trim(),
+    name: scopedName,
     descripcionBase: templateDescripcionInput.value.trim(),
     observacionBase: templateObservacionInput.value.trim(),
     prioridadDefault: templatePrioridadInput.value
@@ -1688,6 +1871,22 @@ function handleOpenReportClick() {
   }
 }
 
+function handleAuthLaunchClick(event) {
+  const target = event.currentTarget;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  const requestedView = target.dataset.auth === "register" ? "register" : "login";
+  const opened = openAuthPopup(requestedView);
+  if (!opened) {
+    showToast("Tu navegador bloqueo la ventana emergente de autenticacion.", "error");
+    return;
+  }
+
+  event.preventDefault();
+}
+
 function handleAuthTabClick(event) {
   const target = event.currentTarget;
   if (!(target instanceof HTMLButtonElement)) {
@@ -1790,6 +1989,7 @@ function setupCardPointerMotion() {
 
 async function bootstrap() {
   state.authView = getRequestedAuthView();
+  state.authPopup = getAuthPopupMode();
   setAuthView(state.authView);
   setDateDefaults();
 
@@ -1809,7 +2009,9 @@ async function bootstrap() {
 
   adminPasswordForm.addEventListener("submit", handleAdminPasswordUpdate);
   adminGeneratePassword.addEventListener("click", handleGenerateAdminPassword);
+  adminUnlockUser.addEventListener("click", handleAdminUnlockUser);
   adminDeleteUser.addEventListener("click", handleAdminUserDelete);
+  adminSelfPasswordForm.addEventListener("submit", handleAdminSelfPasswordUpdate);
 
   templateForm.addEventListener("submit", handleTemplateCreate);
   templateList.addEventListener("click", handleTemplateToggle);
@@ -1824,6 +2026,9 @@ async function bootstrap() {
 
   exportButtons.forEach((button) => {
     button.addEventListener("click", handleExportClick);
+  });
+  authLaunchButtons.forEach((button) => {
+    button.addEventListener("click", handleAuthLaunchClick);
   });
 
   setupCardPointerMotion();
