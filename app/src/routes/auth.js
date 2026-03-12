@@ -195,12 +195,12 @@ router.post("/login", async (req, res, next) => {
       return res.status(401).json({ error: "invalid_credentials" });
     }
 
-    if (user.role === "admin" && !user.mfa_enabled) {
+    if (!user.mfa_enabled) {
       await resetLockState(user.id);
       const setupToken = createMfaSetupToken(user);
       return res.status(403).json({
         error: "mfa_setup_required",
-        message: "El administrador debe activar MFA antes de acceder.",
+        message: "Debes activar MFA antes de acceder.",
         setupToken
       });
     }
@@ -270,12 +270,26 @@ router.post("/register", async (req, res, next) => {
     );
 
     const user = insertResult.rows[0];
-    const session = await issueSession({ user, req, res, auditAction: "auth.register_success" });
+    const setupToken = createMfaSetupToken(user);
+    await createAuditLog({
+      userId: user.id,
+      action: "auth.register_success",
+      entity: "auth",
+      entityId: user.id,
+      metadata: { role: user.role },
+      req
+    });
 
     return res.status(201).json({
-      message: "Usuario registrado correctamente",
-      ...session,
-      tokenType: "cookie"
+      message: "Usuario registrado correctamente. Activa MFA para ingresar.",
+      setupRequired: true,
+      setupToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -414,8 +428,8 @@ router.post("/mfa/setup", authenticate, requirePurpose("mfa_setup"), async (req,
       [req.user.sub]
     );
 
-    if (userResult.rowCount === 0 || userResult.rows[0].role !== "admin") {
-      return res.status(403).json({ error: "forbidden" });
+    if (userResult.rowCount === 0) {
+      return res.status(404).json({ error: "user_not_found" });
     }
 
     const user = userResult.rows[0];

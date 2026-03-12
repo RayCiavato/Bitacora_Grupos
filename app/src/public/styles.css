@@ -140,6 +140,17 @@ h4 {
   gap: 0.7rem;
 }
 
+.entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.entry-actions .btn {
+  text-decoration: none;
+  text-align: center;
+}
+
 .hero-grid article {
   border: 1px solid rgba(54, 80, 110, 0.13);
   border-radius: 12px;
@@ -162,6 +173,21 @@ h4 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.85rem;
+}
+
+.auth-switch {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.auth-tab {
+  width: 100%;
+}
+
+.auth-tab.is-active {
+  border-color: rgba(114, 149, 208, 0.38);
 }
 
 #mfaSetupCard {
@@ -204,6 +230,12 @@ h4 {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
 }
 
 label {
@@ -750,6 +782,13 @@ select:focus {
   border-color: rgba(122, 155, 212, 0.36);
 }
 
+.auth-tab.is-active {
+  color: #04172a;
+  background: linear-gradient(120deg, var(--primary), var(--primary-strong));
+  border-color: rgba(44, 230, 255, 0.52);
+  box-shadow: 0 10px 22px rgba(28, 144, 255, 0.34);
+}
+
 .help-text,
 .subtitle,
 .secret-key,
@@ -1010,6 +1049,14 @@ th {
   .pagination {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .entry-actions .btn {
+    flex: 1 1 100%;
+  }
+
+  .auth-switch {
+    grid-template-columns: 1fr;
   }
 
   .copyright-dock {

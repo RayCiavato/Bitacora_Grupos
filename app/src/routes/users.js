@@ -138,4 +138,101 @@ router.patch("/:id/password", authenticate, requireRole(["admin"]), async (req, 
   }
 });
 
+router.delete("/:id", authenticate, requireRole(["admin"]), async (req, res, next) => {
+  const userId = Number(req.params.id);
+  const actorUserId = Number(req.user?.sub);
+
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return res.status(400).json({ error: "invalid_user_id" });
+  }
+
+  if (userId === actorUserId) {
+    return res.status(400).json({ error: "cannot_delete_current_user" });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const targetResult = await client.query(
+      `
+        SELECT id, name, email, role
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [userId]
+    );
+
+    if (targetResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "user_not_found" });
+    }
+
+    const targetUser = targetResult.rows[0];
+    if (targetUser.role === "admin") {
+      const adminCountResult = await client.query(
+        "SELECT COUNT(*)::int AS total FROM users WHERE role = 'admin'"
+      );
+      const adminTotal = Number(adminCountResult.rows[0]?.total || 0);
+      if (adminTotal <= 1) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "last_admin_not_allowed" });
+      }
+    }
+
+    await client.query("DELETE FROM refresh_tokens WHERE user_id = $1", [userId]);
+
+    const attachmentsDeleteResult = await client.query(
+      `
+        DELETE FROM event_attachments
+        WHERE event_id IN (SELECT id FROM events WHERE encargado_id = $1)
+           OR uploaded_by = $1
+      `,
+      [userId]
+    );
+
+    const eventsDeleteResult = await client.query("DELETE FROM events WHERE encargado_id = $1", [userId]);
+
+    const userDeleteResult = await client.query(
+      `
+        DELETE FROM users
+        WHERE id = $1
+        RETURNING id, email, role
+      `,
+      [userId]
+    );
+
+    await client.query("COMMIT");
+
+    await createAuditLog({
+      userId: req.user.sub,
+      action: "users.deleted",
+      entity: "user",
+      entityId: userId,
+      metadata: {
+        targetEmail: userDeleteResult.rows[0].email,
+        targetRole: userDeleteResult.rows[0].role,
+        deletedEvents: eventsDeleteResult.rowCount,
+        deletedAttachments: attachmentsDeleteResult.rowCount
+      },
+      req
+    });
+
+    return res.json({
+      message: "Usuario eliminado correctamente",
+      deleted: {
+        userId,
+        events: eventsDeleteResult.rowCount,
+        attachments: attachmentsDeleteResult.rowCount
+      }
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    return next(error);
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = { usersRouter: router };

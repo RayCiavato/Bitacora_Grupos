@@ -50,7 +50,8 @@ async function ensureDatabaseSchema() {
         prioridad VARCHAR(10) NOT NULL DEFAULT 'media'
           CHECK (prioridad IN ('baja', 'media', 'alta')),
         encargado_id BIGINT NOT NULL REFERENCES users(id),
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `,
     `
@@ -108,6 +109,10 @@ async function ensureDatabaseSchema() {
       ALTER TABLE events
       ADD COLUMN IF NOT EXISTS template_id BIGINT REFERENCES event_templates(id) ON DELETE SET NULL
     `,
+    `
+      ALTER TABLE events
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `,
     "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)",
     "CREATE INDEX IF NOT EXISTS idx_events_fecha ON events(fecha)",
     "CREATE INDEX IF NOT EXISTS idx_events_encargado ON events(encargado_id)",
@@ -142,6 +147,15 @@ async function ensureDatabaseSchema() {
     `
       DO $$
       BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_trigger WHERE tgname = 'events_set_updated_at'
+        ) THEN
+          CREATE TRIGGER events_set_updated_at
+          BEFORE UPDATE ON events
+          FOR EACH ROW
+          EXECUTE FUNCTION set_updated_at();
+        END IF;
+
         IF NOT EXISTS (
           SELECT 1 FROM pg_trigger WHERE tgname = 'event_templates_set_updated_at'
         ) THEN

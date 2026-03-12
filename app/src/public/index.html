@@ -47,6 +47,14 @@
         <p class="subtitle">
           Registro diario, trazabilidad por persona, reportes exportables y flujo seguro con MFA.
         </p>
+        <div class="entry-actions">
+          <a class="btn btn-primary" href="/?auth=login" target="_blank" rel="noopener noreferrer">
+            Iniciar sesion
+          </a>
+          <a class="btn btn-secondary" href="/?auth=register" target="_blank" rel="noopener noreferrer">
+            Registrarse
+          </a>
+        </div>
 
         <div class="hero-grid">
           <article>
@@ -66,7 +74,12 @@
 
       <section class="workspace">
         <section id="authSection" class="panel auth-panel">
-          <div class="card">
+          <div class="card auth-switch">
+            <button id="authLoginTab" type="button" class="btn btn-ghost auth-tab is-active">Iniciar sesion</button>
+            <button id="authRegisterTab" type="button" class="btn btn-ghost auth-tab">Crear cuenta</button>
+          </div>
+
+          <div id="loginCard" class="card auth-card">
             <h2>Iniciar sesion</h2>
             <form id="loginForm" class="form">
               <label>
@@ -83,10 +96,10 @@
               </label>
               <button type="submit" class="btn btn-primary">Entrar al panel</button>
             </form>
-            <p class="help-text">Si eres admin y es tu primer ingreso, se solicitara activar MFA.</p>
+            <p class="help-text">En el primer ingreso se solicitara activar MFA.</p>
           </div>
 
-          <div class="card">
+          <div id="registerCard" class="card auth-card hidden">
             <h2>Crear cuenta nueva</h2>
             <form id="registerForm" class="form">
               <label>
@@ -117,7 +130,7 @@
           </div>
 
           <div id="mfaSetupCard" class="card hidden">
-            <h2>Activar MFA para administrador</h2>
+            <h2>Activar MFA de la cuenta</h2>
             <p class="help-text">
               Escanea este QR en Google Authenticator/Authy y confirma con el codigo de 6 digitos.
             </p>
@@ -240,6 +253,7 @@
                 </label>
                 <div class="report-actions">
                   <button type="submit" class="btn btn-secondary">Consultar</button>
+                  <button id="openReportBtn" type="button" class="btn btn-ghost">Abrir completo</button>
                   <button type="button" data-format="csv" class="btn btn-ghost export-btn">CSV</button>
                   <button type="button" data-format="xlsx" class="btn btn-ghost export-btn">Excel</button>
                   <button type="button" data-format="pdf" class="btn btn-ghost export-btn">PDF</button>
@@ -258,6 +272,7 @@
                       <th>Prioridad</th>
                       <th>Plantilla</th>
                       <th>Adjuntos</th>
+                      <th>Acciones</th>
                     </tr>
                   </thead>
                   <tbody id="reportBody"></tbody>
@@ -317,8 +332,9 @@
               <button type="submit" class="btn btn-primary">Asignar/Reiniciar</button>
             </form>
             <button id="adminGeneratePassword" class="btn btn-ghost">Generar contrasena fuerte</button>
+            <button id="adminDeleteUser" class="btn btn-ghost">Eliminar usuario</button>
             <p class="help-text">
-              Solo administrador: permite asignar o reiniciar la contrasena de cualquier usuario.
+              Solo administrador: permite asignar/reiniciar contrasena y eliminar usuarios.
             </p>
           </section>
 

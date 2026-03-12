@@ -21,6 +21,18 @@ const createEventSchema = z.object({
   templateId: z.coerce.number().int().positive().optional()
 });
 
+const updateEventSchema = z
+  .object({
+    fecha: z.string().date().optional(),
+    descripcionActividad: z.string().min(3).max(3000).optional(),
+    observacion: z.string().min(3).max(3000).optional(),
+    prioridad: z.enum(["baja", "media", "alta"]).optional(),
+    templateId: z.number().int().positive().nullable().optional()
+  })
+  .refine((payload) => Object.keys(payload).length > 0, {
+    message: "at_least_one_field_required"
+  });
+
 const reportQuerySchema = z.object({
   from: z.string().date(),
   to: z.string().date(),
@@ -41,6 +53,10 @@ const trendsQuerySchema = z.object({
 });
 
 const attachmentParamsSchema = z.object({
+  id: z.coerce.number().int().positive()
+});
+
+const eventParamsSchema = z.object({
   id: z.coerce.number().int().positive()
 });
 
@@ -95,6 +111,10 @@ const upload = multer({
 function toISODate(date) {
   const tzOffsetMs = date.getTimezoneOffset() * 60000;
   return new Date(date.getTime() - tzOffsetMs).toISOString().slice(0, 10);
+}
+
+function isPastDate(dateValue) {
+  return dateValue < toISODate(new Date());
 }
 
 function isAdminRole(userRole) {
@@ -249,10 +269,19 @@ function runUpload(req, res) {
   });
 }
 
-async function getEventWithOwner(eventId) {
+async function getEventById(eventId) {
   const eventResult = await pool.query(
     `
-      SELECT id, encargado_id
+      SELECT
+        id,
+        fecha,
+        descripcion_actividad AS "descripcionActividad",
+        observacion,
+        prioridad,
+        template_id AS "templateId",
+        encargado_id AS "encargadoId",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
       FROM events
       WHERE id = $1
       LIMIT 1
@@ -265,6 +294,17 @@ async function getEventWithOwner(eventId) {
   }
 
   return eventResult.rows[0];
+}
+
+async function getEventWithOwner(eventId) {
+  const event = await getEventById(eventId);
+  if (!event) {
+    return null;
+  }
+  return {
+    id: event.id,
+    encargado_id: event.encargadoId
+  };
 }
 
 function ensureEventWriteAccessOrForbidden(req, res, event) {
@@ -283,6 +323,9 @@ function ensureEventWriteAccessOrForbidden(req, res, event) {
 router.post("/", authenticate, async (req, res, next) => {
   try {
     const payload = createEventSchema.parse(req.body);
+    if (isPastDate(payload.fecha)) {
+      return res.status(400).json({ error: "past_date_not_allowed" });
+    }
 
     if (payload.templateId) {
       const templateResult = await pool.query(
@@ -309,7 +352,8 @@ router.post("/", authenticate, async (req, res, next) => {
           prioridad,
           template_id AS "templateId",
           encargado_id AS "encargadoId",
-          created_at AS "createdAt"
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
       `,
       [
         payload.fecha,
@@ -377,6 +421,7 @@ router.get("/report", authenticate, async (req, res, next) => {
           e.observacion,
           e.prioridad,
           e.created_at AS "createdAt",
+          e.updated_at AS "updatedAt",
           e.template_id AS "templateId",
           t.name AS "templateName",
           u.id AS "encargadoId",
@@ -549,6 +594,157 @@ router.get("/trends", authenticate, async (req, res, next) => {
       byPriority: byPriorityResult.rows,
       topEncargados: byUserResult.rows
     });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+    }
+    return next(error);
+  }
+});
+
+router.patch("/:id", authenticate, async (req, res, next) => {
+  try {
+    const params = eventParamsSchema.parse(req.params);
+    const payload = updateEventSchema.parse(req.body);
+    const event = await getEventById(params.id);
+
+    if (!event) {
+      return res.status(404).json({ error: "event_not_found" });
+    }
+
+    if (!ensureEventWriteAccessOrForbidden(req, res, { encargado_id: event.encargadoId })) {
+      return;
+    }
+
+    if (payload.fecha && isPastDate(payload.fecha)) {
+      return res.status(400).json({ error: "past_date_not_allowed" });
+    }
+
+    if (payload.templateId !== undefined && payload.templateId !== null) {
+      const templateResult = await pool.query(
+        "SELECT id, is_active FROM event_templates WHERE id = $1 LIMIT 1",
+        [payload.templateId]
+      );
+      if (templateResult.rowCount === 0) {
+        return res.status(404).json({ error: "template_not_found" });
+      }
+      if (!templateResult.rows[0].is_active) {
+        return res.status(400).json({ error: "template_inactive" });
+      }
+    }
+
+    const fields = [];
+    const values = [params.id];
+
+    if (payload.fecha !== undefined) {
+      values.push(payload.fecha);
+      fields.push(`fecha = $${values.length}`);
+    }
+    if (payload.descripcionActividad !== undefined) {
+      values.push(payload.descripcionActividad);
+      fields.push(`descripcion_actividad = $${values.length}`);
+    }
+    if (payload.observacion !== undefined) {
+      values.push(payload.observacion);
+      fields.push(`observacion = $${values.length}`);
+    }
+    if (payload.prioridad !== undefined) {
+      values.push(payload.prioridad);
+      fields.push(`prioridad = $${values.length}`);
+    }
+    if (payload.templateId !== undefined) {
+      values.push(payload.templateId);
+      fields.push(`template_id = $${values.length}`);
+    }
+
+    const updateResult = await pool.query(
+      `
+        UPDATE events
+        SET ${fields.join(", ")}
+        WHERE id = $1
+        RETURNING
+          id,
+          fecha,
+          descripcion_actividad AS "descripcionActividad",
+          observacion,
+          prioridad,
+          template_id AS "templateId",
+          encargado_id AS "encargadoId",
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+      `,
+      values
+    );
+
+    const updatedEvent = updateResult.rows[0];
+
+    await createAuditLog({
+      userId: req.user.sub,
+      action: "events.updated",
+      entity: "event",
+      entityId: params.id,
+      metadata: {
+        before: {
+          fecha: event.fecha,
+          descripcionActividad: event.descripcionActividad,
+          observacion: event.observacion,
+          prioridad: event.prioridad,
+          templateId: event.templateId
+        },
+        after: {
+          fecha: updatedEvent.fecha,
+          descripcionActividad: updatedEvent.descripcionActividad,
+          observacion: updatedEvent.observacion,
+          prioridad: updatedEvent.prioridad,
+          templateId: updatedEvent.templateId
+        }
+      },
+      req
+    });
+
+    return res.json(updatedEvent);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+    }
+    return next(error);
+  }
+});
+
+router.delete("/:id", authenticate, async (req, res, next) => {
+  try {
+    const params = eventParamsSchema.parse(req.params);
+    const event = await getEventById(params.id);
+
+    if (!event) {
+      return res.status(404).json({ error: "event_not_found" });
+    }
+
+    if (!ensureEventWriteAccessOrForbidden(req, res, { encargado_id: event.encargadoId })) {
+      return;
+    }
+
+    await pool.query("DELETE FROM events WHERE id = $1", [params.id]);
+
+    await createAuditLog({
+      userId: req.user.sub,
+      action: "events.deleted",
+      entity: "event",
+      entityId: params.id,
+      metadata: {
+        deleted: {
+          fecha: event.fecha,
+          descripcionActividad: event.descripcionActividad,
+          observacion: event.observacion,
+          prioridad: event.prioridad,
+          templateId: event.templateId,
+          encargadoId: event.encargadoId
+        }
+      },
+      req
+    });
+
+    return res.json({ message: "Registro eliminado correctamente" });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: "validation_error", details: error.flatten() });

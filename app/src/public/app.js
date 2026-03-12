@@ -38,11 +38,16 @@ const eventForm = document.getElementById("eventForm");
 const filterForm = document.getElementById("filterForm");
 const logoutBtn = document.getElementById("logoutBtn");
 const registerForm = document.getElementById("registerForm");
+const loginCard = document.getElementById("loginCard");
+const registerCard = document.getElementById("registerCard");
+const authLoginTab = document.getElementById("authLoginTab");
+const authRegisterTab = document.getElementById("authRegisterTab");
 const adminTools = document.getElementById("adminTools");
 const adminPasswordForm = document.getElementById("adminPasswordForm");
 const adminUserSelect = document.getElementById("adminUserSelect");
 const adminNewPassword = document.getElementById("adminNewPassword");
 const adminGeneratePassword = document.getElementById("adminGeneratePassword");
+const adminDeleteUser = document.getElementById("adminDeleteUser");
 
 const templateTools = document.getElementById("templateTools");
 const templateForm = document.getElementById("templateForm");
@@ -59,6 +64,7 @@ const attachmentFileInput = document.getElementById("attachmentFile");
 const attachmentList = document.getElementById("attachmentList");
 
 const exportButtons = document.querySelectorAll(".export-btn");
+const openReportBtn = document.getElementById("openReportBtn");
 
 const ERROR_MESSAGES = {
   unauthorized: "Acceso no autorizado. Inicia sesion.",
@@ -71,7 +77,7 @@ const ERROR_MESSAGES = {
   invalid_mfa_setup: "MFA no esta configurado correctamente para este usuario.",
   invalid_token_purpose: "Token no valido para esta operacion.",
   mfa_setup_not_started: "Primero debes iniciar la configuracion MFA.",
-  mfa_setup_required: "Configura MFA para completar el acceso admin.",
+  mfa_setup_required: "Configura MFA para completar el acceso.",
   weak_password: "La contrasena no cumple la politica de seguridad.",
   registration_disabled: "El registro publico esta deshabilitado.",
   email_already_exists: "Ese correo ya esta registrado.",
@@ -86,6 +92,9 @@ const ERROR_MESSAGES = {
   file_required: "Selecciona un archivo para subir.",
   file_too_large: "El archivo supera el tamano permitido.",
   invalid_file_type: "Tipo de archivo no permitido.",
+  past_date_not_allowed: "No se permite registrar bitacoras en fechas anteriores.",
+  cannot_delete_current_user: "No puedes eliminar tu propio usuario.",
+  last_admin_not_allowed: "No puedes eliminar el ultimo admin del sistema.",
   refresh_token_required: "Sesion no disponible. Inicia sesion de nuevo.",
   invalid_refresh_token: "Sesion invalida. Inicia sesion otra vez.",
   refresh_token_expired: "Tu sesion expiro. Inicia sesion nuevamente."
@@ -104,6 +113,7 @@ const state = {
   selectedEventId: null,
   selectedEventOwnerId: null,
   eventOwners: {},
+  authView: "login",
   pendingRefresh: null
 };
 
@@ -122,9 +132,13 @@ function setDateDefaults() {
 }
 
 function syncDateConstraints() {
+  const today = toLocalISODate();
   fromDateInput.max = toDateInput.value || "";
   toDateInput.min = fromDateInput.value || "";
-  fechaInput.max = toLocalISODate();
+  fechaInput.min = today;
+  if (fechaInput.value && fechaInput.value < today) {
+    fechaInput.value = today;
+  }
 }
 
 function formatDate(dateValue) {
@@ -210,6 +224,25 @@ function canFilterByUser() {
   return state.user?.role === "admin" || state.user?.role === "supervisor";
 }
 
+function setAuthView(view) {
+  const normalizedView = view === "register" ? "register" : "login";
+  state.authView = normalizedView;
+
+  loginCard.classList.toggle("hidden", normalizedView !== "login");
+  registerCard.classList.toggle("hidden", normalizedView !== "register");
+  authLoginTab.classList.toggle("is-active", normalizedView === "login");
+  authRegisterTab.classList.toggle("is-active", normalizedView === "register");
+}
+
+function getRequestedAuthView() {
+  const params = new URLSearchParams(window.location.search);
+  const requested = params.get("auth");
+  if (requested === "register") {
+    return "register";
+  }
+  return "login";
+}
+
 function canUploadToEvent(eventOwnerId) {
   if (!state.user || !eventOwnerId) {
     return false;
@@ -261,6 +294,7 @@ function clearSession() {
   state.selectedEventId = null;
   state.selectedEventOwnerId = null;
   state.eventOwners = {};
+  state.authView = getRequestedAuthView();
 
   setKpi({});
   dateSummary.innerHTML = "";
@@ -272,6 +306,11 @@ function clearSession() {
   attachmentList.innerHTML = "";
   attachmentEventId.value = "";
   attachmentFileInput.value = "";
+  loginForm.reset();
+  registerForm.reset();
+  mfaEnableForm.reset();
+  eventForm.reset();
+  attachmentForm.reset();
   refreshAttachmentUploadState();
 }
 
@@ -324,7 +363,7 @@ function renderReportRows(report) {
   if (rows.length === 0) {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
-    cell.colSpan = 7;
+    cell.colSpan = 8;
     cell.textContent = "No hay datos para el rango seleccionado.";
     row.appendChild(cell);
     reportBody.appendChild(row);
@@ -360,13 +399,50 @@ function renderReportRows(report) {
     tdTemplate.textContent = item.templateName || "-";
 
     const tdAttachments = document.createElement("td");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "btn-link attachment-open";
-    button.dataset.eventId = String(item.id);
-    button.dataset.ownerId = String(item.encargadoId || "");
-    button.textContent = `Adjuntos (${item.attachmentsCount || 0})`;
-    tdAttachments.appendChild(button);
+    const attachmentButton = document.createElement("button");
+    attachmentButton.type = "button";
+    attachmentButton.className = "btn-link attachment-open";
+    attachmentButton.dataset.eventId = String(item.id);
+    attachmentButton.dataset.ownerId = String(item.encargadoId || "");
+    attachmentButton.textContent = `Adjuntos (${item.attachmentsCount || 0})`;
+    tdAttachments.appendChild(attachmentButton);
+
+    const tdActions = document.createElement("td");
+    const actionWrap = document.createElement("div");
+    actionWrap.className = "row-actions";
+
+    if (canModifyEvent(item.encargadoId)) {
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.className = "btn btn-ghost event-edit";
+      editButton.dataset.eventId = String(item.id);
+      editButton.dataset.ownerId = String(item.encargadoId || "");
+      editButton.dataset.eventPayload = JSON.stringify({
+        fecha: item.fecha,
+        descripcionActividad: item.descripcionActividad || "",
+        observacion: item.observacion || "",
+        prioridad: item.prioridad || "media",
+        templateId: item.templateId ?? null
+      });
+      editButton.textContent = "Editar";
+
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "btn btn-ghost event-delete";
+      deleteButton.dataset.eventId = String(item.id);
+      deleteButton.dataset.ownerId = String(item.encargadoId || "");
+      deleteButton.textContent = "Eliminar";
+
+      actionWrap.appendChild(editButton);
+      actionWrap.appendChild(deleteButton);
+    } else {
+      const readOnlyTag = document.createElement("span");
+      readOnlyTag.className = "help-text";
+      readOnlyTag.textContent = "Solo lectura";
+      actionWrap.appendChild(readOnlyTag);
+    }
+
+    tdActions.appendChild(actionWrap);
 
     state.eventOwners[String(item.id)] = Number(item.encargadoId || 0) || null;
 
@@ -377,6 +453,7 @@ function renderReportRows(report) {
     row.appendChild(tdPrioridad);
     row.appendChild(tdTemplate);
     row.appendChild(tdAttachments);
+    row.appendChild(tdActions);
     reportBody.appendChild(row);
   });
 }
@@ -569,11 +646,14 @@ function renderAuthView() {
   authSection.classList.remove("hidden");
   dashboardSection.classList.add("hidden");
   mfaSetupCard.classList.add("hidden");
+  setAuthView(state.authView);
 }
 
 function renderDashboardView() {
   authSection.classList.add("hidden");
   dashboardSection.classList.remove("hidden");
+  eventForm.reset();
+  setDateDefaults();
 
   const roleLabel = {
     admin: "Administrador",
@@ -624,6 +704,26 @@ function buildReportParams(includePagination = true) {
   }
 
   return params;
+}
+
+function canModifyEvent(eventOwnerId) {
+  if (!state.user || !eventOwnerId) {
+    return false;
+  }
+
+  if (isAdminSession()) {
+    return true;
+  }
+
+  return String(eventOwnerId) === String(state.user.id);
+}
+
+function openReportWindow() {
+  const params = buildReportParams(false);
+  params.set("page", "1");
+  params.set("pageSize", String(Math.max(Number(pageSizeInput.value || 20), 100)));
+  const popup = window.open(`/report-view.html?${params.toString()}`, "_blank", "noopener,noreferrer");
+  return Boolean(popup);
 }
 
 function parseContentDispositionFileName(headerValue) {
@@ -897,9 +997,10 @@ async function handleLogin(event) {
 
   if (response.status === 403 && data?.error === "mfa_setup_required") {
     state.setupToken = data.setupToken;
+    setAuthView("login");
     mfaSetupCard.classList.remove("hidden");
     await loadMfaSetup();
-    showToast("Configura MFA para completar el acceso admin.", "info");
+    showToast("Configura MFA para completar el acceso.", "info");
     return;
   }
 
@@ -1017,18 +1118,26 @@ async function handleRegister(event) {
   }
 
   registerForm.reset();
-  state.user = data?.user || null;
-  if (!state.user) {
-    const sessionLoaded = await loadCurrentSession();
-    if (!sessionLoaded) {
-      showToast("No se pudo recuperar la sesion.", "error");
-      return;
-    }
+
+  if (data?.setupRequired && data?.setupToken) {
+    state.setupToken = data.setupToken;
+    state.authView = "login";
+    setAuthView("login");
+    mfaSetupCard.classList.remove("hidden");
+    await loadMfaSetup();
+    showToast("Cuenta creada. Configura MFA para activar el acceso.", "info");
+    return;
   }
 
-  renderDashboardView();
-  await loadDashboardData();
-  showToast("Cuenta creada y sesion iniciada.", "success");
+  state.user = data?.user || null;
+  if (state.user) {
+    renderDashboardView();
+    await loadDashboardData();
+    showToast("Cuenta creada y sesion iniciada.", "success");
+    return;
+  }
+
+  showToast("Cuenta creada. Inicia sesion para continuar.", "success");
 }
 
 async function handleCreateEvent(event) {
@@ -1069,6 +1178,13 @@ async function handleCreateEvent(event) {
   document.getElementById("descripcionActividad").value = "";
   document.getElementById("observacion").value = "";
   eventTemplateSelect.value = "";
+  if (!fromDateInput.value || payload.fecha < fromDateInput.value) {
+    fromDateInput.value = payload.fecha;
+  }
+  if (!toDateInput.value || payload.fecha > toDateInput.value) {
+    toDateInput.value = payload.fecha;
+  }
+  syncDateConstraints();
   showToast("Registro guardado en bitacora.", "success");
   await loadReport();
   await loadTrends();
@@ -1144,6 +1260,136 @@ async function handleAttachmentSubmit(event) {
   await loadAttachments(eventId);
   await loadReport();
 }
+
+async function handleEventEdit(button) {
+  const eventId = Number(button.dataset.eventId || 0);
+  const ownerId = Number(button.dataset.ownerId || 0);
+
+  if (!eventId || !canModifyEvent(ownerId)) {
+    showToast("No tienes permisos para editar este registro.", "error");
+    return;
+  }
+
+  let current = null;
+  try {
+    current = JSON.parse(button.dataset.eventPayload || "{}");
+  } catch (_error) {
+    current = null;
+  }
+
+  if (!current) {
+    showToast("No se pudo cargar la informacion del registro.", "error");
+    return;
+  }
+
+  const fecha = window.prompt("Fecha (YYYY-MM-DD)", current.fecha || toLocalISODate());
+  if (fecha === null) {
+    return;
+  }
+
+  const descripcionActividad = window.prompt(
+    "Descripcion de actividad",
+    current.descripcionActividad || ""
+  );
+  if (descripcionActividad === null) {
+    return;
+  }
+
+  const observacion = window.prompt("Observacion", current.observacion || "");
+  if (observacion === null) {
+    return;
+  }
+
+  const prioridadRaw = window.prompt(
+    "Prioridad (baja, media, alta)",
+    String(current.prioridad || "media")
+  );
+  if (prioridadRaw === null) {
+    return;
+  }
+
+  const prioridad = prioridadRaw.trim().toLowerCase();
+  if (!["baja", "media", "alta"].includes(prioridad)) {
+    showToast("Prioridad invalida. Usa baja, media o alta.", "error");
+    return;
+  }
+
+  const payload = {
+    fecha: fecha.trim(),
+    descripcionActividad: descripcionActividad.trim(),
+    observacion: observacion.trim(),
+    prioridad
+  };
+
+  const { response, data, networkError } = await apiAuth(`/events/${eventId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  if (networkError) {
+    showToast("No hay conexion para editar el registro.", "error");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  showToast("Registro actualizado correctamente.", "success");
+  await loadReport();
+  await loadTrends();
+}
+
+async function handleEventDelete(button) {
+  const eventId = Number(button.dataset.eventId || 0);
+  const ownerId = Number(button.dataset.ownerId || 0);
+
+  if (!eventId || !canModifyEvent(ownerId)) {
+    showToast("No tienes permisos para eliminar este registro.", "error");
+    return;
+  }
+
+  if (!window.confirm(`Confirma eliminar el registro #${eventId}. Esta accion no se puede deshacer.`)) {
+    return;
+  }
+
+  const { response, data, networkError } = await apiAuth(`/events/${eventId}`, {
+    method: "DELETE"
+  });
+
+  if (networkError) {
+    showToast("No hay conexion para eliminar el registro.", "error");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  if (String(state.selectedEventId) === String(eventId)) {
+    state.selectedEventId = null;
+    state.selectedEventOwnerId = null;
+    attachmentList.innerHTML = "";
+    attachmentEventId.value = "";
+    refreshAttachmentUploadState();
+  }
+
+  showToast("Registro eliminado correctamente.", "success");
+  await loadReport();
+  await loadTrends();
+}
+
 async function handleAdminPasswordUpdate(event) {
   event.preventDefault();
   const submitButton =
@@ -1189,6 +1435,49 @@ async function handleAdminPasswordUpdate(event) {
 
   adminNewPassword.value = "";
   showToast("Contrasena actualizada correctamente.", "success");
+}
+
+async function handleAdminUserDelete() {
+  if (!isAdminSession()) {
+    showToast("Operacion solo disponible para administradores.", "error");
+    return;
+  }
+
+  const userId = Number(adminUserSelect.value || 0);
+  if (!userId) {
+    showToast("Selecciona un usuario.", "error");
+    return;
+  }
+
+  const selectedOption = adminUserSelect.options[adminUserSelect.selectedIndex];
+  const label = selectedOption ? selectedOption.textContent : `ID ${userId}`;
+
+  if (!window.confirm(`Confirma eliminar el usuario ${label}. Se borraran sus bitacoras y adjuntos.`)) {
+    return;
+  }
+
+  const { response, data, networkError } = await apiAuth(`/users/${userId}`, {
+    method: "DELETE"
+  });
+
+  if (networkError) {
+    showToast("No hay conexion para eliminar usuario.", "error");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  showToast("Usuario eliminado correctamente.", "success");
+  await loadUsers();
+  await loadReport();
+  await loadTrends();
 }
 
 async function handleTemplateCreate(event) {
@@ -1384,8 +1673,33 @@ async function handleLogout() {
 async function handleFilterSubmit(event) {
   event.preventDefault();
   state.report.page = 1;
+  const opened = openReportWindow();
+  if (!opened) {
+    showToast("Tu navegador bloqueo la nueva ventana. Habilita popups para este sitio.", "error");
+  }
   await loadReport();
   await loadTrends();
+}
+
+function handleOpenReportClick() {
+  const opened = openReportWindow();
+  if (!opened) {
+    showToast("Tu navegador bloqueo la nueva ventana. Habilita popups para este sitio.", "error");
+  }
+}
+
+function handleAuthTabClick(event) {
+  const target = event.currentTarget;
+  if (!(target instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  if (target.id === "authRegisterTab") {
+    setAuthView("register");
+    return;
+  }
+
+  setAuthView("login");
 }
 
 async function handleReportTableClick(event) {
@@ -1394,17 +1708,29 @@ async function handleReportTableClick(event) {
     return;
   }
 
-  const button = target.closest(".attachment-open");
-  if (!button) {
+  const editButton = target.closest(".event-edit");
+  if (editButton instanceof HTMLButtonElement) {
+    await handleEventEdit(editButton);
     return;
   }
 
-  const eventId = button.dataset.eventId;
+  const deleteButton = target.closest(".event-delete");
+  if (deleteButton instanceof HTMLButtonElement) {
+    await handleEventDelete(deleteButton);
+    return;
+  }
+
+  const attachmentButton = target.closest(".attachment-open");
+  if (!(attachmentButton instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const eventId = attachmentButton.dataset.eventId;
   if (!eventId) {
     return;
   }
 
-  const ownerId = Number(button.dataset.ownerId || 0);
+  const ownerId = Number(attachmentButton.dataset.ownerId || 0);
   const normalizedOwnerId = Number.isFinite(ownerId) && ownerId > 0 ? ownerId : null;
   await loadAttachments(Number(eventId), normalizedOwnerId);
 }
@@ -1463,14 +1789,19 @@ function setupCardPointerMotion() {
 }
 
 async function bootstrap() {
+  state.authView = getRequestedAuthView();
+  setAuthView(state.authView);
   setDateDefaults();
 
   loginForm.addEventListener("submit", handleLogin);
   registerForm.addEventListener("submit", handleRegister);
+  authLoginTab.addEventListener("click", handleAuthTabClick);
+  authRegisterTab.addEventListener("click", handleAuthTabClick);
   mfaEnableForm.addEventListener("submit", handleMfaEnable);
   eventForm.addEventListener("submit", handleCreateEvent);
   attachmentForm.addEventListener("submit", handleAttachmentSubmit);
   filterForm.addEventListener("submit", handleFilterSubmit);
+  openReportBtn.addEventListener("click", handleOpenReportClick);
   reportBody.addEventListener("click", handleReportTableClick);
   reportPrev.addEventListener("click", handlePrevPage);
   reportNext.addEventListener("click", handleNextPage);
@@ -1478,6 +1809,7 @@ async function bootstrap() {
 
   adminPasswordForm.addEventListener("submit", handleAdminPasswordUpdate);
   adminGeneratePassword.addEventListener("click", handleGenerateAdminPassword);
+  adminDeleteUser.addEventListener("click", handleAdminUserDelete);
 
   templateForm.addEventListener("submit", handleTemplateCreate);
   templateList.addEventListener("click", handleTemplateToggle);

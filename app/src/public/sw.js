@@ -1,7 +1,8 @@
-const CACHE_NAME = "bitacora-v4";
+const CACHE_NAME = "bitacora-v5";
 const PRECACHE = [
   "/",
   "/index.html",
+  "/report-view.html",
   "/styles.css",
   "/app.js",
   "/manifest.webmanifest",
@@ -36,26 +37,33 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  const normalizedPath = url.pathname === "" ? "/" : url.pathname;
+  const isStaticAsset = PRECACHE.includes(normalizedPath);
+
+  if (!isStaticAsset) {
+    // Nunca cachear respuestas API ni datos de sesion para evitar fuga entre usuarios.
+    return;
+  }
+
   event.respondWith(
-    fetch(request)
-      .then((response) => {
+    caches.match(request).then(async (cached) => {
+      if (cached) {
+        return cached;
+      }
+
+      try {
+        const response = await fetch(request);
         if (response.ok && response.type === "basic") {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
         }
         return response;
-      })
-      .catch(async () => {
-        const cached = await caches.match(request);
-        if (cached) {
-          return cached;
-        }
-
+      } catch (_error) {
         if (request.mode === "navigate") {
           return caches.match("/offline.html");
         }
-
         return new Response("Offline", { status: 503, statusText: "Offline" });
-      })
+      }
+    })
   );
 });
