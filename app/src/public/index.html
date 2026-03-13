@@ -93,6 +93,28 @@
         </section>
 
         <section id="authSection" class="panel auth-panel">
+          <div class="auth-ornament" aria-hidden="true"></div>
+          <div class="auth-lock-badge" aria-hidden="true">
+            <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="authBadgeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#6f5bff" />
+                  <stop offset="55%" stop-color="#b652ff" />
+                  <stop offset="100%" stop-color="#2bd7ff" />
+                </linearGradient>
+              </defs>
+              <circle cx="32" cy="32" r="31" fill="url(#authBadgeGradient)" />
+              <path
+                d="M23 29v-4c0-5 4-9 9-9s9 4 9 9v4"
+                fill="none"
+                stroke="#ffffff"
+                stroke-width="4"
+                stroke-linecap="round"
+              />
+              <rect x="18" y="29" width="28" height="19" rx="6" fill="#ffffff" fill-opacity="0.95" />
+              <circle cx="32" cy="39" r="3" fill="#7747ff" />
+            </svg>
+          </div>
           <div class="card auth-switch">
             <button id="authLoginTab" type="button" class="btn btn-ghost auth-tab is-active">Iniciar sesion</button>
             <button id="authRegisterTab" type="button" class="btn btn-ghost auth-tab">Crear cuenta</button>
@@ -116,6 +138,14 @@
               <button type="submit" class="btn btn-primary">Entrar al panel</button>
             </form>
             <p class="help-text">En el primer ingreso se solicitara activar MFA.</p>
+            <div class="auth-inline-actions">
+              <button id="switchToRegisterBtn" type="button" class="btn-link auth-inline-link">
+                No tienes una cuenta?
+              </button>
+              <button id="forgotPasswordBtn" type="button" class="btn-link auth-inline-link">
+                Olvide mi contrasena
+              </button>
+            </div>
           </div>
 
           <div id="registerCard" class="card auth-card hidden">
@@ -146,6 +176,11 @@
               <button type="submit" class="btn btn-secondary">Crear y entrar</button>
             </form>
             <p class="help-text">El registro crea usuarios con rol funcionario.</p>
+            <div class="auth-inline-actions">
+              <button id="switchToLoginBtn" type="button" class="btn-link auth-inline-link">
+                Ya tengo cuenta
+              </button>
+            </div>
           </div>
 
           <div id="mfaSetupCard" class="card hidden">

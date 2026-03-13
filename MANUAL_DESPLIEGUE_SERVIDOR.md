@@ -290,3 +290,337 @@ Valida especialmente `DATABASE_URL` (se arma desde compose), `JWT_SECRET`, `POST
 5. `docker compose ps` sin servicios caidos.
 6. Backup generado y verificado.
 7. Prueba de crear registro de bitacora exitosa.
+
+## 15) Hardening avanzado (paso a paso para novato)
+
+Objetivo: dejar el servidor robusto contra fuerza bruta, errores de configuracion y abuso comun.
+
+Importante antes de empezar:
+
+1. Abre **dos sesiones SSH** al servidor. No cierres la segunda hasta terminar.
+2. Ejecuta cada bloque y valida antes de pasar al siguiente.
+3. Si cambias SSH, prueba login nuevo antes de cerrar la sesion actual.
+
+### Fase 0 - Punto de retorno (rollback)
+
+```bash
+cd ~/apps/bitacora
+git status
+cp .env .env.backup.$(date +%F-%H%M%S)
+docker compose ps > /tmp/bitacora-services-before.txt
+```
+
+Guardar estado de paquetes:
+
+```bash
+dpkg -l > /tmp/packages-before-hardening.txt
+```
+
+### Fase 1 - Usuario operativo y acceso SSH seguro
+
+#### 1.1 Crear usuario de operacion (si aun no existe)
+
+```bash
+sudo adduser opsadmin
+sudo usermod -aG sudo opsadmin
+```
+
+#### 1.2 Copiar tu llave SSH al nuevo usuario
+
+En tu PC local:
+
+```bash
+ssh-copy-id opsadmin@<ip-servidor>
+```
+
+En servidor, revisar permisos:
+
+```bash
+sudo mkdir -p /home/opsadmin/.ssh
+sudo chown -R opsadmin:opsadmin /home/opsadmin/.ssh
+sudo chmod 700 /home/opsadmin/.ssh
+sudo chmod 600 /home/opsadmin/.ssh/authorized_keys
+```
+
+#### 1.3 Endurecer SSH sin romper acceso
+
+Editar:
+
+```bash
+sudo nano /etc/ssh/sshd_config
+```
+
+Ajustes recomendados:
+
+```text
+PermitRootLogin no
+PasswordAuthentication no
+PubkeyAuthentication yes
+ChallengeResponseAuthentication no
+X11Forwarding no
+MaxAuthTries 3
+LoginGraceTime 30
+ClientAliveInterval 300
+ClientAliveCountMax 2
+```
+
+Validar y reiniciar SSH:
+
+```bash
+sudo sshd -t
+sudo systemctl restart ssh
+sudo systemctl status ssh --no-pager
+```
+
+Desde tu PC, abre una nueva conexion y confirma que entra con llave:
+
+```bash
+ssh opsadmin@<ip-servidor>
+```
+
+### Fase 2 - Firewall (UFW) y puertos minimos
+
+Politica base:
+
+```bash
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow OpenSSH
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw enable
+sudo ufw status verbose
+```
+
+Si Grafana/Prometheus se usaran solo por tunel SSH, **no** abras 3001/9090/9093/3100 al mundo.
+
+### Fase 3 - Antifuerza bruta (Fail2Ban)
+
+Instalar:
+
+```bash
+sudo apt update
+sudo apt install -y fail2ban
+```
+
+Configurar jail local:
+
+```bash
+sudo tee /etc/fail2ban/jail.local > /dev/null <<'EOF'
+[DEFAULT]
+bantime = 1h
+findtime = 10m
+maxretry = 5
+backend = systemd
+destemail = root@localhost
+sender = fail2ban@localhost
+mta = sendmail
+
+[sshd]
+enabled = true
+port = ssh
+logpath = %(sshd_log)s
+EOF
+```
+
+Activar y validar:
+
+```bash
+sudo systemctl enable --now fail2ban
+sudo fail2ban-client status
+sudo fail2ban-client status sshd
+```
+
+### Fase 4 - Parches de seguridad automaticos
+
+```bash
+sudo apt install -y unattended-upgrades apt-listchanges
+sudo dpkg-reconfigure -plow unattended-upgrades
+```
+
+Revisar configuracion:
+
+```bash
+sudo sed -n '1,220p' /etc/apt/apt.conf.d/50unattended-upgrades
+sudo sed -n '1,220p' /etc/apt/apt.conf.d/20auto-upgrades
+```
+
+Prueba en modo simulacion:
+
+```bash
+sudo unattended-upgrade --dry-run --debug
+```
+
+### Fase 5 - Endurecer archivos sensibles del proyecto
+
+```bash
+cd ~/apps/bitacora
+chmod 600 .env
+chmod 600 infra/Caddyfile
+chmod 700 scripts
+chmod 700 scripts/*.sh
+```
+
+Verificar:
+
+```bash
+ls -la .env infra/Caddyfile scripts
+```
+
+### Fase 6 - Endurecer Docker en produccion
+
+#### 6.1 Evitar exposicion accidental de puertos internos
+
+Ya esta bien encaminado: varios servicios estan en `127.0.0.1`. Mantener esa practica.
+
+Verifica puertos abiertos:
+
+```bash
+sudo ss -tulpn | grep -E ':80|:443|:3001|:9090|:9093|:3100|:5432'
+```
+
+Debe verse publico solo `80/443` (y `22` para SSH).
+
+#### 6.2 No exponer Docker socket a contenedores
+
+Comprobar:
+
+```bash
+docker compose config | grep -n "/var/run/docker.sock" || true
+```
+
+Si algun servicio monta el socket, removerlo salvo caso muy justificado.
+
+#### 6.3 Escaneo basico de imagenes
+
+Instalar Trivy:
+
+```bash
+sudo apt install -y wget gnupg lsb-release
+wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+sudo apt update
+sudo apt install -y trivy
+```
+
+Escanear imagenes:
+
+```bash
+docker images --format "{{.Repository}}:{{.Tag}}" | xargs -n1 trivy image --severity HIGH,CRITICAL
+```
+
+### Fase 7 - Sysctl de red (baseline seguro)
+
+```bash
+sudo tee /etc/sysctl.d/99-hardening.conf > /dev/null <<'EOF'
+net.ipv4.tcp_syncookies=1
+net.ipv4.conf.all.rp_filter=1
+net.ipv4.conf.default.rp_filter=1
+net.ipv4.conf.all.accept_source_route=0
+net.ipv4.conf.default.accept_source_route=0
+net.ipv4.conf.all.accept_redirects=0
+net.ipv4.conf.default.accept_redirects=0
+net.ipv4.conf.all.secure_redirects=0
+net.ipv4.conf.default.secure_redirects=0
+net.ipv6.conf.all.accept_redirects=0
+net.ipv6.conf.default.accept_redirects=0
+kernel.kptr_restrict=2
+kernel.dmesg_restrict=1
+EOF
+sudo sysctl --system
+```
+
+Validar:
+
+```bash
+sysctl net.ipv4.tcp_syncookies kernel.kptr_restrict kernel.dmesg_restrict
+```
+
+### Fase 8 - Auditoria local y monitoreo de cambios
+
+Instalar `auditd`:
+
+```bash
+sudo apt install -y auditd audispd-plugins
+sudo systemctl enable --now auditd
+```
+
+Reglas minimas para vigilar archivos criticos:
+
+```bash
+sudo tee /etc/audit/rules.d/bitacora.rules > /dev/null <<'EOF'
+-w /etc/ssh/sshd_config -p wa -k ssh_config_changes
+-w /etc/passwd -p wa -k identity_changes
+-w /etc/group -p wa -k identity_changes
+-w /etc/sudoers -p wa -k sudoers_changes
+-w /home/opsadmin/apps/bitacora/.env -p wa -k bitacora_env_changes
+-w /home/opsadmin/apps/bitacora/docker-compose.yml -p wa -k compose_changes
+EOF
+sudo augenrules --load
+sudo auditctl -l
+```
+
+Consultar eventos:
+
+```bash
+sudo ausearch -k bitacora_env_changes -i
+```
+
+Nota: ajusta la ruta `/home/opsadmin/apps/bitacora` segun tu usuario real.
+
+### Fase 9 - Cifrado y acceso minimo en backups
+
+#### 9.1 Permisos carpeta backups
+
+```bash
+cd ~/apps/bitacora
+mkdir -p backups
+chmod 700 backups
+```
+
+#### 9.2 Cifrar backup para sacar fuera del servidor (opcional recomendado)
+
+Con `age`:
+
+```bash
+sudo apt install -y age
+age-keygen -o ~/.config/age/keys.txt
+chmod 600 ~/.config/age/keys.txt
+```
+
+Cifrar archivo:
+
+```bash
+age -r <PUBLIC_KEY_AGE> -o backups/backup-$(date +%F).sql.gz.age backups/<archivo>.sql.gz
+```
+
+### Fase 10 - Verificacion final de hardening
+
+Checklist rapido:
+
+1. `ufw status verbose` muestra solo `22/80/443`.
+2. `fail2ban-client status sshd` activo.
+3. `PasswordAuthentication no` aplicado en SSH.
+4. `.env` con permisos `600`.
+5. `docker compose ps` saludable.
+6. `curl -I https://<APP_DOMAIN>` responde correctamente.
+7. Puedes iniciar sesion y operar la app sin errores.
+
+Comandos de comprobacion:
+
+```bash
+sudo ufw status verbose
+sudo fail2ban-client status sshd
+sudo grep -E "PermitRootLogin|PasswordAuthentication|PubkeyAuthentication" /etc/ssh/sshd_config
+ls -l ~/apps/bitacora/.env
+docker compose ps
+curl -I https://<APP_DOMAIN>
+```
+
+### Fase 11 - Politica operativa recomendada
+
+1. Nunca trabajar como `root` para operaciones diarias.
+2. Rotar secretos (`JWT_SECRET`, passwords) cada 90 dias.
+3. Revisar logs de `app`, `caddy`, `fail2ban` cada semana.
+4. Restaurar un backup de prueba al menos 1 vez por mes.
+5. Aplicar actualizaciones de seguridad del sistema en ventana controlada.

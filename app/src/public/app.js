@@ -43,6 +43,9 @@ const loginCard = document.getElementById("loginCard");
 const registerCard = document.getElementById("registerCard");
 const authLoginTab = document.getElementById("authLoginTab");
 const authRegisterTab = document.getElementById("authRegisterTab");
+const switchToRegisterBtn = document.getElementById("switchToRegisterBtn");
+const switchToLoginBtn = document.getElementById("switchToLoginBtn");
+const forgotPasswordBtn = document.getElementById("forgotPasswordBtn");
 const adminTools = document.getElementById("adminTools");
 const adminPasswordForm = document.getElementById("adminPasswordForm");
 const adminUserSelect = document.getElementById("adminUserSelect");
@@ -1901,6 +1904,26 @@ function handleAuthTabClick(event) {
   setAuthView("login");
 }
 
+function handleSwitchToRegister() {
+  setAuthView("register");
+  const nameInput = document.getElementById("registerName");
+  if (nameInput instanceof HTMLInputElement) {
+    nameInput.focus();
+  }
+}
+
+function handleSwitchToLogin() {
+  setAuthView("login");
+  const emailInput = document.getElementById("email");
+  if (emailInput instanceof HTMLInputElement) {
+    emailInput.focus();
+  }
+}
+
+function handleForgotPasswordHint() {
+  showToast("Recuperacion de contrasena: contacta al administrador del sistema.", "info");
+}
+
 async function handleReportTableClick(event) {
   const target = event.target;
   if (!(target instanceof HTMLElement)) {
@@ -1997,6 +2020,15 @@ async function bootstrap() {
   registerForm.addEventListener("submit", handleRegister);
   authLoginTab.addEventListener("click", handleAuthTabClick);
   authRegisterTab.addEventListener("click", handleAuthTabClick);
+  if (switchToRegisterBtn) {
+    switchToRegisterBtn.addEventListener("click", handleSwitchToRegister);
+  }
+  if (switchToLoginBtn) {
+    switchToLoginBtn.addEventListener("click", handleSwitchToLogin);
+  }
+  if (forgotPasswordBtn) {
+    forgotPasswordBtn.addEventListener("click", handleForgotPasswordHint);
+  }
   mfaEnableForm.addEventListener("submit", handleMfaEnable);
   eventForm.addEventListener("submit", handleCreateEvent);
   attachmentForm.addEventListener("submit", handleAttachmentSubmit);

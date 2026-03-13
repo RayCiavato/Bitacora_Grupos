@@ -5,34 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Bitacora - Vista completa</title>
     <link rel="stylesheet" href="/styles.css" />
-    <style>
-      .report-shell {
-        width: min(1580px, 96vw);
-        margin: 1rem auto;
-        display: grid;
-        gap: 0.9rem;
-      }
-
-      .report-header {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: space-between;
-        gap: 0.7rem;
-      }
-
-      .report-header p {
-        margin: 0;
-      }
-
-      .report-table-wrap {
-        max-height: min(70vh, 900px);
-      }
-
-      .report-actions {
-        display: flex;
-        gap: 0.55rem;
-      }
-    </style>
+    <link rel="stylesheet" href="/report-view.css" />
   </head>
   <body>
     <main class="report-shell">
@@ -61,6 +34,7 @@
                 <th>Prioridad</th>
                 <th>Plantilla</th>
                 <th>Adjuntos</th>
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody id="rows"></tbody>
@@ -69,152 +43,6 @@
       </section>
     </main>
 
-    <script>
-      const rowsEl = document.getElementById("rows");
-      const summaryEl = document.getElementById("summary");
-      const prevBtn = document.getElementById("prevBtn");
-      const nextBtn = document.getElementById("nextBtn");
-      const closeBtn = document.getElementById("closeBtn");
-
-      const params = new URLSearchParams(window.location.search);
-      const baseQuery = {
-        from: params.get("from") || "",
-        to: params.get("to") || "",
-        q: params.get("q") || "",
-        priority: params.get("priority") || "",
-        encargadoId: params.get("encargadoId") || "",
-        pageSize: Number(params.get("pageSize") || 100)
-      };
-
-      const state = {
-        page: Number(params.get("page") || 1),
-        totalPages: 1
-      };
-
-      function formatDate(value) {
-        if (!value) {
-          return "-";
-        }
-        const date = new Date(`${value}T00:00:00`);
-        if (Number.isNaN(date.getTime())) {
-          return value;
-        }
-        return date.toLocaleDateString("es-ES", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric"
-        });
-      }
-
-      function renderRows(items) {
-        rowsEl.innerHTML = "";
-        if (!items.length) {
-          const tr = document.createElement("tr");
-          const td = document.createElement("td");
-          td.colSpan = 7;
-          td.textContent = "No hay registros para el rango seleccionado.";
-          tr.appendChild(td);
-          rowsEl.appendChild(tr);
-          return;
-        }
-
-        items.forEach((item) => {
-          const tr = document.createElement("tr");
-          const values = [
-            formatDate(item.fecha),
-            item.encargado || "-",
-            item.descripcionActividad || "-",
-            item.observacion || "-",
-            item.prioridad || "-",
-            item.templateName || "-",
-            String(item.attachmentsCount || 0)
-          ];
-
-          values.forEach((value) => {
-            const td = document.createElement("td");
-            td.textContent = value;
-            tr.appendChild(td);
-          });
-          rowsEl.appendChild(tr);
-        });
-      }
-
-      async function loadPage() {
-        if (!baseQuery.from || !baseQuery.to) {
-          summaryEl.textContent = "Faltan parametros de rango (from/to).";
-          renderRows([]);
-          return;
-        }
-
-        const query = new URLSearchParams({
-          from: baseQuery.from,
-          to: baseQuery.to,
-          page: String(state.page),
-          pageSize: String(baseQuery.pageSize)
-        });
-
-        if (baseQuery.q) {
-          query.set("q", baseQuery.q);
-        }
-        if (baseQuery.priority) {
-          query.set("priority", baseQuery.priority);
-        }
-        if (baseQuery.encargadoId) {
-          query.set("encargadoId", baseQuery.encargadoId);
-        }
-
-        const response = await fetch(`/events/report?${query.toString()}`, {
-          credentials: "same-origin"
-        });
-
-        if (response.status === 401) {
-          summaryEl.textContent = "Tu sesion expiro. Cierra esta ventana y vuelve a iniciar sesion.";
-          renderRows([]);
-          prevBtn.disabled = true;
-          nextBtn.disabled = true;
-          return;
-        }
-
-        if (!response.ok) {
-          summaryEl.textContent = "No se pudo cargar la vista completa.";
-          renderRows([]);
-          prevBtn.disabled = true;
-          nextBtn.disabled = true;
-          return;
-        }
-
-        const data = await response.json();
-        state.totalPages = Number(data.pagination?.totalPages || 1);
-        summaryEl.textContent = `Rango ${formatDate(baseQuery.from)} - ${formatDate(baseQuery.to)} | Registros ${
-          data.totalEvents || 0
-        } | Pagina ${state.page} de ${state.totalPages}`;
-
-        renderRows(Array.isArray(data.events) ? data.events : []);
-        prevBtn.disabled = state.page <= 1;
-        nextBtn.disabled = state.page >= state.totalPages;
-      }
-
-      prevBtn.addEventListener("click", async () => {
-        if (state.page <= 1) {
-          return;
-        }
-        state.page -= 1;
-        await loadPage();
-      });
-
-      nextBtn.addEventListener("click", async () => {
-        if (state.page >= state.totalPages) {
-          return;
-        }
-        state.page += 1;
-        await loadPage();
-      });
-
-      closeBtn.addEventListener("click", () => {
-        window.close();
-      });
-
-      loadPage();
-    </script>
+    <script src="/report-view.js" defer></script>
   </body>
 </html>
