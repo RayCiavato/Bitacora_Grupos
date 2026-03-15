@@ -90,7 +90,7 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./infra/Caddyfile.${CADDY_PROFILE:-https}:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:

@@ -39,7 +39,8 @@ bash scripts/setup-env.sh
 
 El script genera secretos fuertes y deja:
 
-- `COOKIE_SECURE=true`
+- `CADDY_PROFILE=http` + `COOKIE_SECURE=false` cuando `APP_DOMAIN` es IP/localhost.
+- `CADDY_PROFILE=https` + `COOKIE_SECURE=true` cuando `APP_DOMAIN` es dominio.
 - `ALLOW_PUBLIC_REGISTRATION=false`
 - `UPLOAD_DIR=/usr/src/app/uploads` (persistente)
 - `POSTGRES_PASSWORD` URL-safe (`A-Za-z0-9_-`) para no romper `DATABASE_URL`
@@ -76,6 +77,13 @@ docker compose up -d --build
 ```
 
 > El backend aplica migraciones idempotentes al iniciar (`ensureDatabaseSchema`).
+
+Despliegue seguro recomendado (valida `.env` antes de levantar):
+
+```bash
+chmod +x scripts/*.sh
+bash scripts/deploy-safe.sh --pull
+```
 
 Servicios principales:
 
@@ -155,7 +163,7 @@ bash scripts/restore-db.sh backups/<archivo>.sql.gz
 
 ## Produccion recomendada
 
-- Cambiar `tls internal` por certificado real en `infra/Caddyfile`.
+- Para dominio publico, editar `infra/Caddyfile.https` y cambiar `tls internal` por certificado real.
 - Mantener `COOKIE_SECURE=true` en produccion.
 - Programar prueba de restore mensual.
 - Configurar correo/webhooks si se usan recordatorios.

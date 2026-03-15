@@ -1,0 +1,20 @@
+{
+  auto_https off
+}
+
+:80 {
+  encode zstd gzip
+
+  @blocked_metrics path /metrics
+  respond @blocked_metrics 404
+
+  header {
+    -Server
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "strict-origin-when-cross-origin"
+    Permissions-Policy "geolocation=(), camera=(), microphone=()"
+  }
+
+  reverse_proxy app:3000
+}

@@ -129,6 +129,20 @@ detect_primary_ip() {
   printf '%s' "$ip"
 }
 
+is_ip_or_local_target() {
+  local target="$1"
+  if [[ "$target" == "localhost" || "$target" == "127.0.0.1" ]]; then
+    return 0
+  fi
+
+  if [[ "$target" == *:* ]]; then
+    # IPv6 o target con puerto.
+    return 0
+  fi
+
+  [[ "$target" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
+}
+
 random_string() {
   local length="$1"
   generate_chars 'A-Za-z0-9' "$length"
@@ -216,6 +230,14 @@ JWT_SECRET_VALUE="$(random_string 64)"
 ADMIN_PASSWORD_VALUE="${ADMIN_PASSWORD_OVERRIDE:-$(generate_password 24)}"
 GRAFANA_PASSWORD_VALUE="${GRAFANA_PASSWORD_OVERRIDE:-$(generate_password 24)}"
 
+if is_ip_or_local_target "$APP_DOMAIN_VALUE"; then
+  CADDY_PROFILE_VALUE="http"
+  COOKIE_SECURE_VALUE="false"
+else
+  CADDY_PROFILE_VALUE="https"
+  COOKIE_SECURE_VALUE="true"
+fi
+
 set_env_value "APP_DOMAIN" "$APP_DOMAIN_VALUE"
 set_env_value "POSTGRES_DB" "bitacora"
 set_env_value "POSTGRES_USER" "bitacora_user"
@@ -225,7 +247,8 @@ set_env_value "ACCESS_TOKEN_EXPIRES_IN" "15m"
 set_env_value "REFRESH_TOKEN_EXPIRES_IN" "7d"
 set_env_value "AUTH_COOKIE_NAME" "bitacora_access"
 set_env_value "REFRESH_COOKIE_NAME" "bitacora_refresh"
-set_env_value "COOKIE_SECURE" "true"
+set_env_value "CADDY_PROFILE" "$CADDY_PROFILE_VALUE"
+set_env_value "COOKIE_SECURE" "$COOKIE_SECURE_VALUE"
 set_env_value "COOKIE_SAMESITE" "strict"
 set_env_value "ADMIN_DEFAULT_NAME" "$ADMIN_NAME_OVERRIDE"
 set_env_value "ADMIN_DEFAULT_EMAIL" "$ADMIN_EMAIL_OVERRIDE"
@@ -245,6 +268,8 @@ $ENV_FILE generado correctamente.
 
 Valores configurados:
 - APP_DOMAIN: $APP_DOMAIN_VALUE
+- CADDY_PROFILE: $CADDY_PROFILE_VALUE
+- COOKIE_SECURE: $COOKIE_SECURE_VALUE
 - ADMIN_DEFAULT_EMAIL: $ADMIN_EMAIL_OVERRIDE
 - ADMIN_DEFAULT_PASSWORD: $ADMIN_PASSWORD_VALUE
 - POSTGRES_USER: bitacora_user

@@ -95,7 +95,8 @@ POSTGRES_PASSWORD=<generado>
 JWT_SECRET=<generado>
 ADMIN_DEFAULT_PASSWORD=<generado>
 GRAFANA_ADMIN_PASSWORD=<generado>
-COOKIE_SECURE=true
+CADDY_PROFILE=http   # si APP_DOMAIN es IP/localhost
+COOKIE_SECURE=false  # si APP_DOMAIN es IP/localhost
 MFA_REQUIRED=false
 ALLOW_PUBLIC_REGISTRATION=false
 UPLOAD_DIR=/usr/src/app/uploads
@@ -107,27 +108,32 @@ Notas:
 - `POSTGRES_PASSWORD` generado por script ya es URL-safe (`A-Za-z0-9_-`) y compatible con `DATABASE_URL`.
 - Si defines `--db-password` manual, no uses `#`, `%`, `@`, `/`, `:`, `?` para evitar errores de conexion.
 
-## 6) Configurar HTTPS en Caddy
+## 6) Perfil Caddy segun APP_DOMAIN
 
 Editar:
 
 ```bash
-nano infra/Caddyfile
+nano .env
 ```
 
-Si tienes dominio publico y DNS apuntando al servidor, cambia:
+Regla automatica del script `setup-env.sh`:
+- Si `APP_DOMAIN` es IP/localhost -> `CADDY_PROFILE=http` y `COOKIE_SECURE=false`.
+- Si `APP_DOMAIN` es dominio -> `CADDY_PROFILE=https` y `COOKIE_SECURE=true`.
 
-```caddyfile
-tls internal
+Si tienes dominio publico y DNS apuntando al servidor:
+
+```env
+CADDY_PROFILE=https
+COOKIE_SECURE=true
 ```
 
-por:
+Si necesitas ajustar TLS del perfil HTTPS, edita:
 
-```caddyfile
-tls admin@tudominio.com
+```bash
+nano infra/Caddyfile.https
 ```
 
-Asegurate de tener abiertos `80` y `443` en firewall/router.
+Asegurate de tener abiertos `80` y `443` en firewall/router cuando uses `CADDY_PROFILE=https`.
 
 ## 7) Levantar la plataforma con Docker Compose
 
@@ -148,7 +154,14 @@ curl -s https://bitacora.tudominio.com/health
 curl -s https://bitacora.tudominio.com/ready
 ```
 
-Si aun usas `tls internal` (certificado interno), prueba con `-k`:
+Si estas en perfil HTTP por IP:
+
+```bash
+curl -I http://<ip-o-dominio>
+curl -s http://<ip-o-dominio>/health
+```
+
+Si usas `CADDY_PROFILE=https` con `tls internal` (certificado interno), prueba con `-k`:
 
 ```bash
 curl -k -I https://<ip-o-dominio>
@@ -164,7 +177,9 @@ docker compose logs --tail=100 caddy
 
 ## 9) Primer acceso del admin (MFA segun politica)
 
-1. Abre en navegador: `https://<APP_DOMAIN>`.
+1. Abre en navegador:
+   - `http://<APP_DOMAIN>` si `CADDY_PROFILE=http`
+   - `https://<APP_DOMAIN>` si `CADDY_PROFILE=https`
 2. Inicia sesion con `ADMIN_DEFAULT_EMAIL` / `ADMIN_DEFAULT_PASSWORD`.
 3. Los registros publicos nuevos siempre inician enrolamiento MFA por QR (Google Authenticator/Authy).
 4. Si `MFA_REQUIRED=true`, ademas se exigira MFA para todas las cuentas que aun no lo tengan.
@@ -221,8 +236,7 @@ Este proceso reinicia MFA del admin (si esta habilitado) para forzar una configu
 
 ```bash
 cd ~/apps/bitacora
-git pull
-docker compose up -d --build
+bash scripts/deploy-safe.sh --pull
 docker image prune -f
 ```
 
@@ -447,7 +461,7 @@ sudo unattended-upgrade --dry-run --debug
 ```bash
 cd ~/apps/bitacora
 chmod 600 .env
-chmod 600 infra/Caddyfile
+chmod 600 infra/Caddyfile.http infra/Caddyfile.https
 chmod 700 scripts
 chmod 700 scripts/*.sh
 ```
@@ -455,7 +469,7 @@ chmod 700 scripts/*.sh
 Verificar:
 
 ```bash
-ls -la .env infra/Caddyfile scripts
+ls -la .env infra/Caddyfile.http infra/Caddyfile.https scripts
 ```
 
 ### Fase 6 - Endurecer Docker en produccion
