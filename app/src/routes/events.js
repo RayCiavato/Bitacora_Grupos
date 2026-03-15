@@ -51,6 +51,9 @@ const trendsQuerySchema = z.object({
   from: z.string().date().optional(),
   to: z.string().date().optional()
 });
+const dashboardQuerySchema = z.object({
+  days: z.coerce.number().int().min(7).max(90).default(30)
+});
 
 const attachmentParamsSchema = z.object({
   id: z.coerce.number().int().positive()
@@ -593,6 +596,97 @@ router.get("/trends", authenticate, async (req, res, next) => {
       byDate: byDateResult.rows,
       byPriority: byPriorityResult.rows,
       topEncargados: byUserResult.rows
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+    }
+    return next(error);
+  }
+});
+
+router.get("/dashboard", authenticate, async (req, res, next) => {
+  try {
+    const query = dashboardQuerySchema.parse(req.query);
+    const days = query.days;
+    const today = toISODate(new Date());
+    const from = toISODate(new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000));
+
+    const totalsResult = await pool.query(
+      `
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE fecha = CURRENT_DATE)::int AS hoy,
+          COUNT(*) FILTER (WHERE prioridad = 'alta')::int AS alta,
+          COUNT(*) FILTER (WHERE prioridad = 'media')::int AS media,
+          COUNT(*) FILTER (WHERE prioridad = 'baja')::int AS baja
+        FROM events
+      `
+    );
+
+    const byUserResult = await pool.query(
+      `
+        SELECT
+          u.name AS encargado,
+          COUNT(*)::int AS total
+        FROM events e
+        JOIN users u ON u.id = e.encargado_id
+        WHERE e.fecha >= CURRENT_DATE - ($1::int - 1)
+        GROUP BY u.name
+        ORDER BY total DESC, u.name ASC
+        LIMIT 12
+      `,
+      [days]
+    );
+
+    const byPriorityResult = await pool.query(
+      `
+        SELECT
+          prioridad,
+          COUNT(*)::int AS total
+        FROM events
+        WHERE prioridad IN ('alta', 'media', 'baja')
+        GROUP BY prioridad
+      `
+    );
+
+    const byDateResult = await pool.query(
+      `
+        WITH calendar AS (
+          SELECT
+            generate_series(
+              CURRENT_DATE - ($1::int - 1),
+              CURRENT_DATE,
+              interval '1 day'
+            )::date AS fecha
+        )
+        SELECT
+          to_char(c.fecha, 'YYYY-MM-DD') AS fecha,
+          COALESCE(COUNT(e.id), 0)::int AS total
+        FROM calendar c
+        LEFT JOIN events e ON e.fecha = c.fecha
+        GROUP BY c.fecha
+        ORDER BY c.fecha ASC
+      `,
+      [days]
+    );
+
+    return res.json({
+      range: {
+        from,
+        to: today,
+        days
+      },
+      totals: totalsResult.rows[0] || {
+        total: 0,
+        hoy: 0,
+        alta: 0,
+        media: 0,
+        baja: 0
+      },
+      byUser: byUserResult.rows,
+      byPriority: byPriorityResult.rows,
+      byDate: byDateResult.rows
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

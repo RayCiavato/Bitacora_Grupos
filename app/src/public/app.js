@@ -12,11 +12,28 @@ const reportRange = document.getElementById("reportRange");
 const kpiTotal = document.getElementById("kpiTotal");
 const kpiAlta = document.getElementById("kpiAlta");
 const kpiDias = document.getElementById("kpiDias");
+const kpiSection = document.getElementById("kpiSection");
 const dateSummary = document.getElementById("dateSummary");
 const reportBody = document.getElementById("reportBody");
 const reportPrev = document.getElementById("reportPrev");
 const reportNext = document.getElementById("reportNext");
 const reportPageInfo = document.getElementById("reportPageInfo");
+const mainWorkspaceSection = document.getElementById("mainWorkspaceSection");
+const secondaryWorkspaceSection = document.getElementById("secondaryWorkspaceSection");
+const registroSection = document.getElementById("registroSection");
+const informeSection = document.getElementById("informeSection");
+const tendenciasSection = document.getElementById("tendenciasSection");
+const attachmentsCard = document.getElementById("attachmentsCard");
+const socDashboardSection = document.getElementById("socDashboardSection");
+const socTotalRegistros = document.getElementById("socTotalRegistros");
+const socRegistrosHoy = document.getElementById("socRegistrosHoy");
+const socPrioridadAlta = document.getElementById("socPrioridadAlta");
+const socPrioridadMedia = document.getElementById("socPrioridadMedia");
+const socPrioridadBaja = document.getElementById("socPrioridadBaja");
+const socRangeInfo = document.getElementById("socRangeInfo");
+const socUsersChartCanvas = document.getElementById("socUsersChart");
+const socCriticalityChartCanvas = document.getElementById("socCriticalityChart");
+const socTimelineChartCanvas = document.getElementById("socTimelineChart");
 
 const trendByDate = document.getElementById("trendByDate");
 const trendPriority = document.getElementById("trendPriority");
@@ -78,7 +95,6 @@ const openReportBtn = document.getElementById("openReportBtn");
 const authLaunchButtons = document.querySelectorAll(".auth-launch");
 const sidebarToggleBtn = document.getElementById("sidebarToggleBtn");
 const dashboardSidebar = document.getElementById("dashboardSidebar");
-const sidebarNav = document.getElementById("sidebarNav");
 const sidebarLinks = document.querySelectorAll(".sidebar-link");
 const welcomeMessage = document.getElementById("welcomeMessage");
 
@@ -89,6 +105,16 @@ const PRIORITY_LABELS = {
   alta: "Alta",
   observacion: "Observacion informativa"
 };
+const PANEL_ROUTES = new Set([
+  "/dashboard",
+  "/resumen",
+  "/registro/nuevo",
+  "/informes",
+  "/tendencias",
+  "/adjuntos",
+  "/usuarios",
+  "/plantillas"
+]);
 
 const ERROR_MESSAGES = {
   unauthorized: "Acceso no autorizado. Inicia sesion.",
@@ -141,7 +167,12 @@ const state = {
   authView: "login",
   authPopup: false,
   pendingRefresh: null,
-  sidebarOpen: true
+  sidebarOpen: true,
+  charts: {
+    users: null,
+    criticality: null,
+    timeline: null
+  }
 };
 
 function toLocalISODate(date = new Date()) {
@@ -285,6 +316,28 @@ function getAuthPopupMode() {
   return params.get("popup") === "auth";
 }
 
+function normalizePathname(pathname = window.location.pathname) {
+  if (!pathname || pathname === "/") {
+    return "/";
+  }
+  return pathname.replace(/\/+$/, "");
+}
+
+function getCurrentPanelPath() {
+  return normalizePathname(window.location.pathname);
+}
+
+function isPanelRoute(path = getCurrentPanelPath()) {
+  return PANEL_ROUTES.has(path);
+}
+
+function setElementVisible(element, isVisible) {
+  if (!element) {
+    return;
+  }
+  element.classList.toggle("hidden", !isVisible);
+}
+
 function applyLayoutMode(mode) {
   document.body.classList.remove("session-active", "landing-mode", "auth-popup-mode", "dashboard-nav-open");
   if (mode) {
@@ -308,9 +361,20 @@ function setSidebarOpen(nextState) {
   sidebarToggleBtn.textContent = isOpen ? "Ocultar menu" : "Mostrar menu";
 }
 
+function syncSidebarActiveLink() {
+  const currentPath = getCurrentPanelPath();
+  sidebarLinks.forEach((link) => {
+    if (!(link instanceof HTMLAnchorElement)) {
+      return;
+    }
+    const href = normalizePathname(link.getAttribute("href") || "");
+    link.classList.toggle("is-active", href === currentPath);
+  });
+}
+
 function updateSidebarRoleLinks() {
   sidebarLinks.forEach((button) => {
-    if (!(button instanceof HTMLButtonElement)) {
+    if (!(button instanceof HTMLElement)) {
       return;
     }
 
@@ -324,31 +388,6 @@ function updateSidebarRoleLinks() {
       button.classList.toggle("hidden", !canManageTemplates());
     }
   });
-}
-
-function scrollToDashboardSection(sectionId) {
-  if (!sectionId) {
-    return;
-  }
-
-  const section = document.getElementById(sectionId);
-  if (!(section instanceof HTMLElement)) {
-    return;
-  }
-
-  section.scrollIntoView({
-    behavior: "smooth",
-    block: "start"
-  });
-
-  section.classList.add("section-pulse");
-  window.setTimeout(() => {
-    section.classList.remove("section-pulse");
-  }, 680);
-
-  if (window.matchMedia("(max-width: 980px)").matches) {
-    setSidebarOpen(false);
-  }
 }
 
 function canUploadToEvent(eventOwnerId) {
@@ -422,12 +461,7 @@ function clearSession() {
   eventForm.reset();
   attachmentForm.reset();
   refreshAttachmentUploadState();
-  sidebarLinks.forEach((link) => {
-    link.classList.remove("is-active");
-  });
-  if (sidebarLinks[0]) {
-    sidebarLinks[0].classList.add("is-active");
-  }
+  syncSidebarActiveLink();
 }
 
 function setKpi(report) {
@@ -630,6 +664,189 @@ function renderTrends(data) {
   });
 }
 
+function destroySocCharts() {
+  if (state.charts.users) {
+    state.charts.users.destroy();
+    state.charts.users = null;
+  }
+  if (state.charts.criticality) {
+    state.charts.criticality.destroy();
+    state.charts.criticality = null;
+  }
+  if (state.charts.timeline) {
+    state.charts.timeline.destroy();
+    state.charts.timeline = null;
+  }
+}
+
+function renderSocDashboardCharts(data) {
+  if (typeof window.Chart !== "function") {
+    showToast("No se pudo inicializar Chart.js para el dashboard.", "error");
+    return;
+  }
+
+  destroySocCharts();
+
+  const byUser = Array.isArray(data.byUser) ? data.byUser : [];
+  const byPriority = Array.isArray(data.byPriority) ? data.byPriority : [];
+  const byDate = Array.isArray(data.byDate) ? data.byDate : [];
+
+  const userLabels = byUser.map((item) => item.encargado);
+  const userValues = byUser.map((item) => Number(item.total || 0));
+  const priorityMap = {
+    alta: 0,
+    media: 0,
+    baja: 0
+  };
+  byPriority.forEach((item) => {
+    const key = String(item.prioridad || "").toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(priorityMap, key)) {
+      priorityMap[key] = Number(item.total || 0);
+    }
+  });
+  const dateLabels = byDate.map((item) => String(item.fecha || "").slice(5));
+  const dateValues = byDate.map((item) => Number(item.total || 0));
+
+  if (socUsersChartCanvas instanceof HTMLCanvasElement) {
+    state.charts.users = new window.Chart(socUsersChartCanvas, {
+      type: "bar",
+      data: {
+        labels: userLabels,
+        datasets: [
+          {
+            label: "Registros",
+            data: userValues,
+            borderRadius: 8,
+            backgroundColor: "rgba(64, 224, 255, 0.72)",
+            borderColor: "rgba(96, 235, 255, 0.96)",
+            borderWidth: 1
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { color: "#9cb8de" },
+            grid: { color: "rgba(140, 178, 235, 0.16)" }
+          },
+          x: {
+            ticks: { color: "#c4d8f7" },
+            grid: { display: false }
+          }
+        }
+      }
+    });
+  }
+
+  if (socCriticalityChartCanvas instanceof HTMLCanvasElement) {
+    state.charts.criticality = new window.Chart(socCriticalityChartCanvas, {
+      type: "doughnut",
+      data: {
+        labels: ["Alta", "Media", "Baja"],
+        datasets: [
+          {
+            data: [priorityMap.alta, priorityMap.media, priorityMap.baja],
+            backgroundColor: ["#ff5f74", "#ffd35f", "#63f7ab"],
+            borderColor: ["#ff8ea0", "#ffe390", "#96ffca"],
+            borderWidth: 1
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            labels: {
+              color: "#d6e6ff"
+            }
+          }
+        }
+      }
+    });
+  }
+
+  if (socTimelineChartCanvas instanceof HTMLCanvasElement) {
+    state.charts.timeline = new window.Chart(socTimelineChartCanvas, {
+      type: "line",
+      data: {
+        labels: dateLabels,
+        datasets: [
+          {
+            label: "Registros por dia",
+            data: dateValues,
+            tension: 0.28,
+            borderWidth: 2,
+            fill: true,
+            borderColor: "rgba(109, 255, 177, 0.95)",
+            backgroundColor: "rgba(109, 255, 177, 0.16)",
+            pointRadius: 2.4,
+            pointBackgroundColor: "#7dffc4"
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            labels: {
+              color: "#d6e6ff"
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { color: "#9cb8de" },
+            grid: { color: "rgba(140, 178, 235, 0.16)" }
+          },
+          x: {
+            ticks: { color: "#c4d8f7" },
+            grid: { display: false }
+          }
+        }
+      }
+    });
+  }
+}
+
+async function loadSocDashboard() {
+  const { response, data, networkError } = await apiAuth("/events/dashboard?days=30");
+
+  if (networkError) {
+    showToast("No hay conexion para cargar el dashboard SOC.", "error");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  socTotalRegistros.textContent = String(Number(data?.totals?.total || 0));
+  socRegistrosHoy.textContent = String(Number(data?.totals?.hoy || 0));
+  socPrioridadAlta.textContent = String(Number(data?.totals?.alta || 0));
+  socPrioridadMedia.textContent = String(Number(data?.totals?.media || 0));
+  socPrioridadBaja.textContent = String(Number(data?.totals?.baja || 0));
+
+  if (socRangeInfo) {
+    socRangeInfo.textContent = `Rango ${formatDate(data?.range?.from)} - ${formatDate(data?.range?.to)}`;
+  }
+
+  renderSocDashboardCharts(data);
+}
+
 function renderUsersOptions() {
   adminUserSelect.innerHTML = "";
   userFilterInput.innerHTML = "";
@@ -755,6 +972,41 @@ function renderAttachments(items) {
   });
 }
 
+function applyRouteMode() {
+  const route = getCurrentPanelPath();
+  const showDashboard = route === "/dashboard";
+  const showResumen = route === "/resumen";
+  const showRegistro = route === "/registro/nuevo";
+  const showInformes = route === "/informes";
+  const showTendencias = route === "/tendencias";
+  const showAdjuntos = route === "/adjuntos";
+  const showUsuarios = route === "/usuarios";
+  const showPlantillas = route === "/plantillas";
+
+  if (showUsuarios && !isAdminSession()) {
+    window.location.href = "/dashboard";
+    return;
+  }
+
+  if (showPlantillas && !canManageTemplates()) {
+    window.location.href = "/dashboard";
+    return;
+  }
+
+  setElementVisible(socDashboardSection, showDashboard);
+  setElementVisible(kpiSection, showResumen);
+  setElementVisible(registroSection, showRegistro);
+  setElementVisible(informeSection, showInformes || showAdjuntos);
+  setElementVisible(tendenciasSection, showTendencias || showResumen);
+  setElementVisible(attachmentsCard, showAdjuntos);
+  setElementVisible(mainWorkspaceSection, showRegistro || showInformes || showAdjuntos);
+  setElementVisible(secondaryWorkspaceSection, showTendencias || showAdjuntos || showResumen);
+  setElementVisible(adminTools, showUsuarios && isAdminSession());
+  setElementVisible(templateTools, showPlantillas && canManageTemplates());
+
+  syncSidebarActiveLink();
+}
+
 function renderAuthView() {
   applyLayoutMode(state.authPopup ? "auth-popup-mode" : "landing-mode");
   dashboardSection.classList.add("hidden");
@@ -797,27 +1049,13 @@ function renderDashboardView() {
   sessionInfo.textContent = `${roleLabel} | ${state.user.email}`;
   encargadoInput.value = state.user.name;
 
-  if (isAdminSession()) {
-    adminTools.classList.remove("hidden");
-  } else {
-    adminTools.classList.add("hidden");
-  }
-
-  if (canManageTemplates()) {
-    templateTools.classList.remove("hidden");
-  } else {
-    templateTools.classList.add("hidden");
-  }
-
   userFilterInput.disabled = !canFilterByUser();
   refreshAttachmentUploadState();
   updateSidebarRoleLinks();
+  applyRouteMode();
 
   const shouldOpenSidebar = !window.matchMedia("(max-width: 980px)").matches;
   setSidebarOpen(shouldOpenSidebar);
-  sidebarLinks.forEach((link, index) => {
-    link.classList.toggle("is-active", index === 0);
-  });
 }
 
 function buildReportParams(includePagination = true) {
@@ -1127,6 +1365,51 @@ async function loadCurrentSession() {
 }
 
 async function loadDashboardData() {
+  const route = getCurrentPanelPath();
+
+  if (route === "/dashboard") {
+    await loadSocDashboard();
+    return;
+  }
+
+  if (route === "/resumen") {
+    await loadReport();
+    await loadTrends();
+    return;
+  }
+
+  if (route === "/registro/nuevo") {
+    await loadTemplates();
+    return;
+  }
+
+  if (route === "/informes") {
+    await loadUsers();
+    await loadReport();
+    return;
+  }
+
+  if (route === "/tendencias") {
+    await loadTrends();
+    return;
+  }
+
+  if (route === "/adjuntos") {
+    await loadUsers();
+    await loadReport();
+    return;
+  }
+
+  if (route === "/usuarios") {
+    await loadUsers();
+    return;
+  }
+
+  if (route === "/plantillas") {
+    await loadTemplates();
+    return;
+  }
+
   await loadUsers();
   await loadTemplates();
   await loadReport();
@@ -1175,9 +1458,7 @@ async function handleLogin(event) {
       return;
     }
 
-    renderDashboardView();
-    await loadDashboardData();
-    showToast("Sesion iniciada.", "success");
+    window.location.href = "/dashboard";
     return;
   }
 
@@ -1281,9 +1562,7 @@ async function handleMfaEnable(event) {
     return;
   }
 
-  renderDashboardView();
-  await loadDashboardData();
-  showToast("MFA habilitado y sesion iniciada.", "success");
+  window.location.href = "/dashboard";
 }
 
 async function handleRegister(event) {
@@ -1343,9 +1622,7 @@ async function handleRegister(event) {
       return;
     }
 
-    renderDashboardView();
-    await loadDashboardData();
-    showToast("Cuenta creada y sesion iniciada.", "success");
+    window.location.href = "/dashboard";
     return;
   }
 
@@ -1966,20 +2243,16 @@ async function handleLogout() {
   registerForm.reset();
   mfaEnableForm.reset();
   eventForm.reset();
-  renderAuthView();
-  setDateDefaults();
-  showToast("Sesion cerrada.", "info");
+  window.location.href = "/";
 }
 
 async function handleFilterSubmit(event) {
   event.preventDefault();
   state.report.page = 1;
-  const opened = openReportWindow();
-  if (!opened) {
-    showToast("Tu navegador bloqueo la nueva ventana. Habilita popups para este sitio.", "error");
-  }
   await loadReport();
-  await loadTrends();
+  if (getCurrentPanelPath() === "/resumen" || getCurrentPanelPath() === "/tendencias") {
+    await loadTrends();
+  }
 }
 
 function handleOpenReportClick() {
@@ -2049,30 +2322,6 @@ function handleForgotPasswordHint() {
 
 function handleSidebarToggle() {
   setSidebarOpen(!state.sidebarOpen);
-}
-
-function handleSidebarNavClick(event) {
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) {
-    return;
-  }
-
-  const button = target.closest(".sidebar-link");
-  if (!(button instanceof HTMLButtonElement)) {
-    return;
-  }
-
-  const sectionId = button.dataset.target;
-  if (!sectionId) {
-    return;
-  }
-
-  sidebarLinks.forEach((link) => {
-    link.classList.remove("is-active");
-  });
-  button.classList.add("is-active");
-
-  scrollToDashboardSection(sectionId);
 }
 
 async function handleReportTableClick(event) {
@@ -2342,9 +2591,6 @@ async function bootstrap() {
   if (sidebarToggleBtn) {
     sidebarToggleBtn.addEventListener("click", handleSidebarToggle);
   }
-  if (sidebarNav) {
-    sidebarNav.addEventListener("click", handleSidebarNavClick);
-  }
 
   adminPasswordForm.addEventListener("submit", handleAdminPasswordUpdate);
   adminGeneratePassword.addEventListener("click", handleGenerateAdminPassword);
@@ -2385,7 +2631,7 @@ async function bootstrap() {
 
     window.addEventListener("load", () => {
       navigator.serviceWorker
-        .register("/sw.js?v=8")
+        .register("/sw.js?v=9")
         .then((registration) => registration.update())
         .catch(() => {
           // No interrumpir flujo principal si falla el service worker.
@@ -2393,8 +2639,13 @@ async function bootstrap() {
     });
   }
 
+  const currentPath = getCurrentPanelPath();
   const hasSession = await loadCurrentSession();
   if (!hasSession) {
+    if (isPanelRoute(currentPath)) {
+      window.location.href = "/?popup=auth&auth=login";
+      return;
+    }
     clearSession();
     renderAuthView();
     return;
@@ -2406,6 +2657,11 @@ async function bootstrap() {
     }
     window.close();
     window.location.href = "/";
+    return;
+  }
+
+  if (currentPath === "/" || !isPanelRoute(currentPath)) {
+    window.location.href = "/dashboard";
     return;
   }
 

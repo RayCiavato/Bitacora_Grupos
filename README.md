@@ -28,13 +28,13 @@ Manual de despliegue completo:
 
 ```bash
 chmod +x scripts/*.sh
-bash scripts/setup-env.sh --app-domain 10.156.99.34
+bash scripts/setup-env.sh --app-domain 10.156.99.34 --admin-email admin@n1njahack.local --admin-password 'N1njaHack@2026!' --db-password 'BitacoraDB_2026' --force
 ```
 
 Si prefieres auto-deteccion de IP del servidor:
 
 ```bash
-bash scripts/setup-env.sh
+bash scripts/setup-env.sh --admin-password 'N1njaHack@2026!' --db-password 'BitacoraDB_2026' --force
 ```
 
 El script genera secretos fuertes y deja:
@@ -45,6 +45,18 @@ El script genera secretos fuertes y deja:
 - `UPLOAD_DIR=/usr/src/app/uploads` (persistente)
 - `POSTGRES_PASSWORD` URL-safe (`A-Za-z0-9_-`) para no romper `DATABASE_URL`
 - `MFA_REQUIRED=false` (el login solo exige MFA a cuentas que ya lo activaron; el registro nuevo siempre inicia enrolamiento por QR)
+
+Para instalacion nueva en servidor (flujo recomendado, sin choques de passwords/volumenes):
+
+```bash
+chmod +x scripts/*.sh
+bash scripts/install-server-safe.sh \
+  --app-domain 10.156.99.34 \
+  --admin-email admin@n1njahack.local \
+  --admin-password 'N1njaHack@2026!' \
+  --db-password 'BitacoraDB_2026' \
+  --force
+```
 
 Si defines `--db-password` manual, evita caracteres reservados de URL como `#`, `%`, `@`, `/`, `:`, `?`.
 
@@ -85,6 +97,11 @@ chmod +x scripts/*.sh
 bash scripts/deploy-safe.sh --pull
 ```
 
+Opciones utiles:
+- `--fresh-db`: reinicia volumenes (solo para instalacion nueva o cuando no necesitas conservar datos).
+- `--ensure-admin`: reprovisiona admin al final.
+- `--no-build`: despliegue mas rapido sin rebuild.
+
 Servicios principales:
 
 - API via HTTPS: `https://<APP_DOMAIN>`
@@ -118,6 +135,7 @@ Bitacora:
 - `GET /events/report?from=YYYY-MM-DD&to=YYYY-MM-DD&q=&priority=&encargadoId=&page=&pageSize=`
 - `GET /events/report/export?from=YYYY-MM-DD&to=YYYY-MM-DD&format=csv|xlsx|pdf`
 - `GET /events/trends?from=YYYY-MM-DD&to=YYYY-MM-DD`
+- `GET /events/dashboard?days=30`
 - `POST /events/:id/attachments`
 - `GET /events/:id/attachments`
 - `GET /events/attachments/:attachmentId/download`

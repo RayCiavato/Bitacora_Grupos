@@ -98,6 +98,27 @@ function createApp() {
     res.set("Cache-Control", "no-cache");
     res.sendFile(path.join(__dirname, "public", "manifest.webmanifest"));
   });
+  app.get("/vendor/chart.js", (_req, res) => {
+    res.set("Cache-Control", "public, max-age=86400");
+    res.sendFile(path.join(__dirname, "..", "node_modules", "chart.js", "dist", "chart.umd.js"));
+  });
+
+  const panelRoutes = [
+    "/dashboard",
+    "/resumen",
+    "/registro/nuevo",
+    "/informes",
+    "/tendencias",
+    "/adjuntos",
+    "/usuarios",
+    "/plantillas"
+  ];
+
+  panelRoutes.forEach((routePath) => {
+    app.get(routePath, (_req, res) => {
+      res.sendFile(path.join(__dirname, "public", "index.html"));
+    });
+  });
 
   app.use(
     express.static(path.join(__dirname, "public"), {

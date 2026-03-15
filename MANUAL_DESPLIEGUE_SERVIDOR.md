@@ -78,13 +78,24 @@ cd bitacora
 ```bash
 cd ~/apps/bitacora
 chmod +x scripts/*.sh
-bash scripts/setup-env.sh --app-domain 10.156.99.34 --admin-email admin@tudominio.com
+bash scripts/setup-env.sh --app-domain 10.156.99.34 --admin-email admin@tudominio.com --admin-password 'TuPasswordAdmin2026' --db-password 'BitacoraDB_2026' --force
 ```
 
 Si prefieres auto detectar IP del servidor:
 
 ```bash
-bash scripts/setup-env.sh --admin-email admin@tudominio.com
+bash scripts/setup-env.sh --admin-email admin@tudominio.com --admin-password 'TuPasswordAdmin2026' --db-password 'BitacoraDB_2026' --force
+```
+
+Flujo mas seguro para servidor nuevo (recomendado):
+
+```bash
+bash scripts/install-server-safe.sh \
+  --app-domain 10.156.99.34 \
+  --admin-email admin@tudominio.com \
+  --admin-password 'TuPasswordAdmin2026' \
+  --db-password 'BitacoraDB_2026' \
+  --force
 ```
 
 El script genera automaticamente:
@@ -105,6 +116,7 @@ UPLOAD_DIR=/usr/src/app/uploads
 Notas:
 - El script imprime credenciales generadas al finalizar. Guardalas en un lugar seguro.
 - Para regenerar `.env`, usa `--force`.
+- No ejecutes `setup-env.sh --force` en cada actualizacion de version: eso cambia secretos y puede romper la conexion a PostgreSQL si el volumen ya estaba inicializado.
 - `POSTGRES_PASSWORD` generado por script ya es URL-safe (`A-Za-z0-9_-`) y compatible con `DATABASE_URL`.
 - Si defines `--db-password` manual, no uses `#`, `%`, `@`, `/`, `:`, `?` para evitar errores de conexion.
 
@@ -238,6 +250,12 @@ Este proceso reinicia MFA del admin (si esta habilitado) para forzar una configu
 cd ~/apps/bitacora
 bash scripts/deploy-safe.sh --pull
 docker image prune -f
+```
+
+Si necesitas reinstalar limpio (sin conservar datos):
+
+```bash
+bash scripts/deploy-safe.sh --pull --fresh-db --ensure-admin
 ```
 
 ## 12) Backups y restore

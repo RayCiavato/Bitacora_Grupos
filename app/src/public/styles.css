@@ -691,10 +691,87 @@ textarea {
 }
 
 .sidebar-link {
+  display: flex;
+  align-items: center;
   width: 100%;
   text-align: left;
   justify-content: flex-start;
   font-weight: 700;
+  text-decoration: none;
+}
+
+.soc-dashboard {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.soc-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.soc-metric {
+  border: 1px solid rgba(118, 150, 206, 0.24);
+  border-radius: 12px;
+  background: rgba(13, 27, 56, 0.84);
+  padding: 0.75rem;
+}
+
+.soc-metric p {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.84rem;
+}
+
+.soc-metric h3 {
+  margin: 0.32rem 0 0;
+  font-size: clamp(1.2rem, 1.8vw, 1.8rem);
+}
+
+.metric-alta h3 {
+  color: #ff7b8b;
+}
+
+.metric-media h3 {
+  color: #ffd56d;
+}
+
+.metric-baja h3 {
+  color: #8effbf;
+}
+
+.soc-chart-card {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.soc-chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+
+.soc-chart-head .help-text {
+  margin: 0.2rem 0 0;
+}
+
+.soc-canvas-wrap {
+  position: relative;
+  min-height: 280px;
+}
+
+.soc-canvas-wrap canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.soc-bottom-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
 }
 
 .sidebar-link.is-active {
@@ -1189,6 +1266,30 @@ select:focus {
   color: #70ffc7;
 }
 
+.soc-metric {
+  border-color: rgba(108, 149, 212, 0.3);
+  background: rgba(11, 24, 52, 0.85);
+}
+
+.metric-alta h3 {
+  color: #ff6b7e;
+}
+
+.metric-media h3 {
+  color: #ffd362;
+}
+
+.metric-baja h3 {
+  color: #72ffb4;
+}
+
+.soc-canvas-wrap {
+  border: 1px solid rgba(120, 155, 216, 0.2);
+  border-radius: 12px;
+  padding: 0.45rem;
+  background: rgba(10, 21, 46, 0.62);
+}
+
 .qr {
   border-color: rgba(118, 154, 215, 0.26);
   background: #f5f8ff;
@@ -1426,6 +1527,14 @@ th {
     max-height: none;
   }
 
+  .soc-metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .soc-bottom-grid {
+    grid-template-columns: 1fr;
+  }
+
   .grid-main,
   .grid-secondary {
     grid-template-columns: 1fr;
@@ -1490,6 +1599,10 @@ th {
 
   .sidebar-toggle {
     width: 100%;
+  }
+
+  .soc-metrics-grid {
+    grid-template-columns: 1fr;
   }
 
   .report-filters,

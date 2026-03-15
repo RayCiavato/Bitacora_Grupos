@@ -209,40 +209,38 @@
               <p class="eyebrow">ACCESOS</p>
               <h3>Navegacion</h3>
               <nav id="sidebarNav" class="sidebar-nav">
-                <button type="button" class="btn btn-ghost sidebar-link is-active" data-target="dashboardTop">
+                <a href="/dashboard" class="btn btn-ghost sidebar-link is-active">
                   Inicio
-                </button>
-                <button type="button" class="btn btn-ghost sidebar-link" data-target="kpiSection">Resumen</button>
-                <button type="button" class="btn btn-ghost sidebar-link" data-target="registroSection">
+                </a>
+                <a href="/resumen" class="btn btn-ghost sidebar-link">Resumen</a>
+                <a href="/registro/nuevo" class="btn btn-ghost sidebar-link">
                   Nuevo registro
-                </button>
-                <button type="button" class="btn btn-ghost sidebar-link" data-target="informeSection">
+                </a>
+                <a href="/informes" class="btn btn-ghost sidebar-link">
                   Informe
-                </button>
-                <button type="button" class="btn btn-ghost sidebar-link" data-target="tendenciasSection">
+                </a>
+                <a href="/tendencias" class="btn btn-ghost sidebar-link">
                   Tendencias
-                </button>
-                <button type="button" class="btn btn-ghost sidebar-link" data-target="attachmentsCard">
+                </a>
+                <a href="/adjuntos" class="btn btn-ghost sidebar-link">
                   Adjuntos
-                </button>
-                <button
-                  type="button"
+                </a>
+                <a
+                  href="/usuarios"
                   class="btn btn-ghost sidebar-link hidden"
-                  data-target="adminTools"
                   data-requires="admin"
                 >
                   Usuarios
-                </button>
-                <button
-                  type="button"
+                </a>
+                <a
+                  href="/plantillas"
                   class="btn btn-ghost sidebar-link hidden"
-                  data-target="templateTools"
                   data-requires="templates"
                 >
                   Plantillas
-                </button>
+                </a>
               </nav>
-              <p class="help-text">Panel plegable: usa estos botones para saltar entre secciones.</p>
+              <p class="help-text">Navegacion por paginas independientes del panel operativo.</p>
             </aside>
 
             <div class="dashboard-content">
@@ -255,6 +253,56 @@
                 </div>
                 <button id="logoutBtn" class="btn btn-ghost">Cerrar sesion</button>
               </header>
+
+              <section id="socDashboardSection" class="soc-dashboard hidden">
+                <article class="card soc-metrics-grid">
+                  <div class="soc-metric">
+                    <p>Total de registros</p>
+                    <h3 id="socTotalRegistros">0</h3>
+                  </div>
+                  <div class="soc-metric">
+                    <p>Registros hoy</p>
+                    <h3 id="socRegistrosHoy">0</h3>
+                  </div>
+                  <div class="soc-metric metric-alta">
+                    <p>Prioridad alta</p>
+                    <h3 id="socPrioridadAlta">0</h3>
+                  </div>
+                  <div class="soc-metric metric-media">
+                    <p>Prioridad media</p>
+                    <h3 id="socPrioridadMedia">0</h3>
+                  </div>
+                  <div class="soc-metric metric-baja">
+                    <p>Prioridad baja</p>
+                    <h3 id="socPrioridadBaja">0</h3>
+                  </div>
+                </article>
+
+                <article class="card soc-chart-card">
+                  <div class="soc-chart-head">
+                    <h3>Registros por usuario</h3>
+                    <p id="socRangeInfo" class="help-text">Ultimos 30 dias</p>
+                  </div>
+                  <div class="soc-canvas-wrap">
+                    <canvas id="socUsersChart" aria-label="grafica-registros-por-usuario"></canvas>
+                  </div>
+                </article>
+
+                <section class="soc-bottom-grid">
+                  <article class="card soc-chart-card">
+                    <h3>Criticidad de bitacoras</h3>
+                    <div class="soc-canvas-wrap">
+                      <canvas id="socCriticalityChart" aria-label="grafica-criticidad"></canvas>
+                    </div>
+                  </article>
+                  <article class="card soc-chart-card">
+                    <h3>Actividad por fecha</h3>
+                    <div class="soc-canvas-wrap">
+                      <canvas id="socTimelineChart" aria-label="grafica-actividad-fecha"></canvas>
+                    </div>
+                  </article>
+                </section>
+              </section>
 
               <section id="kpiSection" class="grid-kpi">
                 <article class="card kpi">
@@ -271,7 +319,7 @@
                 </article>
               </section>
 
-              <section class="grid-main">
+              <section id="mainWorkspaceSection" class="grid-main">
                 <article id="registroSection" class="card">
                   <h3>Nuevo registro</h3>
                   <form id="eventForm" class="form">
@@ -385,7 +433,7 @@
                 </article>
               </section>
 
-              <section class="grid-secondary">
+              <section id="secondaryWorkspaceSection" class="grid-secondary">
                 <article id="tendenciasSection" class="card trends-card">
                   <h3>Tendencias del rango</h3>
                   <div class="trend-layout">
@@ -530,6 +578,7 @@
       </div>
     </footer>
     <div id="toast" class="toast hidden" aria-live="polite"></div>
+    <script src="/vendor/chart.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>
