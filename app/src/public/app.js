@@ -257,8 +257,8 @@ function getRequestedAuthView() {
 }
 
 function getAuthPopupMode() {
-  // Popup auth mode was retired; keep inline auth only.
-  return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get("popup") === "auth";
 }
 
 function applyLayoutMode(mode) {
@@ -669,13 +669,12 @@ function renderAttachments(items) {
 }
 
 function renderAuthView() {
-  applyLayoutMode(null);
-  authSection.classList.remove("hidden");
-  if (landingPanel) {
-    landingPanel.classList.add("hidden");
-  }
-
+  applyLayoutMode(state.authPopup ? "auth-popup-mode" : "landing-mode");
   dashboardSection.classList.add("hidden");
+  authSection.classList.toggle("hidden", !state.authPopup);
+  if (landingPanel) {
+    landingPanel.classList.toggle("hidden", state.authPopup);
+  }
   mfaSetupCard.classList.add("hidden");
   setAuthView(state.authView);
 }
@@ -772,6 +771,30 @@ function openReportWindow() {
   }
 
   return Boolean(popup);
+}
+
+function openAuthWindow(requestedView = "login") {
+  const authView = requestedView === "register" ? "register" : "login";
+  const params = new URLSearchParams({
+    popup: "auth",
+    auth: authView
+  });
+
+  const width = 620;
+  const height = 850;
+  const left = Math.max(0, Math.round((window.screen.width - width) / 2));
+  const top = Math.max(0, Math.round((window.screen.height - height) / 2));
+  const popup = window.open(
+    `/?${params.toString()}`,
+    "bitacora-auth-view",
+    `popup=yes,width=${width},height=${height},left=${left},top=${top}`
+  );
+
+  if (popup) {
+    popup.focus();
+  }
+
+  return popup;
 }
 
 function parseContentDispositionFileName(headerValue) {
@@ -1064,6 +1087,14 @@ async function handleLogin(event) {
   if (response.status === 423) {
     showToast(`Cuenta bloqueada hasta ${data?.lockedUntil || "nuevo aviso"}.`, "error");
     return;
+  }
+
+  if (data?.error === "mfa_token_required" || data?.error === "invalid_mfa_token") {
+    const mfaInput = document.getElementById("mfaToken");
+    if (mfaInput instanceof HTMLInputElement) {
+      mfaInput.focus();
+      mfaInput.select();
+    }
   }
 
   showToast(resolveErrorMessage(data?.error, data?.details), "error");
@@ -1860,17 +1891,19 @@ function handleAuthLaunchClick(event) {
   }
 
   const requestedView = target.dataset.auth === "register" ? "register" : "login";
-  state.authView = requestedView;
-  renderAuthView();
-
-  const focusId = requestedView === "register" ? "registerName" : "email";
-  const focusField = document.getElementById(focusId);
-  if (focusField instanceof HTMLElement) {
-    focusField.focus();
+  if (state.authPopup) {
+    setAuthView(requestedView);
+    const focusId = requestedView === "register" ? "registerName" : "email";
+    const focusField = document.getElementById(focusId);
+    if (focusField instanceof HTMLElement) {
+      focusField.focus();
+    }
+    return;
   }
 
-  if (authSection) {
-    authSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  const popup = openAuthWindow(requestedView);
+  if (!popup) {
+    window.location.href = `/?popup=auth&auth=${requestedView}`;
   }
 }
 
@@ -2010,13 +2043,33 @@ function startMatrixRain() {
     return;
   }
 
-  const glyphs = ["0", "1"];
-  const fontSize = 16;
-  const fadeColor = "rgba(2, 10, 5, 0.13)";
-  let columns = 0;
-  let drops = [];
+  const glyphs = "01<>[]{}+-*/N1NJA".split("");
+  const palette = [
+    { r: 82, g: 229, b: 255 },
+    { r: 118, g: 255, b: 149 },
+    { r: 255, g: 75, b: 170 }
+  ];
+  const fontSize = 18;
+  const trailFade = "rgba(2, 8, 22, 0.22)";
+  const frameInterval = 1000 / 32;
+
+  let streams = [];
   let viewportWidth = Math.max(window.innerWidth, 320);
   let viewportHeight = Math.max(window.innerHeight, 320);
+  let frameId = null;
+  let lastFrameTime = 0;
+
+  function createStream(columnIndex) {
+    return {
+      x: columnIndex * fontSize,
+      y: -Math.random() * viewportHeight,
+      speed: 1 + Math.random() * 2.2,
+      length: 8 + Math.floor(Math.random() * 15),
+      paletteIndex: Math.floor(Math.random() * palette.length),
+      glyphShift: Math.floor(Math.random() * glyphs.length),
+      frame: 0
+    };
+  }
 
   function resizeCanvas() {
     const dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -2031,39 +2084,66 @@ function startMatrixRain() {
     canvas.style.height = `${height}px`;
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    columns = Math.floor(viewportWidth / fontSize) + 1;
-    drops = Array.from({ length: columns }, () => Math.floor(Math.random() * 20));
+    const columns = Math.floor(viewportWidth / fontSize) + 2;
+    streams = Array.from({ length: columns }, (_unused, index) => createStream(index));
   }
 
-  function drawFrame() {
-    context.fillStyle = fadeColor;
+  function drawFrame(timestamp) {
+    frameId = window.requestAnimationFrame(drawFrame);
+    if (timestamp - lastFrameTime < frameInterval) {
+      return;
+    }
+    lastFrameTime = timestamp;
+
+    context.fillStyle = trailFade;
     context.fillRect(0, 0, viewportWidth, viewportHeight);
 
     context.font = `${fontSize}px "Share Tech Mono", monospace`;
     context.textAlign = "left";
     context.textBaseline = "top";
 
-    for (let i = 0; i < columns; i += 1) {
-      const glyph = glyphs[Math.floor(Math.random() * glyphs.length)];
-      const x = i * fontSize;
-      const y = drops[i] * fontSize;
-      const alpha = 0.4 + Math.random() * 0.5;
-      context.fillStyle = `rgba(118, 255, 149, ${alpha.toFixed(2)})`;
-      context.fillText(glyph, x, y);
+    streams.forEach((stream, index) => {
+      for (let offset = 0; offset < stream.length; offset += 1) {
+        const y = stream.y - offset * fontSize;
+        if (y < -fontSize || y > viewportHeight + fontSize) {
+          continue;
+        }
 
-      if (y > viewportHeight + fontSize && Math.random() > 0.975) {
-        drops[i] = 0;
-      } else {
-        drops[i] += 1;
+        const glyphIndex =
+          (stream.glyphShift + stream.frame + offset + index) % glyphs.length;
+        const glyph = glyphs[glyphIndex];
+        const tone = palette[(stream.paletteIndex + offset) % palette.length];
+        const intensity = Math.max(0.06, 1 - offset / stream.length);
+
+        if (offset === 0) {
+          context.shadowColor = `rgba(${tone.r}, ${tone.g}, ${tone.b}, 0.85)`;
+          context.shadowBlur = 12;
+        } else {
+          context.shadowBlur = 0;
+        }
+
+        context.fillStyle = `rgba(${tone.r}, ${tone.g}, ${tone.b}, ${(intensity * 0.78).toFixed(2)})`;
+        context.fillText(glyph, stream.x, y);
       }
-    }
+
+      stream.y += stream.speed;
+      stream.frame += 1;
+
+      if (stream.y - stream.length * fontSize > viewportHeight + fontSize) {
+        streams[index] = createStream(index);
+      }
+    });
+
+    context.shadowBlur = 0;
   }
 
   resizeCanvas();
-  const timer = window.setInterval(drawFrame, 72);
+  frameId = window.requestAnimationFrame(drawFrame);
   window.addEventListener("resize", resizeCanvas);
   window.addEventListener("beforeunload", () => {
-    window.clearInterval(timer);
+    if (frameId) {
+      window.cancelAnimationFrame(frameId);
+    }
   });
 }
 
@@ -2135,6 +2215,15 @@ async function bootstrap() {
   if (!hasSession) {
     clearSession();
     renderAuthView();
+    return;
+  }
+
+  if (state.authPopup) {
+    if (window.opener && !window.opener.closed) {
+      window.opener.location.reload();
+    }
+    window.close();
+    window.location.href = "/";
     return;
   }
 

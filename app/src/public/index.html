@@ -46,13 +46,13 @@
         </div>
         <h1>Control real del trabajo de tu equipo</h1>
         <p class="subtitle">
-          Registro diario, trazabilidad por persona y reportes exportables para todo tu equipo.
+          Registro diario, trazabilidad por persona y reportes exportables con MFA en Google Authenticator.
         </p>
         <div class="entry-actions">
-          <a class="btn btn-primary auth-launch" data-auth="login" href="/?auth=login">
+          <a class="btn btn-primary auth-launch" data-auth="login" href="/?popup=auth&auth=login">
             Iniciar sesion
           </a>
-          <a class="btn btn-secondary auth-launch" data-auth="register" href="/?auth=register">
+          <a class="btn btn-secondary auth-launch" data-auth="register" href="/?popup=auth&auth=register">
             Registrarse
           </a>
         </div>
@@ -68,13 +68,13 @@
           </article>
           <article>
             <h3>Seguridad empresarial</h3>
-            <p>Cookies HttpOnly, refresh token y auditoria de acciones con MFA opcional.</p>
+            <p>Cookies HttpOnly, refresh token, auditoria de acciones y MFA al registrarse.</p>
           </article>
         </div>
       </aside>
 
       <section class="workspace">
-        <section id="authSection" class="panel auth-panel">
+        <section id="authSection" class="panel auth-panel hidden">
           <div class="auth-ornament" aria-hidden="true"></div>
           <div class="auth-lock-badge" aria-hidden="true">
             <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
@@ -113,10 +113,21 @@
                 Contrasena
                 <input id="password" type="password" autocomplete="current-password" required />
               </label>
-              <input id="mfaToken" type="hidden" />
+              <label>
+                Codigo MFA (Google Authenticator)
+                <input
+                  id="mfaToken"
+                  type="text"
+                  inputmode="numeric"
+                  maxlength="6"
+                  pattern="[0-9]{6}"
+                  autocomplete="one-time-code"
+                  placeholder="123456"
+                />
+              </label>
               <button type="submit" class="btn btn-primary">Entrar al panel</button>
             </form>
-            <p class="help-text">MFA es opcional y solo aplica si fue habilitado por el administrador.</p>
+            <p class="help-text">Si tu cuenta ya tiene MFA activado, debes ingresar el codigo de Google Authenticator.</p>
             <div class="auth-inline-actions">
               <button id="switchToRegisterBtn" type="button" class="btn-link auth-inline-link">
                 No tienes una cuenta?
@@ -154,7 +165,7 @@
               </label>
               <button type="submit" class="btn btn-secondary">Crear y entrar</button>
             </form>
-            <p class="help-text">El registro crea usuarios con rol funcionario.</p>
+            <p class="help-text">El registro crea usuarios con rol funcionario y solicita activar MFA con QR.</p>
             <div class="auth-inline-actions">
               <button id="switchToLoginBtn" type="button" class="btn-link auth-inline-link">
                 Ya tengo cuenta

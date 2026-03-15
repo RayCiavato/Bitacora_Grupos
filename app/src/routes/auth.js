@@ -205,7 +205,7 @@ router.post("/login", async (req, res, next) => {
       });
     }
 
-    if (config.mfaRequired && user.mfa_enabled) {
+    if (user.mfa_enabled) {
       if (!user.mfa_secret) {
         await registerFailedAttempt(user);
         return res.status(401).json({ error: "invalid_mfa_setup" });
@@ -271,36 +271,26 @@ router.post("/register", async (req, res, next) => {
 
     const user = insertResult.rows[0];
 
-    if (config.mfaRequired) {
-      const setupToken = createMfaSetupToken(user);
-      await createAuditLog({
-        userId: user.id,
-        action: "auth.register_success",
-        entity: "auth",
-        entityId: user.id,
-        metadata: { role: user.role },
-        req
-      });
+    const setupToken = createMfaSetupToken(user);
+    await createAuditLog({
+      userId: user.id,
+      action: "auth.register_success",
+      entity: "auth",
+      entityId: user.id,
+      metadata: { role: user.role },
+      req
+    });
 
-      return res.status(201).json({
-        message: "Usuario registrado correctamente. Activa MFA para ingresar.",
-        setupRequired: true,
-        setupToken,
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role
-        }
-      });
-    }
-
-    const session = await issueSession({ user, req, res, auditAction: "auth.register_success" });
     return res.status(201).json({
-      message: "Usuario registrado y sesion iniciada correctamente.",
-      setupRequired: false,
-      ...session,
-      tokenType: "cookie"
+      message: "Usuario registrado correctamente. Escanea el QR para activar MFA.",
+      setupRequired: true,
+      setupToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

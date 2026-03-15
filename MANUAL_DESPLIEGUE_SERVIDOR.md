@@ -162,12 +162,12 @@ docker compose logs --tail=100 app
 docker compose logs --tail=100 caddy
 ```
 
-## 9) Primer acceso del admin (MFA opcional)
+## 9) Primer acceso del admin (MFA segun politica)
 
 1. Abre en navegador: `https://<APP_DOMAIN>`.
 2. Inicia sesion con `ADMIN_DEFAULT_EMAIL` / `ADMIN_DEFAULT_PASSWORD`.
-3. Si `MFA_REQUIRED=true`, el sistema pedira configurar MFA (QR).
-4. Si MFA esta habilitado, escanea con Google Authenticator/Authy y confirma el codigo.
+3. Los registros publicos nuevos siempre inician enrolamiento MFA por QR (Google Authenticator/Authy).
+4. Si `MFA_REQUIRED=true`, ademas se exigira MFA para todas las cuentas que aun no lo tengan.
 
 ## 10) Operacion diaria
 

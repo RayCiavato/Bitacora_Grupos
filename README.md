@@ -43,7 +43,7 @@ El script genera secretos fuertes y deja:
 - `ALLOW_PUBLIC_REGISTRATION=false`
 - `UPLOAD_DIR=/usr/src/app/uploads` (persistente)
 - `POSTGRES_PASSWORD` URL-safe (`A-Za-z0-9_-`) para no romper `DATABASE_URL`
-- `MFA_REQUIRED=false` (MFA no obligatorio)
+- `MFA_REQUIRED=false` (el login solo exige MFA a cuentas que ya lo activaron; el registro nuevo siempre inicia enrolamiento por QR)
 
 Si defines `--db-password` manual, evita caracteres reservados de URL como `#`, `%`, `@`, `/`, `:`, `?`.
 
