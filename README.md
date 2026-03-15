@@ -41,7 +41,7 @@ El script genera secretos fuertes y deja:
 
 - `CADDY_PROFILE=http` + `COOKIE_SECURE=false` cuando `APP_DOMAIN` es IP/localhost.
 - `CADDY_PROFILE=https` + `COOKIE_SECURE=true` cuando `APP_DOMAIN` es dominio.
-- `ALLOW_PUBLIC_REGISTRATION=false`
+- `ALLOW_PUBLIC_REGISTRATION=true`
 - `UPLOAD_DIR=/usr/src/app/uploads` (persistente)
 - `POSTGRES_PASSWORD` URL-safe (`A-Za-z0-9_-`) para no romper `DATABASE_URL`
 - `MFA_REQUIRED=false` (el login solo exige MFA a cuentas que ya lo activaron; el registro nuevo siempre inicia enrolamiento por QR)

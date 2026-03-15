@@ -1,4 +1,4 @@
-const CACHE_NAME = "bitacora-v9";
+const CACHE_NAME = "bitacora-v10";
 const PRECACHE = [
   "/",
   "/index.html",
@@ -70,30 +70,20 @@ self.addEventListener("fetch", (event) => {
   }
 
   event.respondWith(
-    caches.match(request).then(async (cached) => {
-      const networkPromise = fetch(request)
-        .then((response) => {
-          if (response.ok && response.type === "basic") {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-          }
-          return response;
-        })
-        .catch(() => null);
-
-      if (cached) {
-        networkPromise.then(() => {
-          // stale-while-revalidate silencioso
-        });
-        return cached;
-      }
-
-      const networkResponse = await networkPromise;
-      if (networkResponse) {
-        return networkResponse;
-      }
-
-      return new Response("Offline", { status: 503, statusText: "Offline" });
-    })
+    fetch(request)
+      .then((response) => {
+        if (response.ok && response.type === "basic") {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+        }
+        return response;
+      })
+      .catch(async () => {
+        const cached = await caches.match(request);
+        if (cached) {
+          return cached;
+        }
+        return new Response("Offline", { status: 503, statusText: "Offline" });
+      })
   );
 });

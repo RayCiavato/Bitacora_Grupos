@@ -1154,11 +1154,16 @@ function parseContentDispositionFileName(headerValue) {
 }
 
 async function api(path, options = {}) {
+  const { timeoutMs = 20000, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
   const requestOptions = {
     credentials: "same-origin",
-    ...options,
+    ...fetchOptions,
+    signal: controller.signal,
     headers: {
-      ...(options.headers || {})
+      ...(fetchOptions.headers || {})
     }
   };
 
@@ -1170,8 +1175,15 @@ async function api(path, options = {}) {
       data = await response.json();
     }
     return { response, data, networkError: false };
-  } catch (_error) {
-    return { response: null, data: null, networkError: true };
+  } catch (error) {
+    return {
+      response: null,
+      data: null,
+      networkError: true,
+      timedOut: error?.name === "AbortError"
+    };
+  } finally {
+    window.clearTimeout(timeoutId);
   }
 }
 
@@ -1426,7 +1438,7 @@ async function handleLogin(event) {
     mfaToken: document.getElementById("mfaToken").value.trim() || undefined
   };
 
-  const { response, data, networkError } = await api("/auth/login", {
+  const { response, data, networkError, timedOut } = await api("/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
@@ -1435,7 +1447,10 @@ async function handleLogin(event) {
   setButtonBusy(submitButton, false);
 
   if (networkError) {
-    showToast("No hay conexion con el servidor.", "error");
+    showToast(
+      timedOut ? "Tiempo de espera agotado. Revisa la conexion e intenta de nuevo." : "No hay conexion con el servidor.",
+      "error"
+    );
     return;
   }
 
@@ -1581,7 +1596,7 @@ async function handleRegister(event) {
     return;
   }
 
-  const { response, data, networkError } = await api("/auth/register", {
+  const { response, data, networkError, timedOut } = await api("/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, email, password })
@@ -1590,7 +1605,12 @@ async function handleRegister(event) {
   setButtonBusy(submitButton, false);
 
   if (networkError) {
-    showToast("No hay conexion para registrar el usuario.", "error");
+    showToast(
+      timedOut
+        ? "Tiempo de espera agotado al registrar. Intenta nuevamente."
+        : "No hay conexion para registrar el usuario.",
+      "error"
+    );
     return;
   }
 
@@ -2631,7 +2651,7 @@ async function bootstrap() {
 
     window.addEventListener("load", () => {
       navigator.serviceWorker
-        .register("/sw.js?v=9")
+        .register("/sw.js?v=10")
         .then((registration) => registration.update())
         .catch(() => {
           // No interrumpir flujo principal si falla el service worker.

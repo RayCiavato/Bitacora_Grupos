@@ -109,7 +109,7 @@ GRAFANA_ADMIN_PASSWORD=<generado>
 CADDY_PROFILE=http   # si APP_DOMAIN es IP/localhost
 COOKIE_SECURE=false  # si APP_DOMAIN es IP/localhost
 MFA_REQUIRED=false
-ALLOW_PUBLIC_REGISTRATION=false
+ALLOW_PUBLIC_REGISTRATION=true
 UPLOAD_DIR=/usr/src/app/uploads
 ```
 
