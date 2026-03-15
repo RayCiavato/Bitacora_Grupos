@@ -331,6 +331,29 @@ function isPanelRoute(path = getCurrentPanelPath()) {
   return PANEL_ROUTES.has(path);
 }
 
+function completeAuthPopupNavigation() {
+  if (!state.authPopup) {
+    return false;
+  }
+
+  let openerRedirected = false;
+  try {
+    if (window.opener && !window.opener.closed) {
+      window.opener.location.href = "/dashboard";
+      openerRedirected = true;
+    }
+  } catch (_error) {
+    openerRedirected = false;
+  }
+
+  if (openerRedirected) {
+    window.close();
+  }
+
+  window.location.href = "/dashboard";
+  return true;
+}
+
 function setElementVisible(element, isVisible) {
   if (!element) {
     return;
@@ -1464,12 +1487,7 @@ async function handleLogin(event) {
       }
     }
 
-    if (state.authPopup) {
-      if (window.opener && !window.opener.closed) {
-        window.opener.location.reload();
-      }
-      window.close();
-      window.location.href = "/";
+    if (completeAuthPopupNavigation()) {
       return;
     }
 
@@ -1568,12 +1586,7 @@ async function handleMfaEnable(event) {
     }
   }
 
-  if (state.authPopup) {
-    if (window.opener && !window.opener.closed) {
-      window.opener.location.reload();
-    }
-    window.close();
-    window.location.href = "/";
+  if (completeAuthPopupNavigation()) {
     return;
   }
 
@@ -1633,12 +1646,7 @@ async function handleRegister(event) {
 
   state.user = data?.user || null;
   if (state.user) {
-    if (state.authPopup) {
-      if (window.opener && !window.opener.closed) {
-        window.opener.location.reload();
-      }
-      window.close();
-      window.location.href = "/";
+    if (completeAuthPopupNavigation()) {
       return;
     }
 
@@ -2671,12 +2679,7 @@ async function bootstrap() {
     return;
   }
 
-  if (state.authPopup) {
-    if (window.opener && !window.opener.closed) {
-      window.opener.location.reload();
-    }
-    window.close();
-    window.location.href = "/";
+  if (completeAuthPopupNavigation()) {
     return;
   }
 
