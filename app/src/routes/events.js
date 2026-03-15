@@ -17,7 +17,7 @@ const createEventSchema = z.object({
   fecha: z.string().date(),
   descripcionActividad: z.string().min(3).max(3000),
   observacion: z.string().min(3).max(3000),
-  prioridad: z.enum(["baja", "media", "alta"]).default("media"),
+  prioridad: z.enum(["baja", "media", "alta", "observacion"]).default("media"),
   templateId: z.coerce.number().int().positive().optional()
 });
 
@@ -26,7 +26,7 @@ const updateEventSchema = z
     fecha: z.string().date().optional(),
     descripcionActividad: z.string().min(3).max(3000).optional(),
     observacion: z.string().min(3).max(3000).optional(),
-    prioridad: z.enum(["baja", "media", "alta"]).optional(),
+    prioridad: z.enum(["baja", "media", "alta", "observacion"]).optional(),
     templateId: z.number().int().positive().nullable().optional()
   })
   .refine((payload) => Object.keys(payload).length > 0, {
@@ -37,7 +37,7 @@ const reportQuerySchema = z.object({
   from: z.string().date(),
   to: z.string().date(),
   q: z.string().trim().max(200).optional(),
-  priority: z.enum(["baja", "media", "alta"]).optional(),
+  priority: z.enum(["baja", "media", "alta", "observacion"]).optional(),
   encargadoId: z.coerce.number().int().positive().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20)

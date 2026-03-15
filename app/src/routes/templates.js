@@ -10,7 +10,7 @@ const templateSchema = z.object({
   name: z.string().trim().min(3).max(160),
   descripcionBase: z.string().trim().min(3).max(3000),
   observacionBase: z.string().trim().min(3).max(3000),
-  prioridadDefault: z.enum(["baja", "media", "alta"]).default("media"),
+  prioridadDefault: z.enum(["baja", "media", "alta", "observacion"]).default("media"),
   isActive: z.boolean().optional()
 });
 

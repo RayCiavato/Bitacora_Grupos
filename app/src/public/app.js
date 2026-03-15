@@ -76,6 +76,19 @@ const attachmentList = document.getElementById("attachmentList");
 const exportButtons = document.querySelectorAll(".export-btn");
 const openReportBtn = document.getElementById("openReportBtn");
 const authLaunchButtons = document.querySelectorAll(".auth-launch");
+const sidebarToggleBtn = document.getElementById("sidebarToggleBtn");
+const dashboardSidebar = document.getElementById("dashboardSidebar");
+const sidebarNav = document.getElementById("sidebarNav");
+const sidebarLinks = document.querySelectorAll(".sidebar-link");
+const welcomeMessage = document.getElementById("welcomeMessage");
+
+const PRIORITY_VALUES = ["baja", "media", "alta", "observacion"];
+const PRIORITY_LABELS = {
+  baja: "Baja",
+  media: "Media",
+  alta: "Alta",
+  observacion: "Observacion informativa"
+};
 
 const ERROR_MESSAGES = {
   unauthorized: "Acceso no autorizado. Inicia sesion.",
@@ -127,7 +140,8 @@ const state = {
   eventOwners: {},
   authView: "login",
   authPopup: false,
-  pendingRefresh: null
+  pendingRefresh: null,
+  sidebarOpen: true
 };
 
 function toLocalISODate(date = new Date()) {
@@ -180,6 +194,16 @@ function formatBytes(bytes) {
     return `${(value / 1024).toFixed(1)} KB`;
   }
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function normalizePriority(priority) {
+  const value = String(priority || "").toLowerCase();
+  return PRIORITY_VALUES.includes(value) ? value : "media";
+}
+
+function formatPriorityLabel(priority) {
+  const normalized = normalizePriority(priority);
+  return PRIORITY_LABELS[normalized] || PRIORITY_LABELS.media;
 }
 
 function resolveErrorMessage(errorCode, details) {
@@ -262,9 +286,68 @@ function getAuthPopupMode() {
 }
 
 function applyLayoutMode(mode) {
-  document.body.classList.remove("session-active", "landing-mode", "auth-popup-mode");
+  document.body.classList.remove("session-active", "landing-mode", "auth-popup-mode", "dashboard-nav-open");
   if (mode) {
     document.body.classList.add(mode);
+  }
+}
+
+function setSidebarOpen(nextState) {
+  if (!dashboardSection || !sidebarToggleBtn) {
+    return;
+  }
+
+  const isOpen = Boolean(nextState);
+  state.sidebarOpen = isOpen;
+  dashboardSection.classList.toggle("sidebar-collapsed", !isOpen);
+  if (dashboardSidebar) {
+    dashboardSidebar.classList.toggle("is-open", isOpen);
+  }
+  document.body.classList.toggle("dashboard-nav-open", isOpen);
+  sidebarToggleBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+  sidebarToggleBtn.textContent = isOpen ? "Ocultar menu" : "Mostrar menu";
+}
+
+function updateSidebarRoleLinks() {
+  sidebarLinks.forEach((button) => {
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+
+    const required = button.dataset.requires;
+    if (required === "admin") {
+      button.classList.toggle("hidden", !isAdminSession());
+      return;
+    }
+
+    if (required === "templates") {
+      button.classList.toggle("hidden", !canManageTemplates());
+    }
+  });
+}
+
+function scrollToDashboardSection(sectionId) {
+  if (!sectionId) {
+    return;
+  }
+
+  const section = document.getElementById(sectionId);
+  if (!(section instanceof HTMLElement)) {
+    return;
+  }
+
+  section.scrollIntoView({
+    behavior: "smooth",
+    block: "start"
+  });
+
+  section.classList.add("section-pulse");
+  window.setTimeout(() => {
+    section.classList.remove("section-pulse");
+  }, 680);
+
+  if (window.matchMedia("(max-width: 980px)").matches) {
+    setSidebarOpen(false);
   }
 }
 
@@ -321,6 +404,7 @@ function clearSession() {
   state.eventOwners = {};
   state.authView = getRequestedAuthView();
   state.authPopup = getAuthPopupMode();
+  state.sidebarOpen = true;
 
   setKpi({});
   dateSummary.innerHTML = "";
@@ -338,6 +422,12 @@ function clearSession() {
   eventForm.reset();
   attachmentForm.reset();
   refreshAttachmentUploadState();
+  sidebarLinks.forEach((link) => {
+    link.classList.remove("is-active");
+  });
+  if (sidebarLinks[0]) {
+    sidebarLinks[0].classList.add("is-active");
+  }
 }
 
 function setKpi(report) {
@@ -413,12 +503,9 @@ function renderReportRows(report) {
 
     const tdPrioridad = document.createElement("td");
     const priorityTag = document.createElement("span");
-    const normalizedPriority = ["baja", "media", "alta"].includes(item.prioridad)
-      ? item.prioridad
-      : "media";
+    const normalizedPriority = normalizePriority(item.prioridad);
     priorityTag.className = `priority priority-${normalizedPriority}`;
-    priorityTag.textContent =
-      normalizedPriority.charAt(0).toUpperCase() + normalizedPriority.slice(1);
+    priorityTag.textContent = formatPriorityLabel(normalizedPriority);
     tdPrioridad.appendChild(priorityTag);
 
     const tdTemplate = document.createElement("td");
@@ -447,7 +534,7 @@ function renderReportRows(report) {
         fecha: item.fecha,
         descripcionActividad: item.descripcionActividad || "",
         observacion: item.observacion || "",
-        prioridad: item.prioridad || "media",
+        prioridad: normalizePriority(item.prioridad),
         templateId: item.templateId ?? null
       });
       editButton.textContent = "Editar";
@@ -538,7 +625,7 @@ function renderTrends(data) {
   priorities.forEach((item) => {
     const chip = document.createElement("span");
     chip.className = "chip";
-    chip.textContent = `${item.prioridad}: ${item.total}`;
+    chip.textContent = `${formatPriorityLabel(item.prioridad)}: ${item.total}`;
     trendPriority.appendChild(chip);
   });
 }
@@ -588,7 +675,7 @@ function renderTemplates() {
     .forEach((template) => {
       const option = document.createElement("option");
       option.value = String(template.id);
-      option.textContent = `${template.name} (${template.prioridadDefault})`;
+      option.textContent = `${template.name} (${formatPriorityLabel(template.prioridadDefault)})`;
       eventTemplateSelect.appendChild(option);
     });
 
@@ -607,7 +694,7 @@ function renderTemplates() {
 
     const header = document.createElement("header");
     const title = document.createElement("strong");
-    title.textContent = `${template.name} (${template.prioridadDefault})`;
+    title.textContent = `${template.name} (${formatPriorityLabel(template.prioridadDefault)})`;
 
     const button = document.createElement("button");
     button.type = "button";
@@ -671,10 +758,17 @@ function renderAttachments(items) {
 function renderAuthView() {
   applyLayoutMode(state.authPopup ? "auth-popup-mode" : "landing-mode");
   dashboardSection.classList.add("hidden");
+  dashboardSection.classList.add("sidebar-collapsed");
   authSection.hidden = !state.authPopup;
   authSection.classList.toggle("hidden", !state.authPopup);
   if (landingPanel) {
     landingPanel.classList.toggle("hidden", state.authPopup);
+  }
+  if (welcomeMessage) {
+    welcomeMessage.textContent = "";
+  }
+  if (sessionInfo) {
+    sessionInfo.textContent = "";
   }
   mfaSetupCard.classList.add("hidden");
   setAuthView(state.authView);
@@ -697,7 +791,10 @@ function renderDashboardView() {
     funcionario: "Funcionario"
   }[state.user.role] || state.user.role;
 
-  sessionInfo.textContent = `${state.user.name} | ${roleLabel}`;
+  if (welcomeMessage) {
+    welcomeMessage.textContent = `Bienvenido, ${state.user.name}`;
+  }
+  sessionInfo.textContent = `${roleLabel} | ${state.user.email}`;
   encargadoInput.value = state.user.name;
 
   if (isAdminSession()) {
@@ -714,6 +811,13 @@ function renderDashboardView() {
 
   userFilterInput.disabled = !canFilterByUser();
   refreshAttachmentUploadState();
+  updateSidebarRoleLinks();
+
+  const shouldOpenSidebar = !window.matchMedia("(max-width: 980px)").matches;
+  setSidebarOpen(shouldOpenSidebar);
+  sidebarLinks.forEach((link, index) => {
+    link.classList.toggle("is-active", index === 0);
+  });
 }
 
 function buildReportParams(includePagination = true) {
@@ -1409,7 +1513,7 @@ async function handleEventEdit(button) {
   }
 
   const prioridadRaw = window.prompt(
-    "Prioridad (baja, media, alta)",
+    "Prioridad (baja, media, alta, observacion)",
     String(current.prioridad || "media")
   );
   if (prioridadRaw === null) {
@@ -1417,8 +1521,8 @@ async function handleEventEdit(button) {
   }
 
   const prioridad = prioridadRaw.trim().toLowerCase();
-  if (!["baja", "media", "alta"].includes(prioridad)) {
-    showToast("Prioridad invalida. Usa baja, media o alta.", "error");
+  if (!PRIORITY_VALUES.includes(prioridad)) {
+    showToast("Prioridad invalida. Usa baja, media, alta u observacion.", "error");
     return;
   }
 
@@ -1762,7 +1866,7 @@ function handleTemplateSelectChange() {
 
   document.getElementById("descripcionActividad").value = template.descripcionBase || "";
   document.getElementById("observacion").value = template.observacionBase || "";
-  document.getElementById("prioridad").value = template.prioridadDefault || "media";
+  document.getElementById("prioridad").value = normalizePriority(template.prioridadDefault);
 }
 
 async function handleExportClick(event) {
@@ -1941,6 +2045,34 @@ function handleSwitchToLogin() {
 
 function handleForgotPasswordHint() {
   showToast("Recuperacion de contrasena: contacta al administrador del sistema.", "info");
+}
+
+function handleSidebarToggle() {
+  setSidebarOpen(!state.sidebarOpen);
+}
+
+function handleSidebarNavClick(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  const button = target.closest(".sidebar-link");
+  if (!(button instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const sectionId = button.dataset.target;
+  if (!sectionId) {
+    return;
+  }
+
+  sidebarLinks.forEach((link) => {
+    link.classList.remove("is-active");
+  });
+  button.classList.add("is-active");
+
+  scrollToDashboardSection(sectionId);
 }
 
 async function handleReportTableClick(event) {
@@ -2207,6 +2339,12 @@ async function bootstrap() {
   reportPrev.addEventListener("click", handlePrevPage);
   reportNext.addEventListener("click", handleNextPage);
   logoutBtn.addEventListener("click", handleLogout);
+  if (sidebarToggleBtn) {
+    sidebarToggleBtn.addEventListener("click", handleSidebarToggle);
+  }
+  if (sidebarNav) {
+    sidebarNav.addEventListener("click", handleSidebarNavClick);
+  }
 
   adminPasswordForm.addEventListener("submit", handleAdminPasswordUpdate);
   adminGeneratePassword.addEventListener("click", handleGenerateAdminPassword);

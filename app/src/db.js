@@ -48,7 +48,7 @@ async function ensureDatabaseSchema() {
         descripcion_actividad TEXT NOT NULL,
         observacion TEXT NOT NULL,
         prioridad VARCHAR(10) NOT NULL DEFAULT 'media'
-          CHECK (prioridad IN ('baja', 'media', 'alta')),
+          CHECK (prioridad IN ('baja', 'media', 'alta', 'observacion')),
         encargado_id BIGINT NOT NULL REFERENCES users(id),
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -86,7 +86,7 @@ async function ensureDatabaseSchema() {
         descripcion_base TEXT NOT NULL,
         observacion_base TEXT NOT NULL,
         prioridad_default VARCHAR(10) NOT NULL DEFAULT 'media'
-          CHECK (prioridad_default IN ('baja', 'media', 'alta')),
+          CHECK (prioridad_default IN ('baja', 'media', 'alta', 'observacion')),
         is_active BOOLEAN NOT NULL DEFAULT TRUE,
         created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -127,6 +127,48 @@ async function ensureDatabaseSchema() {
     `
       ALTER TABLE events
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `,
+    `
+      DO $$
+      DECLARE constraint_name TEXT;
+      BEGIN
+        FOR constraint_name IN
+          SELECT c.conname
+          FROM pg_constraint c
+          WHERE c.conrelid = 'events'::regclass
+            AND c.contype = 'c'
+            AND pg_get_constraintdef(c.oid) ILIKE '%prioridad%'
+        LOOP
+          EXECUTE format('ALTER TABLE events DROP CONSTRAINT IF EXISTS %I', constraint_name);
+        END LOOP;
+
+        ALTER TABLE events
+          ADD CONSTRAINT events_prioridad_check
+          CHECK (prioridad IN ('baja', 'media', 'alta', 'observacion'));
+      EXCEPTION
+        WHEN duplicate_object THEN NULL;
+      END $$;
+    `,
+    `
+      DO $$
+      DECLARE constraint_name TEXT;
+      BEGIN
+        FOR constraint_name IN
+          SELECT c.conname
+          FROM pg_constraint c
+          WHERE c.conrelid = 'event_templates'::regclass
+            AND c.contype = 'c'
+            AND pg_get_constraintdef(c.oid) ILIKE '%prioridad_default%'
+        LOOP
+          EXECUTE format('ALTER TABLE event_templates DROP CONSTRAINT IF EXISTS %I', constraint_name);
+        END LOOP;
+
+        ALTER TABLE event_templates
+          ADD CONSTRAINT event_templates_prioridad_default_check
+          CHECK (prioridad_default IN ('baja', 'media', 'alta', 'observacion'));
+      EXCEPTION
+        WHEN duplicate_object THEN NULL;
+      END $$;
     `,
     "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)",
     "CREATE INDEX IF NOT EXISTS idx_events_fecha ON events(fecha)",

@@ -20,6 +20,13 @@ const state = {
   currentUser: null
 };
 
+const PRIORITY_LABELS = {
+  baja: "Baja",
+  media: "Media",
+  alta: "Alta",
+  observacion: "Observacion informativa"
+};
+
 function formatDate(value) {
   if (!value) {
     return "-";
@@ -36,10 +43,12 @@ function formatDate(value) {
 }
 
 function formatPriority(value) {
-  const normalized = ["baja", "media", "alta"].includes(String(value || "").toLowerCase())
+  const normalized = ["baja", "media", "alta", "observacion"].includes(
+    String(value || "").toLowerCase()
+  )
     ? String(value).toLowerCase()
     : "media";
-  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+  return PRIORITY_LABELS[normalized] || PRIORITY_LABELS.media;
 }
 
 function renderEmpty(message) {

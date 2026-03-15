@@ -194,249 +194,319 @@
         </section>
 
         <section id="dashboardSection" class="panel dashboard hidden">
-          <header class="topbar card">
-            <div>
-              <p class="eyebrow">PANEL OPERATIVO</p>
-              <h2>Bitacora del equipo</h2>
-              <p id="sessionInfo" class="subtitle"></p>
+          <button
+            id="sidebarToggleBtn"
+            type="button"
+            class="btn btn-ghost sidebar-toggle"
+            aria-expanded="true"
+            aria-controls="dashboardSidebar"
+          >
+            Menu rapido
+          </button>
+
+          <div class="dashboard-layout">
+            <aside id="dashboardSidebar" class="card dashboard-sidebar" aria-label="accesos del panel">
+              <p class="eyebrow">ACCESOS</p>
+              <h3>Navegacion</h3>
+              <nav id="sidebarNav" class="sidebar-nav">
+                <button type="button" class="btn btn-ghost sidebar-link is-active" data-target="dashboardTop">
+                  Inicio
+                </button>
+                <button type="button" class="btn btn-ghost sidebar-link" data-target="kpiSection">Resumen</button>
+                <button type="button" class="btn btn-ghost sidebar-link" data-target="registroSection">
+                  Nuevo registro
+                </button>
+                <button type="button" class="btn btn-ghost sidebar-link" data-target="informeSection">
+                  Informe
+                </button>
+                <button type="button" class="btn btn-ghost sidebar-link" data-target="tendenciasSection">
+                  Tendencias
+                </button>
+                <button type="button" class="btn btn-ghost sidebar-link" data-target="attachmentsCard">
+                  Adjuntos
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-ghost sidebar-link hidden"
+                  data-target="adminTools"
+                  data-requires="admin"
+                >
+                  Usuarios
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-ghost sidebar-link hidden"
+                  data-target="templateTools"
+                  data-requires="templates"
+                >
+                  Plantillas
+                </button>
+              </nav>
+              <p class="help-text">Panel plegable: usa estos botones para saltar entre secciones.</p>
+            </aside>
+
+            <div class="dashboard-content">
+              <header id="dashboardTop" class="topbar card">
+                <div>
+                  <p class="eyebrow">PANEL OPERATIVO</p>
+                  <h2>Bitacora del equipo</h2>
+                  <p id="welcomeMessage" class="welcome-text"></p>
+                  <p id="sessionInfo" class="subtitle"></p>
+                </div>
+                <button id="logoutBtn" class="btn btn-ghost">Cerrar sesion</button>
+              </header>
+
+              <section id="kpiSection" class="grid-kpi">
+                <article class="card kpi">
+                  <p>Total registros</p>
+                  <h3 id="kpiTotal">0</h3>
+                </article>
+                <article class="card kpi">
+                  <p>Prioridad alta</p>
+                  <h3 id="kpiAlta">0</h3>
+                </article>
+                <article class="card kpi">
+                  <p>Dias con actividad</p>
+                  <h3 id="kpiDias">0</h3>
+                </article>
+              </section>
+
+              <section class="grid-main">
+                <article id="registroSection" class="card">
+                  <h3>Nuevo registro</h3>
+                  <form id="eventForm" class="form">
+                    <label>
+                      Encargado
+                      <input id="encargado" type="text" disabled />
+                    </label>
+                    <label>
+                      Plantilla
+                      <select id="eventTemplateSelect">
+                        <option value="">Sin plantilla</option>
+                      </select>
+                    </label>
+                    <label>
+                      Fecha
+                      <input id="fecha" type="date" required />
+                    </label>
+                    <label>
+                      Descripcion de actividad
+                      <textarea id="descripcionActividad" rows="4" required></textarea>
+                    </label>
+                    <label>
+                      Observacion
+                      <textarea id="observacion" rows="3" required></textarea>
+                    </label>
+                    <label>
+                      Prioridad
+                      <select id="prioridad" required>
+                        <option value="baja">Baja</option>
+                        <option value="media" selected>Media</option>
+                        <option value="alta">Alta</option>
+                        <option value="observacion">Observacion informativa</option>
+                      </select>
+                    </label>
+                    <button type="submit" class="btn btn-primary">Guardar en bitacora</button>
+                  </form>
+                </article>
+
+                <article id="informeSection" class="card">
+                  <h3>Informe por fecha</h3>
+                  <form id="filterForm" class="report-filters">
+                    <label>
+                      Desde
+                      <input id="fromDate" type="date" required />
+                    </label>
+                    <label>
+                      Hasta
+                      <input id="toDate" type="date" required />
+                    </label>
+                    <label>
+                      Buscar texto
+                      <input id="searchText" type="text" maxlength="200" placeholder="Actividad u observacion" />
+                    </label>
+                    <label>
+                      Prioridad
+                      <select id="priorityFilter">
+                        <option value="">Todas</option>
+                        <option value="baja">Baja</option>
+                        <option value="media">Media</option>
+                        <option value="alta">Alta</option>
+                        <option value="observacion">Observacion informativa</option>
+                      </select>
+                    </label>
+                    <label>
+                      Encargado
+                      <select id="userFilter">
+                        <option value="">Todos</option>
+                      </select>
+                    </label>
+                    <label>
+                      Filas por pagina
+                      <select id="pageSize">
+                        <option value="10">10</option>
+                        <option value="20" selected>20</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                      </select>
+                    </label>
+                    <div class="report-actions">
+                      <button type="submit" class="btn btn-secondary">Consultar</button>
+                      <button id="openReportBtn" type="button" class="btn btn-ghost">Abrir completo</button>
+                      <button type="button" data-format="csv" class="btn btn-ghost export-btn">CSV</button>
+                      <button type="button" data-format="xlsx" class="btn btn-ghost export-btn">Excel</button>
+                      <button type="button" data-format="pdf" class="btn btn-ghost export-btn">PDF</button>
+                    </div>
+                  </form>
+                  <p id="reportRange" class="help-text"></p>
+                  <div id="dateSummary" class="chips"></div>
+                  <div class="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Fecha</th>
+                          <th>Encargado</th>
+                          <th>Actividad</th>
+                          <th>Observacion</th>
+                          <th>Prioridad</th>
+                          <th>Plantilla</th>
+                          <th>Adjuntos</th>
+                          <th>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody id="reportBody"></tbody>
+                    </table>
+                  </div>
+                  <div class="pagination">
+                    <button id="reportPrev" type="button" class="btn btn-ghost">Anterior</button>
+                    <p id="reportPageInfo">Pagina 1 de 1</p>
+                    <button id="reportNext" type="button" class="btn btn-ghost">Siguiente</button>
+                  </div>
+                </article>
+              </section>
+
+              <section class="grid-secondary">
+                <article id="tendenciasSection" class="card trends-card">
+                  <h3>Tendencias del rango</h3>
+                  <div class="trend-layout">
+                    <div>
+                      <h4>Actividad por dia</h4>
+                      <div id="trendByDate" class="bars"></div>
+                    </div>
+                    <div>
+                      <h4>Prioridades</h4>
+                      <div id="trendPriority" class="chips"></div>
+                      <h4>Top encargados</h4>
+                      <div id="trendTopUsers" class="bars"></div>
+                    </div>
+                  </div>
+                </article>
+
+                <article id="attachmentsCard" class="card attachments-card">
+                  <h3>Adjuntos de registro</h3>
+                  <p id="selectedEventLabel" class="help-text">Selecciona un registro para ver o subir adjuntos.</p>
+                  <form id="attachmentForm" class="form">
+                    <input id="attachmentEventId" type="hidden" />
+                    <label>
+                      Archivo
+                      <input id="attachmentFile" type="file" />
+                    </label>
+                    <button type="submit" class="btn btn-secondary">Subir adjunto</button>
+                  </form>
+                  <div id="attachmentList" class="attachment-list"></div>
+                </article>
+              </section>
+
+              <section id="adminTools" class="card hidden">
+                <h3>Administracion de usuarios</h3>
+                <form id="adminPasswordForm" class="filter-row">
+                  <label>
+                    Usuario
+                    <select id="adminUserSelect" required></select>
+                  </label>
+                  <label>
+                    Nueva contrasena
+                    <input id="adminNewPassword" type="text" minlength="12" required />
+                  </label>
+                  <button type="submit" class="btn btn-primary">Asignar/Reiniciar</button>
+                </form>
+                <button id="adminGeneratePassword" class="btn btn-ghost">Generar contrasena fuerte</button>
+                <button id="adminUnlockUser" class="btn btn-ghost">Desbloquear usuario</button>
+                <button id="adminDeleteUser" class="btn btn-ghost">Eliminar usuario</button>
+
+                <form id="adminSelfPasswordForm" class="form">
+                  <h4>Cambiar mi contrasena (admin)</h4>
+                  <label>
+                    Contrasena actual
+                    <input id="adminCurrentPassword" type="password" autocomplete="current-password" required />
+                  </label>
+                  <label>
+                    Nueva contrasena
+                    <input
+                      id="adminSelfNewPassword"
+                      type="password"
+                      minlength="12"
+                      autocomplete="new-password"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Confirmar nueva contrasena
+                    <input
+                      id="adminSelfNewPasswordConfirm"
+                      type="password"
+                      minlength="12"
+                      autocomplete="new-password"
+                      required
+                    />
+                  </label>
+                  <button type="submit" class="btn btn-secondary">Actualizar mi contrasena</button>
+                </form>
+                <p class="help-text">
+                  Solo administrador: permite asignar/reiniciar contrasena y eliminar usuarios.
+                </p>
+              </section>
+
+              <section id="templateTools" class="card hidden">
+                <h3>Plantillas de registro</h3>
+                <form id="templateForm" class="form">
+                  <label>
+                    Nombre plantilla
+                    <input id="templateName" type="text" minlength="3" maxlength="160" required />
+                  </label>
+                  <label>
+                    Grupo / Equipo (opcional)
+                    <input
+                      id="templateGroup"
+                      type="text"
+                      minlength="2"
+                      maxlength="120"
+                      placeholder="Ej: Equipo Norte"
+                    />
+                  </label>
+                  <label>
+                    Descripcion base
+                    <textarea id="templateDescripcion" rows="3" required></textarea>
+                  </label>
+                  <label>
+                    Observacion base
+                    <textarea id="templateObservacion" rows="3" required></textarea>
+                  </label>
+                  <label>
+                    Prioridad por defecto
+                    <select id="templatePrioridad" required>
+                      <option value="baja">Baja</option>
+                      <option value="media" selected>Media</option>
+                      <option value="alta">Alta</option>
+                      <option value="observacion">Observacion informativa</option>
+                    </select>
+                  </label>
+                  <button type="submit" class="btn btn-primary">Crear plantilla</button>
+                </form>
+                <div id="templateList" class="template-list"></div>
+              </section>
             </div>
-            <button id="logoutBtn" class="btn btn-ghost">Cerrar sesion</button>
-          </header>
-
-          <section class="grid-kpi">
-            <article class="card kpi">
-              <p>Total registros</p>
-              <h3 id="kpiTotal">0</h3>
-            </article>
-            <article class="card kpi">
-              <p>Prioridad alta</p>
-              <h3 id="kpiAlta">0</h3>
-            </article>
-            <article class="card kpi">
-              <p>Dias con actividad</p>
-              <h3 id="kpiDias">0</h3>
-            </article>
-          </section>
-
-          <section class="grid-main">
-            <article class="card">
-              <h3>Nuevo registro</h3>
-              <form id="eventForm" class="form">
-                <label>
-                  Encargado
-                  <input id="encargado" type="text" disabled />
-                </label>
-                <label>
-                  Plantilla
-                  <select id="eventTemplateSelect">
-                    <option value="">Sin plantilla</option>
-                  </select>
-                </label>
-                <label>
-                  Fecha
-                  <input id="fecha" type="date" required />
-                </label>
-                <label>
-                  Descripcion de actividad
-                  <textarea id="descripcionActividad" rows="4" required></textarea>
-                </label>
-                <label>
-                  Observacion
-                  <textarea id="observacion" rows="3" required></textarea>
-                </label>
-                <label>
-                  Prioridad
-                  <select id="prioridad" required>
-                    <option value="baja">Baja</option>
-                    <option value="media" selected>Media</option>
-                    <option value="alta">Alta</option>
-                  </select>
-                </label>
-                <button type="submit" class="btn btn-primary">Guardar en bitacora</button>
-              </form>
-            </article>
-
-            <article class="card">
-              <h3>Informe por fecha</h3>
-              <form id="filterForm" class="report-filters">
-                <label>
-                  Desde
-                  <input id="fromDate" type="date" required />
-                </label>
-                <label>
-                  Hasta
-                  <input id="toDate" type="date" required />
-                </label>
-                <label>
-                  Buscar texto
-                  <input id="searchText" type="text" maxlength="200" placeholder="Actividad u observacion" />
-                </label>
-                <label>
-                  Prioridad
-                  <select id="priorityFilter">
-                    <option value="">Todas</option>
-                    <option value="baja">Baja</option>
-                    <option value="media">Media</option>
-                    <option value="alta">Alta</option>
-                  </select>
-                </label>
-                <label>
-                  Encargado
-                  <select id="userFilter">
-                    <option value="">Todos</option>
-                  </select>
-                </label>
-                <label>
-                  Filas por pagina
-                  <select id="pageSize">
-                    <option value="10">10</option>
-                    <option value="20" selected>20</option>
-                    <option value="50">50</option>
-                    <option value="100">100</option>
-                  </select>
-                </label>
-                <div class="report-actions">
-                  <button type="submit" class="btn btn-secondary">Consultar</button>
-                  <button id="openReportBtn" type="button" class="btn btn-ghost">Abrir completo</button>
-                  <button type="button" data-format="csv" class="btn btn-ghost export-btn">CSV</button>
-                  <button type="button" data-format="xlsx" class="btn btn-ghost export-btn">Excel</button>
-                  <button type="button" data-format="pdf" class="btn btn-ghost export-btn">PDF</button>
-                </div>
-              </form>
-              <p id="reportRange" class="help-text"></p>
-              <div id="dateSummary" class="chips"></div>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Fecha</th>
-                      <th>Encargado</th>
-                      <th>Actividad</th>
-                      <th>Observacion</th>
-                      <th>Prioridad</th>
-                      <th>Plantilla</th>
-                      <th>Adjuntos</th>
-                      <th>Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody id="reportBody"></tbody>
-                </table>
-              </div>
-              <div class="pagination">
-                <button id="reportPrev" type="button" class="btn btn-ghost">Anterior</button>
-                <p id="reportPageInfo">Pagina 1 de 1</p>
-                <button id="reportNext" type="button" class="btn btn-ghost">Siguiente</button>
-              </div>
-            </article>
-          </section>
-
-          <section class="grid-secondary">
-            <article class="card trends-card">
-              <h3>Tendencias del rango</h3>
-              <div class="trend-layout">
-                <div>
-                  <h4>Actividad por dia</h4>
-                  <div id="trendByDate" class="bars"></div>
-                </div>
-                <div>
-                  <h4>Prioridades</h4>
-                  <div id="trendPriority" class="chips"></div>
-                  <h4>Top encargados</h4>
-                  <div id="trendTopUsers" class="bars"></div>
-                </div>
-              </div>
-            </article>
-
-            <article id="attachmentsCard" class="card attachments-card">
-              <h3>Adjuntos de registro</h3>
-              <p id="selectedEventLabel" class="help-text">Selecciona un registro para ver o subir adjuntos.</p>
-              <form id="attachmentForm" class="form">
-                <input id="attachmentEventId" type="hidden" />
-                <label>
-                  Archivo
-                  <input id="attachmentFile" type="file" />
-                </label>
-                <button type="submit" class="btn btn-secondary">Subir adjunto</button>
-              </form>
-              <div id="attachmentList" class="attachment-list"></div>
-            </article>
-          </section>
-
-          <section id="adminTools" class="card hidden">
-            <h3>Administracion de usuarios</h3>
-            <form id="adminPasswordForm" class="filter-row">
-              <label>
-                Usuario
-                <select id="adminUserSelect" required></select>
-              </label>
-              <label>
-                Nueva contrasena
-                <input id="adminNewPassword" type="text" minlength="12" required />
-              </label>
-              <button type="submit" class="btn btn-primary">Asignar/Reiniciar</button>
-            </form>
-            <button id="adminGeneratePassword" class="btn btn-ghost">Generar contrasena fuerte</button>
-            <button id="adminUnlockUser" class="btn btn-ghost">Desbloquear usuario</button>
-            <button id="adminDeleteUser" class="btn btn-ghost">Eliminar usuario</button>
-
-            <form id="adminSelfPasswordForm" class="form">
-              <h4>Cambiar mi contrasena (admin)</h4>
-              <label>
-                Contrasena actual
-                <input id="adminCurrentPassword" type="password" autocomplete="current-password" required />
-              </label>
-              <label>
-                Nueva contrasena
-                <input id="adminSelfNewPassword" type="password" minlength="12" autocomplete="new-password" required />
-              </label>
-              <label>
-                Confirmar nueva contrasena
-                <input
-                  id="adminSelfNewPasswordConfirm"
-                  type="password"
-                  minlength="12"
-                  autocomplete="new-password"
-                  required
-                />
-              </label>
-              <button type="submit" class="btn btn-secondary">Actualizar mi contrasena</button>
-            </form>
-            <p class="help-text">
-              Solo administrador: permite asignar/reiniciar contrasena y eliminar usuarios.
-            </p>
-          </section>
-
-          <section id="templateTools" class="card hidden">
-            <h3>Plantillas de registro</h3>
-            <form id="templateForm" class="form">
-              <label>
-                Nombre plantilla
-                <input id="templateName" type="text" minlength="3" maxlength="160" required />
-              </label>
-              <label>
-                Grupo / Equipo (opcional)
-                <input id="templateGroup" type="text" minlength="2" maxlength="120" placeholder="Ej: Equipo Norte" />
-              </label>
-              <label>
-                Descripcion base
-                <textarea id="templateDescripcion" rows="3" required></textarea>
-              </label>
-              <label>
-                Observacion base
-                <textarea id="templateObservacion" rows="3" required></textarea>
-              </label>
-              <label>
-                Prioridad por defecto
-                <select id="templatePrioridad" required>
-                  <option value="baja">Baja</option>
-                  <option value="media" selected>Media</option>
-                  <option value="alta">Alta</option>
-                </select>
-              </label>
-              <button type="submit" class="btn btn-primary">Crear plantilla</button>
-            </form>
-            <div id="templateList" class="template-list"></div>
-          </section>
+          </div>
         </section>
       </section>
     </main>
