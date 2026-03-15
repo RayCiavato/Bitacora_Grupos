@@ -32,8 +32,8 @@ CREATE TABLE IF NOT EXISTS events (
   observacion TEXT NOT NULL,
   prioridad VARCHAR(10) NOT NULL DEFAULT 'media' CHECK (prioridad IN ('baja', 'media', 'alta')),
   encargado_id BIGINT NOT NULL REFERENCES users(id),
-  template_id BIGINT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS refresh_tokens (
@@ -73,6 +73,20 @@ CREATE TABLE IF NOT EXISTS event_templates (
 
 ALTER TABLE events
   ADD COLUMN IF NOT EXISTS template_id BIGINT REFERENCES event_templates(id) ON DELETE SET NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'events_template_id_fkey'
+      AND conrelid = 'events'::regclass
+  ) THEN
+    ALTER TABLE events
+    ADD CONSTRAINT events_template_id_fkey
+    FOREIGN KEY (template_id) REFERENCES event_templates(id) ON DELETE SET NULL;
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS event_attachments (
   id BIGSERIAL PRIMARY KEY,
@@ -117,6 +131,15 @@ END $$;
 
 DO $$
 BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgname = 'events_set_updated_at'
+  ) THEN
+    CREATE TRIGGER events_set_updated_at
+    BEFORE UPDATE ON events
+    FOR EACH ROW
+    EXECUTE FUNCTION set_updated_at();
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1 FROM pg_trigger WHERE tgname = 'event_templates_set_updated_at'
   ) THEN

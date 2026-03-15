@@ -76,45 +76,33 @@ cd bitacora
 ## 5) Configurar variables de entorno
 
 ```bash
-cp .env.example .env
-nano .env
+cd ~/apps/bitacora
+chmod +x scripts/*.sh
+bash scripts/setup-env.sh --app-domain 10.156.99.34 --admin-email admin@tudominio.com
 ```
 
-Valores minimos obligatorios para produccion:
+Si prefieres auto detectar IP del servidor:
+
+```bash
+bash scripts/setup-env.sh --admin-email admin@tudominio.com
+```
+
+El script genera automaticamente:
 
 ```env
-APP_DOMAIN=bitacora.tudominio.com
-
-POSTGRES_DB=bitacora
-POSTGRES_USER=bitacora_user
-POSTGRES_PASSWORD=<PASSWORD_DB_FUERTE>
-
-JWT_SECRET=<SECRETO_LARGO_32+>
-ACCESS_TOKEN_EXPIRES_IN=15m
-REFRESH_TOKEN_EXPIRES_IN=7d
-AUTH_COOKIE_NAME=bitacora_access
-REFRESH_COOKIE_NAME=bitacora_refresh
+APP_DOMAIN=10.156.99.34
+POSTGRES_PASSWORD=<generado>
+JWT_SECRET=<generado>
+ADMIN_DEFAULT_PASSWORD=<generado>
+GRAFANA_ADMIN_PASSWORD=<generado>
 COOKIE_SECURE=true
-COOKIE_SAMESITE=strict
-
-ADMIN_DEFAULT_NAME=Administrador
-ADMIN_DEFAULT_EMAIL=admin@tudominio.com
-ADMIN_DEFAULT_PASSWORD=<PASSWORD_ADMIN_FUERTE>
-
 ALLOW_PUBLIC_REGISTRATION=false
-
-GRAFANA_ADMIN_USER=admin
-GRAFANA_ADMIN_PASSWORD=<PASSWORD_GRAFANA_FUERTE>
-
 UPLOAD_DIR=/usr/src/app/uploads
-UPLOAD_MAX_BYTES=10485760
-
-REMINDER_ENABLED=false
 ```
 
 Notas:
-- `COOKIE_SECURE=true` en produccion (HTTPS real).
-- Si no quieres registro publico, usa `ALLOW_PUBLIC_REGISTRATION=false`.
+- El script imprime credenciales generadas al finalizar. Guardalas en un lugar seguro.
+- Para regenerar `.env`, usa `--force`.
 
 ## 6) Configurar HTTPS en Caddy
 

@@ -27,31 +27,21 @@ Manual de despliegue completo:
 ## 1) Configuracion inicial
 
 ```bash
-cp .env.example .env
+chmod +x scripts/*.sh
+bash scripts/setup-env.sh --app-domain 10.156.99.34
 ```
 
-Variables clave de seguridad/sesion:
+Si prefieres auto-deteccion de IP del servidor:
 
-- `JWT_SECRET`
-- `ACCESS_TOKEN_EXPIRES_IN`
-- `REFRESH_TOKEN_EXPIRES_IN`
-- `AUTH_COOKIE_NAME`
-- `REFRESH_COOKIE_NAME`
-- `COOKIE_SECURE`
-- `COOKIE_SAMESITE`
+```bash
+bash scripts/setup-env.sh
+```
 
-Variables de negocio:
+El script genera secretos fuertes y deja:
 
-- `ALLOW_PUBLIC_REGISTRATION`
-- `UPLOAD_DIR`
-- `UPLOAD_MAX_BYTES`
-
-Recordatorios opcionales:
-
-- `REMINDER_ENABLED`
-- `REMINDER_CRON`
-- `REMINDER_TIMEZONE`
-- `SMTP_*` o `SLACK_WEBHOOK_URL` / `TEAMS_WEBHOOK_URL`
+- `COOKIE_SECURE=true`
+- `ALLOW_PUBLIC_REGISTRATION=false`
+- `UPLOAD_DIR=/usr/src/app/uploads` (persistente)
 
 ## Acceso admin inmediato
 

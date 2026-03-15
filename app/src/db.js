@@ -110,6 +110,21 @@ async function ensureDatabaseSchema() {
       ADD COLUMN IF NOT EXISTS template_id BIGINT REFERENCES event_templates(id) ON DELETE SET NULL
     `,
     `
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conname = 'events_template_id_fkey'
+            AND conrelid = 'events'::regclass
+        ) THEN
+          ALTER TABLE events
+          ADD CONSTRAINT events_template_id_fkey
+          FOREIGN KEY (template_id) REFERENCES event_templates(id) ON DELETE SET NULL;
+        END IF;
+      END $$;
+    `,
+    `
       ALTER TABLE events
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     `,
