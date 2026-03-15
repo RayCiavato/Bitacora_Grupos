@@ -43,6 +43,7 @@ El script genera secretos fuertes y deja:
 - `ALLOW_PUBLIC_REGISTRATION=false`
 - `UPLOAD_DIR=/usr/src/app/uploads` (persistente)
 - `POSTGRES_PASSWORD` URL-safe (`A-Za-z0-9_-`) para no romper `DATABASE_URL`
+- `MFA_REQUIRED=false` (MFA no obligatorio)
 
 Si defines `--db-password` manual, evita caracteres reservados de URL como `#`, `%`, `@`, `/`, `:`, `?`.
 
@@ -58,6 +59,8 @@ Credenciales por defecto del script:
 
 - Correo: `admin@n1njahack.local`
 - Contrasena: `N1njaHack@2026!`
+
+Estas credenciales aplican solo despues de ejecutar `scripts/provision-admin.sh`.
 
 Tambien puedes definir las tuyas:
 

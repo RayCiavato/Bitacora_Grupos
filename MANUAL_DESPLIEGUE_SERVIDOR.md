@@ -96,6 +96,7 @@ JWT_SECRET=<generado>
 ADMIN_DEFAULT_PASSWORD=<generado>
 GRAFANA_ADMIN_PASSWORD=<generado>
 COOKIE_SECURE=true
+MFA_REQUIRED=false
 ALLOW_PUBLIC_REGISTRATION=false
 UPLOAD_DIR=/usr/src/app/uploads
 ```
@@ -161,12 +162,12 @@ docker compose logs --tail=100 app
 docker compose logs --tail=100 caddy
 ```
 
-## 9) Primer acceso y MFA del admin
+## 9) Primer acceso del admin (MFA opcional)
 
 1. Abre en navegador: `https://<APP_DOMAIN>`.
 2. Inicia sesion con `ADMIN_DEFAULT_EMAIL` / `ADMIN_DEFAULT_PASSWORD`.
-3. El sistema te pedira configurar MFA (QR).
-4. Escanea con Google Authenticator/Authy y confirma el codigo.
+3. Si `MFA_REQUIRED=true`, el sistema pedira configurar MFA (QR).
+4. Si MFA esta habilitado, escanea con Google Authenticator/Authy y confirma el codigo.
 
 ## 10) Operacion diaria
 
@@ -214,7 +215,7 @@ Personalizar credenciales:
 bash scripts/provision-admin.sh admin@tudominio.com 'TuPasswordSegura@2026' 'Administrador Principal'
 ```
 
-Este proceso reinicia MFA del admin para forzar una configuracion nueva al siguiente login.
+Este proceso reinicia MFA del admin (si esta habilitado) para forzar una configuracion nueva al siguiente login.
 
 ## 11) Actualizar version en servidor
 
@@ -276,7 +277,7 @@ Valida especialmente `DATABASE_URL` (se arma desde compose), `JWT_SECRET`, `POST
 1. Repo privado clonado correctamente desde servidor.
 2. `.env` con secretos fuertes.
 3. HTTPS funcional en `https://<APP_DOMAIN>`.
-4. Login admin + MFA completado.
+4. Login admin completado (y MFA si esta activo).
 5. `docker compose ps` sin servicios caidos.
 6. Backup generado y verificado.
 7. Prueba de crear registro de bitacora exitosa.

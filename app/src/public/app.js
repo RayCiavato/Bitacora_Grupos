@@ -2010,6 +2010,79 @@ function setupCardPointerMotion() {
   });
 }
 
+function startMatrixRain() {
+  const canvas = document.getElementById("matrixCanvas");
+  if (!(canvas instanceof HTMLCanvasElement)) {
+    return;
+  }
+
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    canvas.style.display = "none";
+    return;
+  }
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return;
+  }
+
+  const glyphs = ["0", "1"];
+  const fontSize = 16;
+  const fadeColor = "rgba(2, 10, 5, 0.13)";
+  let columns = 0;
+  let drops = [];
+  let viewportWidth = Math.max(window.innerWidth, 320);
+  let viewportHeight = Math.max(window.innerHeight, 320);
+
+  function resizeCanvas() {
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const width = Math.max(window.innerWidth, 320);
+    const height = Math.max(window.innerHeight, 320);
+    viewportWidth = width;
+    viewportHeight = height;
+
+    canvas.width = Math.floor(width * dpr);
+    canvas.height = Math.floor(height * dpr);
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    columns = Math.floor(viewportWidth / fontSize) + 1;
+    drops = Array.from({ length: columns }, () => Math.floor(Math.random() * 20));
+  }
+
+  function drawFrame() {
+    context.fillStyle = fadeColor;
+    context.fillRect(0, 0, viewportWidth, viewportHeight);
+
+    context.font = `${fontSize}px "Share Tech Mono", monospace`;
+    context.textAlign = "left";
+    context.textBaseline = "top";
+
+    for (let i = 0; i < columns; i += 1) {
+      const glyph = glyphs[Math.floor(Math.random() * glyphs.length)];
+      const x = i * fontSize;
+      const y = drops[i] * fontSize;
+      const alpha = 0.4 + Math.random() * 0.5;
+      context.fillStyle = `rgba(118, 255, 149, ${alpha.toFixed(2)})`;
+      context.fillText(glyph, x, y);
+
+      if (y > viewportHeight + fontSize && Math.random() > 0.975) {
+        drops[i] = 0;
+      } else {
+        drops[i] += 1;
+      }
+    }
+  }
+
+  resizeCanvas();
+  const timer = window.setInterval(drawFrame, 72);
+  window.addEventListener("resize", resizeCanvas);
+  window.addEventListener("beforeunload", () => {
+    window.clearInterval(timer);
+  });
+}
+
 async function bootstrap() {
   state.authView = getRequestedAuthView();
   state.authPopup = getAuthPopupMode();
@@ -2064,6 +2137,7 @@ async function bootstrap() {
   });
 
   setupCardPointerMotion();
+  startMatrixRain();
 
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {

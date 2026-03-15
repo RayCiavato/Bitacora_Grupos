@@ -195,7 +195,7 @@ router.post("/login", async (req, res, next) => {
       return res.status(401).json({ error: "invalid_credentials" });
     }
 
-    if (!user.mfa_enabled) {
+    if (config.mfaRequired && !user.mfa_enabled) {
       await resetLockState(user.id);
       const setupToken = createMfaSetupToken(user);
       return res.status(403).json({
@@ -205,7 +205,7 @@ router.post("/login", async (req, res, next) => {
       });
     }
 
-    if (user.mfa_enabled) {
+    if (config.mfaRequired && user.mfa_enabled) {
       if (!user.mfa_secret) {
         await registerFailedAttempt(user);
         return res.status(401).json({ error: "invalid_mfa_setup" });
@@ -270,26 +270,37 @@ router.post("/register", async (req, res, next) => {
     );
 
     const user = insertResult.rows[0];
-    const setupToken = createMfaSetupToken(user);
-    await createAuditLog({
-      userId: user.id,
-      action: "auth.register_success",
-      entity: "auth",
-      entityId: user.id,
-      metadata: { role: user.role },
-      req
-    });
 
+    if (config.mfaRequired) {
+      const setupToken = createMfaSetupToken(user);
+      await createAuditLog({
+        userId: user.id,
+        action: "auth.register_success",
+        entity: "auth",
+        entityId: user.id,
+        metadata: { role: user.role },
+        req
+      });
+
+      return res.status(201).json({
+        message: "Usuario registrado correctamente. Activa MFA para ingresar.",
+        setupRequired: true,
+        setupToken,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role
+        }
+      });
+    }
+
+    const session = await issueSession({ user, req, res, auditAction: "auth.register_success" });
     return res.status(201).json({
-      message: "Usuario registrado correctamente. Activa MFA para ingresar.",
-      setupRequired: true,
-      setupToken,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role
-      }
+      message: "Usuario registrado y sesion iniciada correctamente.",
+      setupRequired: false,
+      ...session,
+      tokenType: "cookie"
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

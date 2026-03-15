@@ -33,6 +33,16 @@ body {
   overflow-x: hidden;
 }
 
+.matrix-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -4;
+  pointer-events: none;
+  opacity: 0.62;
+}
+
 h1,
 h2,
 h3,
@@ -113,9 +123,9 @@ body.landing-mode .shell {
 body.auth-popup-mode {
   position: relative;
   background:
-    radial-gradient(circle at 10% 12%, rgba(0, 214, 255, 0.2), transparent 44%),
-    radial-gradient(circle at 88% 18%, rgba(255, 56, 149, 0.2), transparent 40%),
-    radial-gradient(circle at 52% 100%, rgba(104, 78, 255, 0.25), transparent 55%),
+    radial-gradient(circle at 10% 12%, rgba(96, 255, 136, 0.2), transparent 44%),
+    radial-gradient(circle at 88% 18%, rgba(48, 201, 115, 0.2), transparent 40%),
+    radial-gradient(circle at 52% 100%, rgba(26, 125, 74, 0.25), transparent 55%),
     linear-gradient(150deg, var(--bg) 0%, var(--bg-alt) 100%);
 }
 
@@ -128,15 +138,15 @@ body.auth-popup-mode::before {
   height: 46vh;
   z-index: -3;
   background:
-    radial-gradient(circle at 18% 22%, rgba(36, 115, 217, 0.4), transparent 44%),
-    radial-gradient(circle at 86% 20%, rgba(15, 198, 220, 0.32), transparent 42%),
+    radial-gradient(circle at 18% 22%, rgba(36, 189, 96, 0.38), transparent 44%),
+    radial-gradient(circle at 86% 20%, rgba(75, 255, 141, 0.25), transparent 42%),
     conic-gradient(
       from 210deg at 30% 48%,
-      rgba(40, 104, 207, 0.75) 0deg 65deg,
-      rgba(36, 201, 223, 0.65) 65deg 130deg,
-      rgba(90, 57, 203, 0.7) 130deg 205deg,
-      rgba(255, 59, 159, 0.72) 205deg 290deg,
-      rgba(47, 125, 224, 0.76) 290deg 360deg
+      rgba(27, 132, 68, 0.75) 0deg 65deg,
+      rgba(47, 196, 107, 0.65) 65deg 130deg,
+      rgba(38, 152, 87, 0.7) 130deg 205deg,
+      rgba(97, 255, 156, 0.65) 205deg 290deg,
+      rgba(24, 110, 62, 0.76) 290deg 360deg
     );
 }
 
@@ -148,7 +158,7 @@ body.auth-popup-mode::after {
   bottom: 0;
   height: 22vh;
   z-index: -2;
-  background: linear-gradient(120deg, rgba(22, 16, 60, 0.95) 0%, rgba(64, 23, 105, 0.9) 56%, rgba(31, 16, 77, 0.95) 100%);
+  background: linear-gradient(120deg, rgba(4, 17, 9, 0.95) 0%, rgba(10, 33, 17, 0.92) 56%, rgba(5, 22, 11, 0.95) 100%);
 }
 
 body.auth-popup-mode .ambient {
@@ -191,10 +201,10 @@ body.auth-popup-mode .auth-ornament {
   overflow: hidden;
   z-index: 0;
   background:
-    linear-gradient(135deg, rgba(44, 230, 255, 0.45) 0%, transparent 45%),
-    linear-gradient(45deg, rgba(69, 88, 255, 0.5) 12%, transparent 58%),
-    linear-gradient(220deg, rgba(255, 63, 142, 0.42) 0%, transparent 52%),
-    linear-gradient(150deg, rgba(13, 27, 62, 0.95) 0%, rgba(22, 45, 94, 0.92) 54%, rgba(44, 19, 83, 0.93) 100%);
+    linear-gradient(135deg, rgba(89, 255, 140, 0.4) 0%, transparent 45%),
+    linear-gradient(45deg, rgba(28, 130, 75, 0.45) 12%, transparent 58%),
+    linear-gradient(220deg, rgba(35, 213, 103, 0.35) 0%, transparent 52%),
+    linear-gradient(150deg, rgba(4, 21, 10, 0.95) 0%, rgba(8, 33, 16, 0.92) 54%, rgba(11, 47, 22, 0.93) 100%);
   box-shadow: 0 18px 30px rgba(5, 10, 28, 0.46);
 }
 
@@ -203,8 +213,8 @@ body.auth-popup-mode .auth-ornament::before {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 12% 85%, rgba(118, 205, 255, 0.22), transparent 43%),
-    radial-gradient(circle at 84% 18%, rgba(255, 118, 195, 0.2), transparent 45%);
+    radial-gradient(circle at 12% 85%, rgba(149, 255, 182, 0.22), transparent 43%),
+    radial-gradient(circle at 84% 18%, rgba(72, 247, 132, 0.2), transparent 45%);
 }
 
 body.auth-popup-mode .auth-lock-badge {
@@ -908,27 +918,27 @@ th {
 
 /* Dark neon visual mode for production dashboard */
 :root {
-  --bg: #050913;
-  --bg-alt: #0d1530;
-  --surface: rgba(9, 16, 38, 0.82);
-  --surface-solid: #111d3a;
-  --ink: #e8f1ff;
-  --muted: #99b0d0;
-  --line: rgba(120, 154, 212, 0.26);
-  --primary: #2ce6ff;
-  --primary-strong: #1a89ff;
-  --secondary: #ff3f8e;
-  --secondary-strong: #a93fff;
-  --success: #19cd87;
-  --danger: #ff5373;
+  --bg: #020804;
+  --bg-alt: #04140a;
+  --surface: rgba(5, 24, 12, 0.82);
+  --surface-solid: #0a2d17;
+  --ink: #d4ffe2;
+  --muted: #8ec9a1;
+  --line: rgba(94, 201, 128, 0.24);
+  --primary: #76ff95;
+  --primary-strong: #22b85a;
+  --secondary: #4bffb1;
+  --secondary-strong: #1ca86c;
+  --success: #64ff9a;
+  --danger: #ff6f96;
   --shadow: 0 24px 54px rgba(0, 0, 0, 0.44);
 }
 
 body {
   background:
-    radial-gradient(circle at 10% 12%, rgba(0, 214, 255, 0.2), transparent 44%),
-    radial-gradient(circle at 88% 18%, rgba(255, 56, 149, 0.2), transparent 40%),
-    radial-gradient(circle at 52% 100%, rgba(104, 78, 255, 0.25), transparent 55%),
+    radial-gradient(circle at 14% 14%, rgba(90, 255, 138, 0.15), transparent 42%),
+    radial-gradient(circle at 84% 18%, rgba(39, 170, 92, 0.14), transparent 44%),
+    radial-gradient(circle at 52% 100%, rgba(13, 90, 48, 0.2), transparent 55%),
     linear-gradient(150deg, var(--bg) 0%, var(--bg-alt) 100%);
   color: var(--ink);
 }
@@ -941,11 +951,11 @@ h4 {
 }
 
 .ambient-a {
-  background: rgba(25, 142, 255, 0.5);
+  background: rgba(78, 255, 145, 0.45);
 }
 
 .ambient-b {
-  background: rgba(255, 44, 150, 0.42);
+  background: rgba(45, 197, 101, 0.42);
 }
 
 .card {
