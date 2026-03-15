@@ -1,4 +1,4 @@
-const CACHE_NAME = "bitacora-v7";
+const CACHE_NAME = "bitacora-v8";
 const PRECACHE = [
   "/",
   "/index.html",
@@ -42,6 +42,27 @@ self.addEventListener("fetch", (event) => {
   const normalizedPath = url.pathname === "" ? "/" : url.pathname;
   const isStaticAsset = PRECACHE.includes(normalizedPath);
 
+  if (request.mode === "navigate") {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok && response.type === "basic") {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          }
+          return response;
+        })
+        .catch(async () => {
+          const cachedPage = await caches.match(request);
+          if (cachedPage) {
+            return cachedPage;
+          }
+          return caches.match("/offline.html");
+        })
+    );
+    return;
+  }
+
   if (!isStaticAsset) {
     // Nunca cachear respuestas API ni datos de sesion para evitar fuga entre usuarios.
     return;
@@ -49,23 +70,29 @@ self.addEventListener("fetch", (event) => {
 
   event.respondWith(
     caches.match(request).then(async (cached) => {
+      const networkPromise = fetch(request)
+        .then((response) => {
+          if (response.ok && response.type === "basic") {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          }
+          return response;
+        })
+        .catch(() => null);
+
       if (cached) {
+        networkPromise.then(() => {
+          // stale-while-revalidate silencioso
+        });
         return cached;
       }
 
-      try {
-        const response = await fetch(request);
-        if (response.ok && response.type === "basic") {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-        }
-        return response;
-      } catch (_error) {
-        if (request.mode === "navigate") {
-          return caches.match("/offline.html");
-        }
-        return new Response("Offline", { status: 503, statusText: "Offline" });
+      const networkResponse = await networkPromise;
+      if (networkResponse) {
+        return networkResponse;
       }
+
+      return new Response("Offline", { status: 503, statusText: "Offline" });
     })
   );
 });

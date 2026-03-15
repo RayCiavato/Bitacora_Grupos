@@ -671,6 +671,7 @@ function renderAttachments(items) {
 function renderAuthView() {
   applyLayoutMode(state.authPopup ? "auth-popup-mode" : "landing-mode");
   dashboardSection.classList.add("hidden");
+  authSection.hidden = !state.authPopup;
   authSection.classList.toggle("hidden", !state.authPopup);
   if (landingPanel) {
     landingPanel.classList.toggle("hidden", state.authPopup);
@@ -681,6 +682,7 @@ function renderAuthView() {
 
 function renderDashboardView() {
   applyLayoutMode("session-active");
+  authSection.hidden = true;
   authSection.classList.add("hidden");
   if (landingPanel) {
     landingPanel.classList.add("hidden");
@@ -2043,31 +2045,39 @@ function startMatrixRain() {
     return;
   }
 
-  const glyphs = "01<>[]{}+-*/N1NJA".split("");
+  const glyphs = "01N1NJA<>[]{}+-*/\\|=~#".split("");
   const palette = [
     { r: 82, g: 229, b: 255 },
     { r: 118, g: 255, b: 149 },
+    { r: 39, g: 224, b: 255 },
     { r: 255, g: 75, b: 170 }
   ];
-  const fontSize = 18;
-  const trailFade = "rgba(2, 8, 22, 0.22)";
-  const frameInterval = 1000 / 32;
+  const fontSize = 13;
+  const trailFade = "rgba(1, 6, 18, 0.1)";
+  const frameInterval = 1000 / 40;
 
-  let streams = [];
+  let streamLayers = [[], []];
   let viewportWidth = Math.max(window.innerWidth, 320);
   let viewportHeight = Math.max(window.innerHeight, 320);
   let frameId = null;
   let lastFrameTime = 0;
 
-  function createStream(columnIndex) {
+  function createStream(columnIndex, layerIndex) {
+    const xOffset = layerIndex === 0 ? 0 : fontSize / 2;
+    const speedBase = layerIndex === 0 ? 1.15 : 0.7;
+    const speedRange = layerIndex === 0 ? 2.1 : 1.6;
+    const lengthBase = layerIndex === 0 ? 30 : 24;
+    const lengthRange = layerIndex === 0 ? 34 : 26;
+
     return {
-      x: columnIndex * fontSize,
-      y: -Math.random() * viewportHeight,
-      speed: 1 + Math.random() * 2.2,
-      length: 8 + Math.floor(Math.random() * 15),
+      x: columnIndex * fontSize + xOffset + (Math.random() * 1.6 - 0.8),
+      y: -(Math.random() * viewportHeight * 1.4),
+      speed: speedBase + Math.random() * speedRange,
+      length: lengthBase + Math.floor(Math.random() * lengthRange),
       paletteIndex: Math.floor(Math.random() * palette.length),
       glyphShift: Math.floor(Math.random() * glyphs.length),
-      frame: 0
+      frame: 0,
+      opacity: 0.66 + Math.random() * 0.34
     };
   }
 
@@ -2084,8 +2094,11 @@ function startMatrixRain() {
     canvas.style.height = `${height}px`;
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    const columns = Math.floor(viewportWidth / fontSize) + 2;
-    streams = Array.from({ length: columns }, (_unused, index) => createStream(index));
+    const columns = Math.floor(viewportWidth / fontSize) + 4;
+    streamLayers = [
+      Array.from({ length: columns }, (_unused, index) => createStream(index, 0)),
+      Array.from({ length: columns }, (_unused, index) => createStream(index, 1))
+    ];
   }
 
   function drawFrame(timestamp) {
@@ -2098,42 +2111,61 @@ function startMatrixRain() {
     context.fillStyle = trailFade;
     context.fillRect(0, 0, viewportWidth, viewportHeight);
 
-    context.font = `${fontSize}px "Share Tech Mono", monospace`;
+    context.font = `600 ${fontSize}px "Share Tech Mono", monospace`;
     context.textAlign = "left";
     context.textBaseline = "top";
+    context.globalCompositeOperation = "screen";
 
-    streams.forEach((stream, index) => {
-      for (let offset = 0; offset < stream.length; offset += 1) {
-        const y = stream.y - offset * fontSize;
-        if (y < -fontSize || y > viewportHeight + fontSize) {
-          continue;
+    streamLayers.forEach((layer, layerIndex) => {
+      const layerOpacity = layerIndex === 0 ? 1 : 0.68;
+
+      layer.forEach((stream, index) => {
+        for (let offset = 0; offset < stream.length; offset += 1) {
+          const y = stream.y - offset * fontSize;
+          if (y < -fontSize || y > viewportHeight + fontSize) {
+            continue;
+          }
+
+          const glyphIndex =
+            (stream.glyphShift + stream.frame + offset + index + layerIndex) % glyphs.length;
+          const glyph = glyphs[glyphIndex];
+          const tone = palette[(stream.paletteIndex + offset + layerIndex) % palette.length];
+          const trailProgress = 1 - offset / stream.length;
+          const tailStrength = Math.pow(Math.max(0.02, trailProgress), 1.48);
+          const alpha = Math.max(0.025, tailStrength * stream.opacity * layerOpacity);
+
+          if (offset === 0) {
+            context.shadowColor = `rgba(${tone.r}, ${tone.g}, ${tone.b}, 0.95)`;
+            context.shadowBlur = layerIndex === 0 ? 18 : 12;
+          } else if (offset < 4) {
+            context.shadowColor = `rgba(${tone.r}, ${tone.g}, ${tone.b}, 0.48)`;
+            context.shadowBlur = 6;
+          } else {
+            context.shadowBlur = 0;
+          }
+
+          context.fillStyle = `rgba(${tone.r}, ${tone.g}, ${tone.b}, ${alpha.toFixed(3)})`;
+          context.fillText(glyph, stream.x, y);
         }
 
-        const glyphIndex =
-          (stream.glyphShift + stream.frame + offset + index) % glyphs.length;
-        const glyph = glyphs[glyphIndex];
-        const tone = palette[(stream.paletteIndex + offset) % palette.length];
-        const intensity = Math.max(0.06, 1 - offset / stream.length);
-
-        if (offset === 0) {
-          context.shadowColor = `rgba(${tone.r}, ${tone.g}, ${tone.b}, 0.85)`;
-          context.shadowBlur = 12;
-        } else {
-          context.shadowBlur = 0;
+        if (Math.random() > 0.92) {
+          const headTone = palette[stream.paletteIndex % palette.length];
+          context.fillStyle = `rgba(${headTone.r}, ${headTone.g}, ${headTone.b}, 0.92)`;
+          context.shadowColor = `rgba(${headTone.r}, ${headTone.g}, ${headTone.b}, 0.9)`;
+          context.shadowBlur = 14;
+          context.fillText(glyphs[(stream.frame + index) % glyphs.length], stream.x, stream.y);
         }
 
-        context.fillStyle = `rgba(${tone.r}, ${tone.g}, ${tone.b}, ${(intensity * 0.78).toFixed(2)})`;
-        context.fillText(glyph, stream.x, y);
-      }
+        stream.y += stream.speed;
+        stream.frame += 1;
 
-      stream.y += stream.speed;
-      stream.frame += 1;
-
-      if (stream.y - stream.length * fontSize > viewportHeight + fontSize) {
-        streams[index] = createStream(index);
-      }
+        if (stream.y - stream.length * fontSize > viewportHeight + fontSize) {
+          layer[index] = createStream(index, layerIndex);
+        }
+      });
     });
 
+    context.globalCompositeOperation = "source-over";
     context.shadowBlur = 0;
   }
 
@@ -2204,10 +2236,22 @@ async function bootstrap() {
   startMatrixRain();
 
   if ("serviceWorker" in navigator) {
+    let swRefreshing = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (swRefreshing) {
+        return;
+      }
+      swRefreshing = true;
+      window.location.reload();
+    });
+
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("/sw.js").catch(() => {
-        // No interrumpir flujo principal si falla el service worker.
-      });
+      navigator.serviceWorker
+        .register("/sw.js?v=8")
+        .then((registration) => registration.update())
+        .catch(() => {
+          // No interrumpir flujo principal si falla el service worker.
+        });
     });
   }
 
