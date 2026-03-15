@@ -49,10 +49,10 @@
           Registro diario, trazabilidad por persona y reportes exportables para todo tu equipo.
         </p>
         <div class="entry-actions">
-          <a class="btn btn-primary auth-launch" data-auth="login" href="/?auth=login&authPopup=1">
+          <a class="btn btn-primary auth-launch" data-auth="login" href="/?auth=login">
             Iniciar sesion
           </a>
-          <a class="btn btn-secondary auth-launch" data-auth="register" href="/?auth=register&authPopup=1">
+          <a class="btn btn-secondary auth-launch" data-auth="register" href="/?auth=register">
             Registrarse
           </a>
         </div>
@@ -74,25 +74,6 @@
       </aside>
 
       <section class="workspace">
-        <section id="landingPanel" class="panel landing-panel hidden">
-          <article class="card">
-            <p class="eyebrow">ACCESO SEGURO</p>
-            <h2>Plataforma operativa de bitacoras</h2>
-            <p class="subtitle">
-              Para continuar, abre una ventana de inicio de sesion o registro. Al autenticarse,
-              el panel principal se actualiza automaticamente.
-            </p>
-            <div class="entry-actions">
-              <a class="btn btn-primary auth-launch" data-auth="login" href="/?auth=login&authPopup=1">
-                Iniciar sesion
-              </a>
-              <a class="btn btn-secondary auth-launch" data-auth="register" href="/?auth=register&authPopup=1">
-                Crear cuenta
-              </a>
-            </div>
-          </article>
-        </section>
-
         <section id="authSection" class="panel auth-panel">
           <div class="auth-ornament" aria-hidden="true"></div>
           <div class="auth-lock-badge" aria-hidden="true">
@@ -132,10 +113,7 @@
                 Contrasena
                 <input id="password" type="password" autocomplete="current-password" required />
               </label>
-              <label>
-                Codigo MFA (si aplica)
-                <input id="mfaToken" type="text" maxlength="6" pattern="[0-9]{6}" />
-              </label>
+              <input id="mfaToken" type="hidden" />
               <button type="submit" class="btn btn-primary">Entrar al panel</button>
             </form>
             <p class="help-text">MFA es opcional y solo aplica si fue habilitado por el administrador.</p>

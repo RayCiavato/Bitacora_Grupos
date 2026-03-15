@@ -257,8 +257,8 @@ function getRequestedAuthView() {
 }
 
 function getAuthPopupMode() {
-  const params = new URLSearchParams(window.location.search);
-  return params.get("authPopup") === "1";
+  // Popup auth mode was retired; keep inline auth only.
+  return false;
 }
 
 function applyLayoutMode(mode) {
@@ -266,26 +266,6 @@ function applyLayoutMode(mode) {
   if (mode) {
     document.body.classList.add(mode);
   }
-}
-
-function openAuthPopup(view) {
-  const normalizedView = view === "register" ? "register" : "login";
-  const width = 760;
-  const height = 780;
-  const left = Math.max(0, Math.round((window.screen.width - width) / 2));
-  const top = Math.max(0, Math.round((window.screen.height - height) / 2));
-  const popup = window.open(
-    `/?auth=${normalizedView}&authPopup=1`,
-    `bitacora-auth-${normalizedView}`,
-    `popup=yes,width=${width},height=${height},left=${left},top=${top}`
-  );
-
-  if (popup) {
-    popup.focus();
-    return true;
-  }
-
-  return false;
 }
 
 function canUploadToEvent(eventOwnerId) {
@@ -689,14 +669,10 @@ function renderAttachments(items) {
 }
 
 function renderAuthView() {
-  if (state.authPopup) {
-    applyLayoutMode("auth-popup-mode");
-    authSection.classList.remove("hidden");
+  applyLayoutMode(null);
+  authSection.classList.remove("hidden");
+  if (landingPanel) {
     landingPanel.classList.add("hidden");
-  } else {
-    applyLayoutMode("landing-mode");
-    authSection.classList.add("hidden");
-    landingPanel.classList.remove("hidden");
   }
 
   dashboardSection.classList.add("hidden");
@@ -707,7 +683,9 @@ function renderAuthView() {
 function renderDashboardView() {
   applyLayoutMode("session-active");
   authSection.classList.add("hidden");
-  landingPanel.classList.add("hidden");
+  if (landingPanel) {
+    landingPanel.classList.add("hidden");
+  }
   dashboardSection.classList.remove("hidden");
   eventForm.reset();
   setDateDefaults();
@@ -1875,19 +1853,25 @@ function handleOpenReportClick() {
 }
 
 function handleAuthLaunchClick(event) {
+  event.preventDefault();
   const target = event.currentTarget;
   if (!(target instanceof HTMLElement)) {
     return;
   }
 
   const requestedView = target.dataset.auth === "register" ? "register" : "login";
-  const opened = openAuthPopup(requestedView);
-  if (!opened) {
-    showToast("Tu navegador bloqueo la ventana emergente de autenticacion.", "error");
-    return;
+  state.authView = requestedView;
+  renderAuthView();
+
+  const focusId = requestedView === "register" ? "registerName" : "email";
+  const focusField = document.getElementById(focusId);
+  if (focusField instanceof HTMLElement) {
+    focusField.focus();
   }
 
-  event.preventDefault();
+  if (authSection) {
+    authSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 }
 
 function handleAuthTabClick(event) {
