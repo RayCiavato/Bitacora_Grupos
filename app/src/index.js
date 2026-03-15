@@ -78,11 +78,19 @@ function createApp() {
     legacyHeaders: false
   });
 
+  const recoverLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 12,
+    standardHeaders: true,
+    legacyHeaders: false
+  });
+
   app.use("/", healthRouter);
   app.get("/metrics", metricsHandler);
   app.use("/auth/login", authLimiter);
   app.use("/auth/register", registerLimiter);
   app.use("/auth/refresh", refreshLimiter);
+  app.use("/auth/password/recover", recoverLimiter);
   app.use("/auth", authRouter);
   app.use("/users", usersRouter);
   app.use("/audit", auditRouter);

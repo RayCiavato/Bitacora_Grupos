@@ -35,6 +35,15 @@ const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1)
 });
+const recoverPasswordSchema = z.object({
+  email: z.string().email(),
+  mfaToken: z.string().regex(/^[0-9]{6}$/),
+  newPassword: z.string().min(1)
+});
+
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
 
 function createMfaSetupToken(user) {
   return jwt.sign(
@@ -69,6 +78,10 @@ function getRefreshTokenFromRequest(req) {
 }
 
 async function registerFailedAttempt(user) {
+  if (user?.role === "admin") {
+    return;
+  }
+
   await pool.query(
     `
       UPDATE users
@@ -122,6 +135,19 @@ async function revokeRefreshTokenById(tokenId) {
   );
 }
 
+async function revokeAllRefreshTokensForUser(userId) {
+  await pool.query(
+    `
+      UPDATE refresh_tokens
+      SET revoked_at = COALESCE(revoked_at, NOW()),
+          last_used_at = COALESCE(last_used_at, NOW())
+      WHERE user_id = $1
+        AND revoked_at IS NULL
+    `,
+    [userId]
+  );
+}
+
 function setSessionCookies(res, accessToken, refreshToken) {
   res.cookie(config.authCookieName, accessToken, getAccessCookieOptions());
   res.cookie(config.refreshCookieName, refreshToken, getRefreshCookieOptions());
@@ -164,16 +190,17 @@ async function issueSession({ user, req, res, auditAction = "auth.session_create
 router.post("/login", async (req, res, next) => {
   try {
     const payload = loginSchema.parse(req.body);
+    const email = normalizeEmail(payload.email);
 
     const userResult = await pool.query(
       `
         SELECT id, name, email, role, password_hash, failed_attempts, lock_until, mfa_enabled, mfa_secret,
                token_version
         FROM users
-        WHERE email = $1
+        WHERE LOWER(email) = LOWER($1)
         LIMIT 1
       `,
-      [payload.email]
+      [email]
     );
 
     if (userResult.rowCount === 0) {
@@ -182,11 +209,17 @@ router.post("/login", async (req, res, next) => {
 
     const user = userResult.rows[0];
 
-    if (user.lock_until && new Date(user.lock_until) > new Date()) {
+    if (user.role !== "admin" && user.lock_until && new Date(user.lock_until) > new Date()) {
       return res.status(423).json({
         error: "account_locked",
         lockedUntil: user.lock_until
       });
+    }
+
+    if (user.role === "admin" && (user.lock_until || Number(user.failed_attempts || 0) > 0)) {
+      await resetLockState(user.id);
+      user.lock_until = null;
+      user.failed_attempts = 0;
     }
 
     const passwordMatch = await bcrypt.compare(payload.password, user.password_hash);
@@ -250,6 +283,7 @@ router.post("/register", async (req, res, next) => {
     }
 
     const payload = registerSchema.parse(req.body);
+    const email = normalizeEmail(payload.email);
 
     const policyResult = validatePasswordPolicy(payload.password);
     if (!policyResult.valid) {
@@ -266,7 +300,7 @@ router.post("/register", async (req, res, next) => {
         VALUES ($1, $2, $3, 'funcionario')
         RETURNING id, name, email, role, token_version
       `,
-      [payload.name, payload.email, passwordHash]
+      [payload.name, email, passwordHash]
     );
 
     const user = insertResult.rows[0];
@@ -298,6 +332,85 @@ router.post("/register", async (req, res, next) => {
     }
     if (error.code === "23505") {
       return res.status(409).json({ error: "email_already_exists" });
+    }
+    return next(error);
+  }
+});
+
+router.post("/password/recover", async (req, res, next) => {
+  try {
+    const payload = recoverPasswordSchema.parse(req.body);
+    const email = normalizeEmail(payload.email);
+
+    const userResult = await pool.query(
+      `
+        SELECT id, name, email, role, mfa_enabled, mfa_secret
+        FROM users
+        WHERE LOWER(email) = LOWER($1)
+        LIMIT 1
+      `,
+      [email]
+    );
+
+    if (userResult.rowCount === 0) {
+      return res.status(404).json({ error: "user_not_found" });
+    }
+
+    const user = userResult.rows[0];
+
+    if (!user.mfa_enabled || !user.mfa_secret) {
+      return res.status(400).json({ error: "mfa_not_enabled" });
+    }
+
+    const mfaValid = speakeasy.totp.verify({
+      secret: user.mfa_secret,
+      encoding: "base32",
+      token: payload.mfaToken,
+      window: 1
+    });
+
+    if (!mfaValid) {
+      return res.status(401).json({ error: "invalid_mfa_token" });
+    }
+
+    const policyResult = validatePasswordPolicy(payload.newPassword);
+    if (!policyResult.valid) {
+      return res.status(400).json({
+        error: "weak_password",
+        details: policyResult.errors
+      });
+    }
+
+    const passwordHash = await bcrypt.hash(payload.newPassword, 12);
+
+    await pool.query(
+      `
+        UPDATE users
+        SET password_hash = $2,
+            failed_attempts = 0,
+            lock_until = NULL,
+            token_version = token_version + 1
+        WHERE id = $1
+      `,
+      [user.id, passwordHash]
+    );
+
+    await revokeAllRefreshTokensForUser(user.id);
+    clearSessionCookies(res);
+
+    await createAuditLog({
+      userId: user.id,
+      action: "auth.password_recovered",
+      entity: "auth",
+      entityId: user.id,
+      metadata: { role: user.role },
+      req
+    });
+
+    return res.json({ message: "Contrasena actualizada correctamente. Ya puedes iniciar sesion." });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error", details: error.flatten() });
     }
     return next(error);
   }

@@ -195,6 +195,7 @@ docker compose logs --tail=100 caddy
 2. Inicia sesion con `ADMIN_DEFAULT_EMAIL` / `ADMIN_DEFAULT_PASSWORD`.
 3. Los registros publicos nuevos siempre inician enrolamiento MFA por QR (Google Authenticator/Authy).
 4. Si `MFA_REQUIRED=true`, ademas se exigira MFA para todas las cuentas que aun no lo tengan.
+5. Recuperacion de contrasena disponible desde login usando `correo + codigo MFA + nueva contrasena`.
 
 ## 10) Operacion diaria
 

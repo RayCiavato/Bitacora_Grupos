@@ -124,6 +124,7 @@ const ERROR_MESSAGES = {
   account_locked: "Cuenta bloqueada temporalmente por seguridad.",
   mfa_token_required: "Debes ingresar el codigo MFA.",
   invalid_mfa_token: "Codigo MFA invalido.",
+  mfa_not_enabled: "Este usuario no tiene MFA activo. Contacta al administrador para recuperar acceso.",
   invalid_mfa_setup: "MFA no esta configurado correctamente para este usuario.",
   invalid_token_purpose: "Token no valido para esta operacion.",
   mfa_setup_not_started: "Primero debes iniciar la configuracion MFA.",
@@ -2344,8 +2345,69 @@ function handleSwitchToLogin() {
   }
 }
 
-function handleForgotPasswordHint() {
-  showToast("Recuperacion de contrasena: contacta al administrador del sistema.", "info");
+async function handleForgotPasswordHint() {
+  const emailInput = document.getElementById("email");
+  const suggestedEmail = emailInput instanceof HTMLInputElement ? emailInput.value.trim() : "";
+  const email = window.prompt("Correo de la cuenta:", suggestedEmail);
+  if (!email) {
+    return;
+  }
+
+  const mfaToken = window.prompt("Codigo MFA de Google Authenticator (6 digitos):", "");
+  if (!mfaToken) {
+    return;
+  }
+
+  const newPassword = window.prompt("Nueva contrasena:", "");
+  if (!newPassword) {
+    return;
+  }
+
+  const confirmPassword = window.prompt("Confirma la nueva contrasena:", "");
+  if (!confirmPassword) {
+    return;
+  }
+
+  if (newPassword !== confirmPassword) {
+    showToast("La nueva contrasena y su confirmacion no coinciden.", "error");
+    return;
+  }
+
+  const { response, data, networkError, timedOut } = await api("/auth/password/recover", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email: email.trim(),
+      mfaToken: mfaToken.trim(),
+      newPassword
+    })
+  });
+
+  if (networkError) {
+    showToast(
+      timedOut ? "Tiempo de espera agotado al recuperar contrasena." : "No hay conexion para recuperar contrasena.",
+      "error"
+    );
+    return;
+  }
+
+  if (!response.ok) {
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  if (emailInput instanceof HTMLInputElement) {
+    emailInput.value = email.trim().toLowerCase();
+  }
+  const passwordInput = document.getElementById("password");
+  if (passwordInput instanceof HTMLInputElement) {
+    passwordInput.value = newPassword;
+  }
+  const mfaInput = document.getElementById("mfaToken");
+  if (mfaInput instanceof HTMLInputElement) {
+    mfaInput.value = "";
+  }
+  showToast("Contrasena actualizada. Inicia sesion con la nueva contrasena.", "success");
 }
 
 function handleSidebarToggle() {

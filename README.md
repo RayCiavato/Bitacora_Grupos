@@ -7,6 +7,7 @@ Manual de despliegue completo:
 
 - Sesion segura con `HttpOnly cookies` + `refresh token` rotatorio.
 - Roles: `admin`, `supervisor`, `funcionario`.
+- El usuario `admin` no se bloquea por intentos fallidos.
 - Auditoria en BD (`audit_logs`) y endpoint de consulta.
 - Reportes con filtros avanzados, paginacion y export (`CSV`, `XLSX`, `PDF`).
 - Adjuntos por registro de bitacora.
@@ -119,6 +120,7 @@ Autenticacion / sesion:
 - `POST /auth/refresh`
 - `POST /auth/logout`
 - `GET /auth/me`
+- `POST /auth/password/recover` (recuperacion por `email + MFA + nueva contrasena`)
 - `POST /auth/mfa/setup`
 - `POST /auth/mfa/enable`
 
