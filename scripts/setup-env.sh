@@ -13,7 +13,7 @@ Opciones:
   --admin-email <correo>     Correo del admin inicial.
   --admin-name <nombre>      Nombre del admin inicial.
   --admin-password <valor>   Password del admin (si no se indica, se genera).
-  --db-password <valor>      Password de PostgreSQL (si no se indica, se genera).
+  --db-password <valor>      Password de PostgreSQL (usar URL-safe: A-Za-z0-9_-).
   --grafana-password <valor> Password de Grafana (si no se indica, se genera).
   -h, --help                 Muestra esta ayuda.
 EOF
@@ -131,25 +131,67 @@ detect_primary_ip() {
 
 random_string() {
   local length="$1"
-  tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "$length"
+  generate_chars 'A-Za-z0-9' "$length"
+}
+
+generate_chars() {
+  local charset="$1"
+  local length="$2"
+  local output=""
+
+  while ((${#output} < length)); do
+    output+="$(
+      LC_ALL=C dd if=/dev/urandom bs=1024 count=1 2>/dev/null | tr -dc "$charset"
+    )"
+  done
+
+  printf '%s' "${output:0:length}"
+}
+
+maybe_shuffle() {
+  local value="$1"
+  if command -v shuf >/dev/null 2>&1; then
+    printf '%s' "$value" | fold -w1 | shuf | tr -d '\n'
+    return
+  fi
+  printf '%s' "$value"
 }
 
 generate_password() {
   local length="${1:-20}"
-  local upper lower digit special rest_len rest
+  local upper lower digit special rest_len rest merged
 
   if [[ "$length" -lt 12 ]]; then
     length=12
   fi
 
-  upper="$(tr -dc 'A-Z' < /dev/urandom | head -c 1)"
-  lower="$(tr -dc 'a-z' < /dev/urandom | head -c 1)"
-  digit="$(tr -dc '0-9' < /dev/urandom | head -c 1)"
-  special="$(tr -dc '!@#%^*_=+-' < /dev/urandom | head -c 1)"
+  upper="$(generate_chars 'A-Z' 1)"
+  lower="$(generate_chars 'a-z' 1)"
+  digit="$(generate_chars '0-9' 1)"
+  special="$(generate_chars '!@#%^*_=+-' 1)"
   rest_len=$((length - 4))
-  rest="$(tr -dc 'A-Za-z0-9!@#%^*_=+-' < /dev/urandom | head -c "$rest_len")"
+  rest="$(generate_chars 'A-Za-z0-9!@#%^*_=+-' "$rest_len")"
+  merged="${upper}${lower}${digit}${special}${rest}"
 
-  printf '%s' "${upper}${lower}${digit}${special}${rest}"
+  maybe_shuffle "$merged"
+}
+
+generate_db_password() {
+  local length="${1:-24}"
+  local upper lower digit rest_len rest merged
+
+  if [[ "$length" -lt 12 ]]; then
+    length=12
+  fi
+
+  upper="$(generate_chars 'A-Z' 1)"
+  lower="$(generate_chars 'a-z' 1)"
+  digit="$(generate_chars '0-9' 1)"
+  rest_len=$((length - 3))
+  rest="$(generate_chars 'A-Za-z0-9_-' "$rest_len")"
+  merged="${upper}${lower}${digit}${rest}"
+
+  maybe_shuffle "$merged"
 }
 
 set_env_value() {
@@ -169,7 +211,7 @@ set_env_value() {
 cp .env.example "$ENV_FILE"
 
 APP_DOMAIN_VALUE="${APP_DOMAIN_OVERRIDE:-$(detect_primary_ip)}"
-POSTGRES_PASSWORD_VALUE="${DB_PASSWORD_OVERRIDE:-$(generate_password 24)}"
+POSTGRES_PASSWORD_VALUE="${DB_PASSWORD_OVERRIDE:-$(generate_db_password 24)}"
 JWT_SECRET_VALUE="$(random_string 64)"
 ADMIN_PASSWORD_VALUE="${ADMIN_PASSWORD_OVERRIDE:-$(generate_password 24)}"
 GRAFANA_PASSWORD_VALUE="${GRAFANA_PASSWORD_OVERRIDE:-$(generate_password 24)}"

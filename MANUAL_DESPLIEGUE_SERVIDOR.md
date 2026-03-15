@@ -103,6 +103,8 @@ UPLOAD_DIR=/usr/src/app/uploads
 Notas:
 - El script imprime credenciales generadas al finalizar. Guardalas en un lugar seguro.
 - Para regenerar `.env`, usa `--force`.
+- `POSTGRES_PASSWORD` generado por script ya es URL-safe (`A-Za-z0-9_-`) y compatible con `DATABASE_URL`.
+- Si defines `--db-password` manual, no uses `#`, `%`, `@`, `/`, `:`, `?` para evitar errores de conexion.
 
 ## 6) Configurar HTTPS en Caddy
 

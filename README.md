@@ -42,6 +42,9 @@ El script genera secretos fuertes y deja:
 - `COOKIE_SECURE=true`
 - `ALLOW_PUBLIC_REGISTRATION=false`
 - `UPLOAD_DIR=/usr/src/app/uploads` (persistente)
+- `POSTGRES_PASSWORD` URL-safe (`A-Za-z0-9_-`) para no romper `DATABASE_URL`
+
+Si defines `--db-password` manual, evita caracteres reservados de URL como `#`, `%`, `@`, `/`, `:`, `?`.
 
 ## Acceso admin inmediato
 
