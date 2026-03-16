@@ -354,6 +354,18 @@
                         <option value="observacion">Observacion informativa</option>
                       </select>
                     </label>
+                    <label>
+                      Evidencias del registro (opcional)
+                      <input
+                        id="eventFiles"
+                        type="file"
+                        multiple
+                        accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                      />
+                    </label>
+                    <p class="help-text">
+                      Puedes subir imagenes o archivos justo despues de guardar el registro.
+                    </p>
                     <button type="submit" class="btn btn-primary">Guardar en bitacora</button>
                   </form>
                 </article>
@@ -404,6 +416,30 @@
                       <button type="button" data-format="csv" class="btn btn-ghost export-btn">CSV</button>
                       <button type="button" data-format="xlsx" class="btn btn-ghost export-btn">Excel</button>
                       <button type="button" data-format="pdf" class="btn btn-ghost export-btn">PDF</button>
+                    </div>
+                    <div class="pdf-branding-grid">
+                      <label>
+                        Empresa (para PDF)
+                        <input
+                          id="pdfCompanyName"
+                          type="text"
+                          maxlength="120"
+                          placeholder="Ej: N1NJA Security Operations"
+                        />
+                      </label>
+                      <label>
+                        Titulo del documento
+                        <input
+                          id="pdfDocumentTitle"
+                          type="text"
+                          maxlength="120"
+                          placeholder="Reporte de bitacoras operativas"
+                        />
+                      </label>
+                      <label>
+                        Logo (PNG/JPG)
+                        <input id="pdfCompanyLogo" type="file" accept="image/png,image/jpeg" />
+                      </label>
                     </div>
                   </form>
                   <p id="reportRange" class="help-text"></p>
@@ -577,6 +613,48 @@
         <p class="copyright-subtitle">Copyright 2026. Diseno exclusivo y marca registrada.</p>
       </div>
     </footer>
+    <div id="recoverModal" class="recover-modal hidden" aria-hidden="true">
+      <div class="recover-overlay" data-recover-close></div>
+      <section class="recover-card card" role="dialog" aria-modal="true" aria-labelledby="recoverTitle">
+        <header class="recover-header">
+          <p class="eyebrow">RECUPERACION SEGURA</p>
+          <h3 id="recoverTitle">Restablecer contrasena con MFA</h3>
+          <p class="help-text">
+            Valida tu codigo de Google Authenticator y define una contrasena nueva.
+          </p>
+        </header>
+        <form id="recoverForm" class="form">
+          <label>
+            Correo
+            <input id="recoverEmail" type="email" autocomplete="email" required />
+          </label>
+          <label>
+            Codigo MFA (6 digitos)
+            <input
+              id="recoverMfaToken"
+              type="text"
+              inputmode="numeric"
+              maxlength="6"
+              pattern="[0-9]{6}"
+              autocomplete="one-time-code"
+              required
+            />
+          </label>
+          <label>
+            Nueva contrasena
+            <input id="recoverNewPassword" type="password" minlength="12" autocomplete="new-password" required />
+          </label>
+          <label>
+            Confirmar contrasena
+            <input id="recoverConfirmPassword" type="password" minlength="12" autocomplete="new-password" required />
+          </label>
+          <div class="recover-actions">
+            <button type="button" id="recoverCancelBtn" class="btn btn-ghost">Cancelar</button>
+            <button type="submit" class="btn btn-primary">Actualizar contrasena</button>
+          </div>
+        </form>
+      </section>
+    </div>
     <div id="toast" class="toast hidden" aria-live="polite"></div>
     <script src="/vendor/chart.js"></script>
     <script src="/app.js"></script>

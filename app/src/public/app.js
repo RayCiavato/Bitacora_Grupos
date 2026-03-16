@@ -49,6 +49,10 @@ const userFilterInput = document.getElementById("userFilter");
 const pageSizeInput = document.getElementById("pageSize");
 
 const eventTemplateSelect = document.getElementById("eventTemplateSelect");
+const eventFilesInput = document.getElementById("eventFiles");
+const pdfCompanyNameInput = document.getElementById("pdfCompanyName");
+const pdfDocumentTitleInput = document.getElementById("pdfDocumentTitle");
+const pdfCompanyLogoInput = document.getElementById("pdfCompanyLogo");
 
 const loginForm = document.getElementById("loginForm");
 const mfaEnableForm = document.getElementById("mfaEnableForm");
@@ -63,6 +67,13 @@ const authRegisterTab = document.getElementById("authRegisterTab");
 const switchToRegisterBtn = document.getElementById("switchToRegisterBtn");
 const switchToLoginBtn = document.getElementById("switchToLoginBtn");
 const forgotPasswordBtn = document.getElementById("forgotPasswordBtn");
+const recoverModal = document.getElementById("recoverModal");
+const recoverForm = document.getElementById("recoverForm");
+const recoverCancelBtn = document.getElementById("recoverCancelBtn");
+const recoverEmailInput = document.getElementById("recoverEmail");
+const recoverMfaTokenInput = document.getElementById("recoverMfaToken");
+const recoverNewPasswordInput = document.getElementById("recoverNewPassword");
+const recoverConfirmPasswordInput = document.getElementById("recoverConfirmPassword");
 const adminTools = document.getElementById("adminTools");
 const adminPasswordForm = document.getElementById("adminPasswordForm");
 const adminUserSelect = document.getElementById("adminUserSelect");
@@ -169,6 +180,8 @@ const state = {
   authPopup: false,
   pendingRefresh: null,
   sidebarOpen: true,
+  pdfLogoDataUrl: "",
+  pdfLogoFileName: "",
   charts: {
     users: null,
     criticality: null,
@@ -226,6 +239,84 @@ function formatBytes(bytes) {
     return `${(value / 1024).toFixed(1)} KB`;
   }
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function persistPdfBrandingDraft() {
+  try {
+    const payload = {
+      companyName: (pdfCompanyNameInput?.value || "").trim(),
+      documentTitle: (pdfDocumentTitleInput?.value || "").trim(),
+      logoDataUrl: state.pdfLogoDataUrl || "",
+      logoFileName: state.pdfLogoFileName || ""
+    };
+    window.localStorage.setItem("bitacora_pdf_branding_v1", JSON.stringify(payload));
+  } catch (_error) {
+    // Ignore localStorage failures.
+  }
+}
+
+function loadPdfBrandingDraft() {
+  try {
+    const raw = window.localStorage.getItem("bitacora_pdf_branding_v1");
+    if (!raw) {
+      return;
+    }
+
+    const parsed = JSON.parse(raw);
+    if (pdfCompanyNameInput) {
+      pdfCompanyNameInput.value = String(parsed.companyName || "");
+    }
+    if (pdfDocumentTitleInput) {
+      pdfDocumentTitleInput.value = String(parsed.documentTitle || "");
+    }
+    state.pdfLogoDataUrl = String(parsed.logoDataUrl || "");
+    state.pdfLogoFileName = String(parsed.logoFileName || "");
+
+    if (pdfCompanyLogoInput && state.pdfLogoFileName) {
+      pdfCompanyLogoInput.setAttribute("title", `Logo cargado: ${state.pdfLogoFileName}`);
+    }
+  } catch (_error) {
+    // Ignore invalid localStorage data.
+  }
+}
+
+async function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("file_read_error"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handlePdfLogoChange() {
+  const logoFile = pdfCompanyLogoInput?.files?.[0];
+
+  if (!logoFile) {
+    state.pdfLogoDataUrl = "";
+    state.pdfLogoFileName = "";
+    persistPdfBrandingDraft();
+    return;
+  }
+
+  if (logoFile.size > 512 * 1024) {
+    showToast("El logo supera 512KB. Usa un PNG/JPG mas liviano.", "error");
+    if (pdfCompanyLogoInput) {
+      pdfCompanyLogoInput.value = "";
+    }
+    state.pdfLogoDataUrl = "";
+    state.pdfLogoFileName = "";
+    persistPdfBrandingDraft();
+    return;
+  }
+
+  try {
+    state.pdfLogoDataUrl = await readFileAsDataUrl(logoFile);
+    state.pdfLogoFileName = logoFile.name || "";
+    persistPdfBrandingDraft();
+  } catch (_error) {
+    showToast("No se pudo leer el logo seleccionado.", "error");
+  }
 }
 
 function normalizePriority(priority) {
@@ -419,10 +510,6 @@ function canUploadToEvent(eventOwnerId) {
     return false;
   }
 
-  if (isAdminSession()) {
-    return true;
-  }
-
   return String(eventOwnerId) === String(state.user.id);
 }
 
@@ -449,7 +536,7 @@ function refreshAttachmentUploadState() {
   }
 
   selectedEventLabel.textContent =
-    `Registro #${state.selectedEventId} en modo lectura. Solo admin o dueno puede subir adjuntos.`;
+    `Registro #${state.selectedEventId} en modo lectura. Solo el dueno puede subir adjuntos.`;
 }
 
 function clearSession() {
@@ -483,7 +570,14 @@ function clearSession() {
   registerForm.reset();
   mfaEnableForm.reset();
   eventForm.reset();
+  if (eventFilesInput) {
+    eventFilesInput.value = "";
+  }
   attachmentForm.reset();
+  if (recoverForm) {
+    recoverForm.reset();
+  }
+  closeRecoverModal();
   refreshAttachmentUploadState();
   syncSidebarActiveLink();
 }
@@ -1028,6 +1122,15 @@ function applyRouteMode() {
   setElementVisible(adminTools, showUsuarios && isAdminSession());
   setElementVisible(templateTools, showPlantillas && canManageTemplates());
 
+  if (mainWorkspaceSection) {
+    mainWorkspaceSection.classList.toggle("single-column", showRegistro || showInformes);
+    mainWorkspaceSection.classList.toggle("registro-focus", showRegistro);
+  }
+
+  if (secondaryWorkspaceSection) {
+    secondaryWorkspaceSection.classList.toggle("single-column", showTendencias || showResumen);
+  }
+
   syncSidebarActiveLink();
 }
 
@@ -1113,10 +1216,6 @@ function canModifyEvent(eventOwnerId) {
     return false;
   }
 
-  if (isAdminSession()) {
-    return true;
-  }
-
   return String(eventOwnerId) === String(state.user.id);
 }
 
@@ -1175,6 +1274,31 @@ function parseContentDispositionFileName(headerValue) {
   }
   const match = headerValue.match(/filename="?([^";]+)"?/i);
   return match?.[1] || null;
+}
+
+function reportParamsToPayload(params) {
+  const payload = {
+    from: params.get("from"),
+    to: params.get("to"),
+    format: params.get("format") || "csv"
+  };
+
+  const q = params.get("q");
+  if (q) {
+    payload.q = q;
+  }
+
+  const priority = params.get("priority");
+  if (priority) {
+    payload.priority = priority;
+  }
+
+  const encargadoId = params.get("encargadoId");
+  if (encargadoId) {
+    payload.encargadoId = Number(encargadoId);
+  }
+
+  return payload;
 }
 
 async function api(path, options = {}) {
@@ -1658,6 +1782,40 @@ async function handleRegister(event) {
   showToast("Cuenta creada. Inicia sesion para continuar.", "success");
 }
 
+async function uploadEventAttachmentByFile(eventId, file) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  let uploadResponse = await fetch(`/events/${eventId}/attachments`, {
+    method: "POST",
+    body: formData,
+    credentials: "same-origin"
+  });
+
+  if (uploadResponse.status === 401) {
+    const refreshed = await refreshSession();
+    if (refreshed) {
+      uploadResponse = await fetch(`/events/${eventId}/attachments`, {
+        method: "POST",
+        body: formData,
+        credentials: "same-origin"
+      });
+    }
+  }
+
+  let data = null;
+  const contentType = uploadResponse.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    data = await uploadResponse.json();
+  }
+
+  return {
+    ok: uploadResponse.ok,
+    status: uploadResponse.status,
+    data
+  };
+}
+
 async function handleCreateEvent(event) {
   event.preventDefault();
   const submitButton = event.submitter || eventForm.querySelector('button[type="submit"]');
@@ -1693,9 +1851,29 @@ async function handleCreateEvent(event) {
     return;
   }
 
+  const createdEventId = Number(data?.id || 0);
+  const selectedFiles = eventFilesInput?.files ? Array.from(eventFilesInput.files) : [];
+  let uploadedFiles = 0;
+  let failedUploads = 0;
+
+  if (createdEventId && selectedFiles.length > 0) {
+    for (const file of selectedFiles) {
+      // eslint-disable-next-line no-await-in-loop
+      const uploadResult = await uploadEventAttachmentByFile(createdEventId, file);
+      if (uploadResult.ok) {
+        uploadedFiles += 1;
+      } else {
+        failedUploads += 1;
+      }
+    }
+  }
+
   document.getElementById("descripcionActividad").value = "";
   document.getElementById("observacion").value = "";
   eventTemplateSelect.value = "";
+  if (eventFilesInput) {
+    eventFilesInput.value = "";
+  }
   if (!fromDateInput.value || payload.fecha < fromDateInput.value) {
     fromDateInput.value = payload.fecha;
   }
@@ -1703,7 +1881,20 @@ async function handleCreateEvent(event) {
     toDateInput.value = payload.fecha;
   }
   syncDateConstraints();
-  showToast("Registro guardado en bitacora.", "success");
+
+  if (uploadedFiles > 0 && failedUploads === 0) {
+    showToast(`Registro guardado y ${uploadedFiles} archivo(s) adjuntado(s).`, "success");
+  } else if (uploadedFiles > 0 && failedUploads > 0) {
+    showToast(
+      `Registro guardado. ${uploadedFiles} adjunto(s) cargados y ${failedUploads} con error.`,
+      "info"
+    );
+  } else if (failedUploads > 0) {
+    showToast("Registro guardado, pero los adjuntos fallaron. Intenta subirlos desde Adjuntos.", "error");
+  } else {
+    showToast("Registro guardado en bitacora.", "success");
+  }
+
   await loadReport();
   await loadTrends();
 }
@@ -1725,7 +1916,7 @@ async function handleAttachmentSubmit(event) {
 
   if (!canUploadToEvent(ownerId)) {
     setButtonBusy(submitButton, false);
-    showToast("Solo admin o dueno del registro puede subir adjuntos.", "error");
+    showToast("Solo el dueno del registro puede subir adjuntos.", "error");
     return;
   }
 
@@ -1735,41 +1926,16 @@ async function handleAttachmentSubmit(event) {
     return;
   }
 
-  const formData = new FormData();
-  formData.append("file", file);
-
-  let uploadResponse = await fetch(`/events/${eventId}/attachments`, {
-    method: "POST",
-    body: formData,
-    credentials: "same-origin"
-  });
-
-  if (uploadResponse.status === 401) {
-    const refreshed = await refreshSession();
-    if (refreshed) {
-      uploadResponse = await fetch(`/events/${eventId}/attachments`, {
-        method: "POST",
-        body: formData,
-        credentials: "same-origin"
-      });
-    }
-  }
-
+  const uploadResult = await uploadEventAttachmentByFile(eventId, file);
   setButtonBusy(submitButton, false);
 
-  let data = null;
-  const contentType = uploadResponse.headers.get("content-type") || "";
-  if (contentType.includes("application/json")) {
-    data = await uploadResponse.json();
-  }
-
-  if (!uploadResponse.ok) {
-    if (uploadResponse.status === 401) {
+  if (!uploadResult.ok) {
+    if (uploadResult.status === 401) {
       handleUnauthorized();
       return;
     }
 
-    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    showToast(resolveErrorMessage(uploadResult.data?.error, uploadResult.data?.details), "error");
     return;
   }
 
@@ -2182,20 +2348,68 @@ async function handleExportClick(event) {
 
   const params = buildReportParams(false);
   params.set("format", format);
+  let response = null;
 
-  let response = await fetch(`/events/report/export?${params.toString()}`, {
-    method: "GET",
-    credentials: "same-origin"
-  });
+  try {
+    if (format === "pdf") {
+      const logoFile = pdfCompanyLogoInput?.files?.[0];
+      if (logoFile) {
+        if (logoFile.size > 512 * 1024) {
+          setButtonBusy(button, false);
+          showToast("El logo supera 512KB. Usa un PNG/JPG mas liviano.", "error");
+          return;
+        }
+        state.pdfLogoDataUrl = await readFileAsDataUrl(logoFile);
+        state.pdfLogoFileName = logoFile.name || "";
+      }
 
-  if (response.status === 401) {
-    const refreshed = await refreshSession();
-    if (refreshed) {
+      const exportPayload = {
+        ...reportParamsToPayload(params),
+        companyName: (pdfCompanyNameInput?.value || "").trim() || undefined,
+        documentTitle: (pdfDocumentTitleInput?.value || "").trim() || undefined,
+        logoDataUrl: state.pdfLogoDataUrl || undefined
+      };
+
+      persistPdfBrandingDraft();
+
+      response = await fetch("/events/report/export", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(exportPayload)
+      });
+
+      if (response.status === 401) {
+        const refreshed = await refreshSession();
+        if (refreshed) {
+          response = await fetch("/events/report/export", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(exportPayload)
+          });
+        }
+      }
+    } else {
       response = await fetch(`/events/report/export?${params.toString()}`, {
         method: "GET",
         credentials: "same-origin"
       });
+
+      if (response.status === 401) {
+        const refreshed = await refreshSession();
+        if (refreshed) {
+          response = await fetch(`/events/report/export?${params.toString()}`, {
+            method: "GET",
+            credentials: "same-origin"
+          });
+        }
+      }
     }
+  } catch (_error) {
+    setButtonBusy(button, false);
+    showToast("No hay conexion para exportar el reporte.", "error");
+    return;
   }
 
   setButtonBusy(button, false);
@@ -2345,30 +2559,56 @@ function handleSwitchToLogin() {
   }
 }
 
-async function handleForgotPasswordHint() {
+function openRecoverModal() {
+  if (!recoverModal) {
+    return;
+  }
+
+  if (recoverForm) {
+    recoverForm.reset();
+  }
+
   const emailInput = document.getElementById("email");
   const suggestedEmail = emailInput instanceof HTMLInputElement ? emailInput.value.trim() : "";
-  const email = window.prompt("Correo de la cuenta:", suggestedEmail);
-  if (!email) {
-    return;
+  if (recoverEmailInput) {
+    recoverEmailInput.value = suggestedEmail;
   }
 
-  const mfaToken = window.prompt("Codigo MFA de Google Authenticator (6 digitos):", "");
-  if (!mfaToken) {
-    return;
-  }
+  recoverModal.classList.remove("hidden");
+  recoverModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
 
-  const newPassword = window.prompt("Nueva contrasena:", "");
-  if (!newPassword) {
-    return;
+  if (recoverMfaTokenInput instanceof HTMLInputElement) {
+    window.setTimeout(() => recoverMfaTokenInput.focus(), 60);
   }
+}
 
-  const confirmPassword = window.prompt("Confirma la nueva contrasena:", "");
-  if (!confirmPassword) {
+function closeRecoverModal() {
+  if (!recoverModal) {
     return;
   }
+  recoverModal.classList.add("hidden");
+  recoverModal.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+}
+
+function handleForgotPasswordHint() {
+  openRecoverModal();
+}
+
+async function handleRecoverPasswordSubmit(event) {
+  event.preventDefault();
+
+  const submitButton = event.submitter || recoverForm.querySelector('button[type="submit"]');
+  setButtonBusy(submitButton, true, "Actualizando...");
+
+  const email = (recoverEmailInput?.value || "").trim();
+  const mfaToken = (recoverMfaTokenInput?.value || "").trim();
+  const newPassword = recoverNewPasswordInput?.value || "";
+  const confirmPassword = recoverConfirmPasswordInput?.value || "";
 
   if (newPassword !== confirmPassword) {
+    setButtonBusy(submitButton, false);
     showToast("La nueva contrasena y su confirmacion no coinciden.", "error");
     return;
   }
@@ -2377,11 +2617,13 @@ async function handleForgotPasswordHint() {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      email: email.trim(),
-      mfaToken: mfaToken.trim(),
+      email,
+      mfaToken,
       newPassword
     })
   });
+
+  setButtonBusy(submitButton, false);
 
   if (networkError) {
     showToast(
@@ -2396,8 +2638,9 @@ async function handleForgotPasswordHint() {
     return;
   }
 
+  const emailInput = document.getElementById("email");
   if (emailInput instanceof HTMLInputElement) {
-    emailInput.value = email.trim().toLowerCase();
+    emailInput.value = email.toLowerCase();
   }
   const passwordInput = document.getElementById("password");
   if (passwordInput instanceof HTMLInputElement) {
@@ -2407,6 +2650,9 @@ async function handleForgotPasswordHint() {
   if (mfaInput instanceof HTMLInputElement) {
     mfaInput.value = "";
   }
+
+  recoverForm.reset();
+  closeRecoverModal();
   showToast("Contrasena actualizada. Inicia sesion con la nueva contrasena.", "success");
 }
 
@@ -2518,33 +2764,34 @@ function startMatrixRain() {
 
   const glyphs = "01N1NJA<>[]{}+-*/\\|=~#".split("");
   const palette = [
-    { r: 82, g: 229, b: 255 },
-    { r: 118, g: 255, b: 149 },
-    { r: 39, g: 224, b: 255 },
-    { r: 255, g: 75, b: 170 }
+    { r: 87, g: 224, b: 255 },
+    { r: 116, g: 255, b: 176 },
+    { r: 60, g: 186, b: 255 },
+    { r: 162, g: 244, b: 255 }
   ];
-  const fontSize = 13;
-  const trailFade = "rgba(1, 6, 18, 0.1)";
-  const frameInterval = 1000 / 40;
+  const fontSize = 12;
+  const trailFade = "rgba(1, 8, 20, 0.08)";
+  const frameInterval = 1000 / 42;
 
-  let streamLayers = [[], []];
+  let streamLayers = [[], [], []];
   let viewportWidth = Math.max(window.innerWidth, 320);
   let viewportHeight = Math.max(window.innerHeight, 320);
   let frameId = null;
   let lastFrameTime = 0;
 
   function createStream(columnIndex, layerIndex) {
-    const xOffset = layerIndex === 0 ? 0 : fontSize / 2;
-    const speedBase = layerIndex === 0 ? 1.15 : 0.7;
-    const speedRange = layerIndex === 0 ? 2.1 : 1.6;
-    const lengthBase = layerIndex === 0 ? 30 : 24;
-    const lengthRange = layerIndex === 0 ? 34 : 26;
+    const profiles = [
+      { xOffset: 0, speedBase: 1.05, speedRange: 2.25, lengthBase: 36, lengthRange: 42 },
+      { xOffset: fontSize / 2, speedBase: 0.72, speedRange: 1.8, lengthBase: 30, lengthRange: 36 },
+      { xOffset: fontSize * 0.25, speedBase: 0.58, speedRange: 1.4, lengthBase: 24, lengthRange: 30 }
+    ];
+    const profile = profiles[layerIndex] || profiles[1];
 
     return {
-      x: columnIndex * fontSize + xOffset + (Math.random() * 1.6 - 0.8),
+      x: columnIndex * fontSize + profile.xOffset + (Math.random() * 1.6 - 0.8),
       y: -(Math.random() * viewportHeight * 1.4),
-      speed: speedBase + Math.random() * speedRange,
-      length: lengthBase + Math.floor(Math.random() * lengthRange),
+      speed: profile.speedBase + Math.random() * profile.speedRange,
+      length: profile.lengthBase + Math.floor(Math.random() * profile.lengthRange),
       paletteIndex: Math.floor(Math.random() * palette.length),
       glyphShift: Math.floor(Math.random() * glyphs.length),
       frame: 0,
@@ -2568,7 +2815,8 @@ function startMatrixRain() {
     const columns = Math.floor(viewportWidth / fontSize) + 4;
     streamLayers = [
       Array.from({ length: columns }, (_unused, index) => createStream(index, 0)),
-      Array.from({ length: columns }, (_unused, index) => createStream(index, 1))
+      Array.from({ length: columns }, (_unused, index) => createStream(index, 1)),
+      Array.from({ length: columns }, (_unused, index) => createStream(index, 2))
     ];
   }
 
@@ -2588,7 +2836,7 @@ function startMatrixRain() {
     context.globalCompositeOperation = "screen";
 
     streamLayers.forEach((layer, layerIndex) => {
-      const layerOpacity = layerIndex === 0 ? 1 : 0.68;
+      const layerOpacity = layerIndex === 0 ? 1 : layerIndex === 1 ? 0.72 : 0.56;
 
       layer.forEach((stream, index) => {
         for (let offset = 0; offset < stream.length; offset += 1) {
@@ -2669,6 +2917,26 @@ async function bootstrap() {
   if (forgotPasswordBtn) {
     forgotPasswordBtn.addEventListener("click", handleForgotPasswordHint);
   }
+  if (recoverForm) {
+    recoverForm.addEventListener("submit", handleRecoverPasswordSubmit);
+  }
+  if (recoverCancelBtn) {
+    recoverCancelBtn.addEventListener("click", closeRecoverModal);
+  }
+  if (recoverModal) {
+    recoverModal.addEventListener("click", (event) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && target.hasAttribute("data-recover-close")) {
+        closeRecoverModal();
+      }
+    });
+  }
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && recoverModal && !recoverModal.classList.contains("hidden")) {
+      closeRecoverModal();
+    }
+  });
+
   mfaEnableForm.addEventListener("submit", handleMfaEnable);
   eventForm.addEventListener("submit", handleCreateEvent);
   attachmentForm.addEventListener("submit", handleAttachmentSubmit);
@@ -2702,9 +2970,20 @@ async function bootstrap() {
   exportButtons.forEach((button) => {
     button.addEventListener("click", handleExportClick);
   });
+  if (pdfCompanyNameInput) {
+    pdfCompanyNameInput.addEventListener("change", persistPdfBrandingDraft);
+  }
+  if (pdfDocumentTitleInput) {
+    pdfDocumentTitleInput.addEventListener("change", persistPdfBrandingDraft);
+  }
+  if (pdfCompanyLogoInput) {
+    pdfCompanyLogoInput.addEventListener("change", handlePdfLogoChange);
+  }
   authLaunchButtons.forEach((button) => {
     button.addEventListener("click", handleAuthLaunchClick);
   });
+
+  loadPdfBrandingDraft();
 
   setupCardPointerMotion();
   startMatrixRain();

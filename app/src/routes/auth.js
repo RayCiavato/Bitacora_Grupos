@@ -228,12 +228,15 @@ router.post("/login", async (req, res, next) => {
       return res.status(401).json({ error: "invalid_credentials" });
     }
 
-    if (config.mfaRequired && !user.mfa_enabled) {
+    if ((config.mfaRequired || user.role === "admin") && !user.mfa_enabled) {
       await resetLockState(user.id);
       const setupToken = createMfaSetupToken(user);
       return res.status(403).json({
         error: "mfa_setup_required",
-        message: "Debes activar MFA antes de acceder.",
+        message:
+          user.role === "admin"
+            ? "La cuenta admin debe activar MFA antes de acceder."
+            : "Debes activar MFA antes de acceder.",
         setupToken
       });
     }

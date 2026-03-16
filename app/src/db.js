@@ -271,13 +271,21 @@ async function ensureAdminUser() {
 
   const passwordHash = await bcrypt.hash(config.adminDefaultPassword, 12);
 
-  await pool.query(
-    `INSERT INTO users (name, email, password_hash, role)
-     VALUES ($1, $2, $3, 'admin')`,
+  const insertResult = await pool.query(
+    `
+      INSERT INTO users (name, email, password_hash, role)
+      VALUES ($1, $2, $3, 'admin')
+      ON CONFLICT (email) DO NOTHING
+      RETURNING id
+    `,
     [config.adminDefaultName, config.adminDefaultEmail, passwordHash]
   );
 
-  logger.info({ email: config.adminDefaultEmail }, "Admin inicial creado");
+  if (insertResult.rowCount > 0) {
+    logger.info({ email: config.adminDefaultEmail }, "Admin inicial creado");
+  } else {
+    logger.info({ email: config.adminDefaultEmail }, "Admin inicial ya existia");
+  }
 }
 
 module.exports = { pool, ensureDatabaseSchema, ensureAdminUser };

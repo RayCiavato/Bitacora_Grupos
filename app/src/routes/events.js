@@ -46,6 +46,12 @@ const reportQuerySchema = z.object({
 const exportQuerySchema = reportQuerySchema.extend({
   format: z.enum(["csv", "xlsx", "pdf"]).default("csv")
 });
+const exportPdfBrandingSchema = z.object({
+  companyName: z.string().trim().min(2).max(120).optional(),
+  documentTitle: z.string().trim().min(3).max(120).optional(),
+  logoDataUrl: z.string().trim().max(900000).optional()
+});
+const exportBodySchema = exportQuerySchema.extend(exportPdfBrandingSchema.shape);
 
 const trendsQuerySchema = z.object({
   from: z.string().date().optional(),
@@ -118,10 +124,6 @@ function toISODate(date) {
 
 function isPastDate(dateValue) {
   return dateValue < toISODate(new Date());
-}
-
-function isAdminRole(userRole) {
-  return userRole === "admin";
 }
 
 function buildReportFilters(query) {
@@ -216,7 +218,29 @@ async function buildXlsxBuffer(rows) {
   return Buffer.from(arrayBuffer);
 }
 
-async function buildPdfBuffer(rows, query) {
+function decodeLogoDataUrl(logoDataUrl) {
+  if (!logoDataUrl) {
+    return null;
+  }
+
+  const trimmed = String(logoDataUrl).trim();
+  const match = trimmed.match(/^data:(image\/png|image\/jpeg|image\/jpg);base64,([a-zA-Z0-9+/=]+)$/);
+  if (!match) {
+    return null;
+  }
+
+  try {
+    return Buffer.from(match[2], "base64");
+  } catch (_error) {
+    return null;
+  }
+}
+
+async function buildPdfBuffer(rows, query, branding = {}) {
+  const logoBuffer = decodeLogoDataUrl(branding.logoDataUrl);
+  const companyName = branding.companyName || "Bitacora Operativa";
+  const documentTitle = branding.documentTitle || "Reporte de Bitacora";
+
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 36, size: "A4" });
     const chunks = [];
@@ -225,12 +249,44 @@ async function buildPdfBuffer(rows, query) {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    doc.fontSize(16).text("Reporte de Bitacora", { align: "left" });
-    doc.moveDown(0.3);
+    if (logoBuffer) {
+      try {
+        doc.image(logoBuffer, 36, 34, { fit: [84, 84], align: "left", valign: "top" });
+      } catch (_error) {
+        // Ignore logo decode/render errors and continue with text header.
+      }
+    }
+
+    const headerStartX = logoBuffer ? 132 : 36;
+    doc
+      .fontSize(9)
+      .fillColor("#3c4f63")
+      .text(companyName, headerStartX, 36, { width: 420, align: "left" });
+    doc
+      .fontSize(17)
+      .fillColor("#162433")
+      .text(documentTitle, headerStartX, 51, { width: 420, align: "left" });
     doc
       .fontSize(10)
-      .text(`Rango: ${query.from} a ${query.to} | Registros: ${rows.length}`, { align: "left" });
-    doc.moveDown(0.7);
+      .fillColor("#445a71")
+      .text(`Rango: ${query.from} a ${query.to} | Registros: ${rows.length}`, headerStartX, 76, {
+        width: 420,
+        align: "left"
+      });
+
+    doc
+      .moveTo(36, 116)
+      .lineTo(560, 116)
+      .lineWidth(1)
+      .strokeColor("#d9e4ef")
+      .stroke();
+
+    doc.moveDown(2.2);
+    doc
+      .fontSize(9)
+      .fillColor("#4c637b")
+      .text("Plantilla corporativa: exportacion automatica", { align: "left" });
+    doc.moveDown(0.55);
 
     rows.forEach((row, index) => {
       doc
@@ -311,10 +367,6 @@ async function getEventWithOwner(eventId) {
 }
 
 function ensureEventWriteAccessOrForbidden(req, res, event) {
-  if (isAdminRole(req.user.role)) {
-    return true;
-  }
-
   if (String(event.encargado_id) !== String(req.user.sub)) {
     res.status(403).json({ error: "forbidden" });
     return false;
@@ -480,10 +532,10 @@ router.get("/report", authenticate, async (req, res, next) => {
   }
 });
 
-router.get("/report/export", authenticate, async (req, res, next) => {
+async function handleReportExport(req, res, next, source) {
   try {
-    const query = exportQuerySchema.parse(req.query);
-    const { whereSql, params } = buildReportFilters(query);
+    const payload = source === "body" ? exportBodySchema.parse(req.body) : exportQuerySchema.parse(req.query);
+    const { whereSql, params } = buildReportFilters(payload);
 
     const eventsResult = await pool.query(
       `
@@ -504,16 +556,16 @@ router.get("/report/export", authenticate, async (req, res, next) => {
       params
     );
 
-    const fileNameBase = `bitacora-${query.from}-${query.to}`;
+    const fileNameBase = `bitacora-${payload.from}-${payload.to}`;
 
-    if (query.format === "csv") {
+    if (payload.format === "csv") {
       const buffer = buildCsvBuffer(eventsResult.rows);
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="${fileNameBase}.csv"`);
       return res.send(buffer);
     }
 
-    if (query.format === "xlsx") {
+    if (payload.format === "xlsx") {
       const buffer = await buildXlsxBuffer(eventsResult.rows);
       res.setHeader(
         "Content-Type",
@@ -523,7 +575,8 @@ router.get("/report/export", authenticate, async (req, res, next) => {
       return res.send(buffer);
     }
 
-    const pdfBuffer = await buildPdfBuffer(eventsResult.rows, query);
+    const branding = source === "body" ? exportPdfBrandingSchema.parse(req.body) : {};
+    const pdfBuffer = await buildPdfBuffer(eventsResult.rows, payload, branding);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${fileNameBase}.pdf"`);
     return res.send(pdfBuffer);
@@ -533,7 +586,15 @@ router.get("/report/export", authenticate, async (req, res, next) => {
     }
     return next(error);
   }
-});
+}
+
+router.get("/report/export", authenticate, async (req, res, next) =>
+  handleReportExport(req, res, next, "query")
+);
+
+router.post("/report/export", authenticate, async (req, res, next) =>
+  handleReportExport(req, res, next, "body")
+);
 
 router.get("/trends", authenticate, async (req, res, next) => {
   try {
@@ -923,6 +984,10 @@ router.get("/:id/attachments", authenticate, async (req, res, next) => {
       return res.status(404).json({ error: "event_not_found" });
     }
 
+    if (!ensureEventWriteAccessOrForbidden(req, res, event)) {
+      return;
+    }
+
     const result = await pool.query(
       `
         SELECT
@@ -975,6 +1040,9 @@ router.get("/attachments/:attachmentId/download", authenticate, async (req, res,
     }
 
     const attachment = attachmentResult.rows[0];
+    if (!ensureEventWriteAccessOrForbidden(req, res, attachment)) {
+      return;
+    }
     const filePath = path.join(config.uploadDir, attachment.stored_name);
     await fs.access(filePath);
 

@@ -65,9 +65,6 @@ function canDeleteEvent(item) {
   if (!state.currentUser) {
     return false;
   }
-  if (state.currentUser.role === "admin") {
-    return true;
-  }
   return String(item.encargadoId) === String(state.currentUser.id);
 }
 

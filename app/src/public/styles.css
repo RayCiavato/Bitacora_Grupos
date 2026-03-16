@@ -532,6 +532,14 @@ body.auth-popup-mode #authSection {
   gap: 0.45rem;
 }
 
+.pdf-branding-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+  padding-top: 0.15rem;
+}
+
 .row-actions {
   display: flex;
   flex-wrap: wrap;
@@ -847,10 +855,22 @@ textarea {
   gap: 0.75rem;
 }
 
+.grid-main.single-column {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.grid-main.registro-focus > article {
+  width: 100%;
+}
+
 .grid-secondary {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
   gap: 0.75rem;
+}
+
+.grid-secondary.single-column {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .table-wrap {
@@ -1084,33 +1104,76 @@ th {
   color: #8f1c2a;
 }
 
+body.modal-open {
+  overflow: hidden;
+}
+
+.recover-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.recover-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 7, 20, 0.68);
+  backdrop-filter: blur(3px);
+}
+
+.recover-card {
+  position: relative;
+  z-index: 1;
+  width: min(560px, 96vw);
+  border-radius: 20px;
+  padding: 1rem 1rem 1.1rem;
+  background:
+    linear-gradient(162deg, rgba(9, 22, 49, 0.96), rgba(8, 17, 38, 0.96)),
+    linear-gradient(130deg, rgba(55, 214, 255, 0.08), rgba(88, 242, 194, 0.06));
+  border: 1px solid rgba(103, 151, 220, 0.34);
+}
+
+.recover-header {
+  margin-bottom: 0.45rem;
+}
+
+.recover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
 .hidden {
   display: none !important;
 }
 
 /* Dark neon visual mode for production dashboard */
 :root {
-  --bg: #020804;
-  --bg-alt: #04140a;
-  --surface: rgba(5, 24, 12, 0.82);
-  --surface-solid: #0a2d17;
-  --ink: #d4ffe2;
-  --muted: #8ec9a1;
-  --line: rgba(94, 201, 128, 0.24);
-  --primary: #76ff95;
-  --primary-strong: #22b85a;
-  --secondary: #4bffb1;
-  --secondary-strong: #1ca86c;
-  --success: #64ff9a;
-  --danger: #ff6f96;
+  --bg: #040a16;
+  --bg-alt: #0a1530;
+  --surface: rgba(8, 20, 46, 0.84);
+  --surface-solid: #0d234e;
+  --ink: #d9ebff;
+  --muted: #91a9c9;
+  --line: rgba(95, 145, 214, 0.26);
+  --primary: #58f3c2;
+  --primary-strong: #2fc28e;
+  --secondary: #2cc8ff;
+  --secondary-strong: #1f87d5;
+  --success: #63f0c0;
+  --danger: #ff6f8c;
   --shadow: 0 24px 54px rgba(0, 0, 0, 0.44);
 }
 
 body {
   background:
-    radial-gradient(circle at 14% 14%, rgba(90, 255, 138, 0.15), transparent 42%),
-    radial-gradient(circle at 84% 18%, rgba(39, 170, 92, 0.14), transparent 44%),
-    radial-gradient(circle at 52% 100%, rgba(13, 90, 48, 0.2), transparent 55%),
+    radial-gradient(circle at 14% 14%, rgba(50, 173, 255, 0.19), transparent 42%),
+    radial-gradient(circle at 84% 18%, rgba(75, 220, 186, 0.16), transparent 44%),
+    radial-gradient(circle at 52% 100%, rgba(27, 97, 196, 0.22), transparent 55%),
     linear-gradient(150deg, var(--bg) 0%, var(--bg-alt) 100%);
   color: var(--ink);
 }
@@ -1123,11 +1186,11 @@ h4 {
 }
 
 .ambient-a {
-  background: rgba(78, 255, 145, 0.45);
+  background: rgba(57, 190, 255, 0.4);
 }
 
 .ambient-b {
-  background: rgba(45, 197, 101, 0.42);
+  background: rgba(74, 229, 199, 0.34);
 }
 
 .card {
@@ -1263,7 +1326,7 @@ select:focus {
 }
 
 .welcome-text {
-  color: #70ffc7;
+  color: #7ce2ff;
 }
 
 .soc-metric {
@@ -1544,6 +1607,10 @@ th {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .pdf-branding-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .trend-layout {
     grid-template-columns: 1fr;
   }
@@ -1606,6 +1673,7 @@ th {
   }
 
   .report-filters,
+  .pdf-branding-grid,
   .filter-row,
   #adminTools .filter-row {
     grid-template-columns: 1fr;
@@ -1629,6 +1697,14 @@ th {
     right: 0.65rem;
     bottom: 0.65rem;
     max-width: none;
+  }
+
+  .recover-actions {
+    justify-content: stretch;
+  }
+
+  .recover-actions .btn {
+    width: 100%;
   }
 }
 
