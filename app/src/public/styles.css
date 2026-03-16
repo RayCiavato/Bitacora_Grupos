@@ -33,6 +33,27 @@ body {
   overflow-x: hidden;
 }
 
+body.performance-lite .matrix-canvas,
+body.performance-lite .ambient {
+  display: none !important;
+}
+
+body.performance-lite .panel,
+body.performance-lite .panel .card,
+body.performance-lite .card {
+  animation: none !important;
+}
+
+body.performance-lite .card {
+  backdrop-filter: none !important;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.28) !important;
+}
+
+body.performance-lite .card.mouse-reactive {
+  transform: none !important;
+  transition: none !important;
+}
+
 .matrix-canvas {
   position: fixed;
   inset: 0;

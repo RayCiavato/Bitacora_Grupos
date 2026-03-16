@@ -184,6 +184,8 @@ const state = {
   authView: "login",
   authPopup: false,
   pendingRefresh: null,
+  chartJsPromise: null,
+  performanceLite: false,
   sidebarOpen: true,
   pdfLogoDataUrl: "",
   pdfLogoFileName: "",
@@ -373,6 +375,69 @@ function readRetrySeconds(response, data) {
   }
 
   return 0;
+}
+
+function detectPerformanceLite() {
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const cpuCores = Number(navigator.hardwareConcurrency || 0);
+  const deviceMemory = Number(navigator.deviceMemory || 0);
+  const lowCores = cpuCores > 0 && cpuCores <= 4;
+  const lowMemory = deviceMemory > 0 && deviceMemory <= 4;
+  const saveData = Boolean(navigator.connection?.saveData);
+  const smallViewport = window.matchMedia("(max-width: 980px)").matches;
+
+  return reducedMotion || saveData || lowCores || lowMemory || smallViewport;
+}
+
+function resolvePerformanceLitePreference() {
+  const params = new URLSearchParams(window.location.search);
+  const forced = params.get("lite");
+  if (forced === "1") {
+    return true;
+  }
+  if (forced === "0") {
+    return false;
+  }
+
+  try {
+    const stored = window.localStorage.getItem("bitacora_lite_mode");
+    if (stored === "1") {
+      return true;
+    }
+    if (stored === "0") {
+      return false;
+    }
+  } catch (_error) {
+    // Ignore localStorage access issues.
+  }
+
+  return detectPerformanceLite();
+}
+
+function applyPerformanceProfile() {
+  state.performanceLite = resolvePerformanceLitePreference();
+  document.body.classList.toggle("performance-lite", state.performanceLite);
+}
+
+async function ensureChartJsLoaded() {
+  if (typeof window.Chart === "function") {
+    return true;
+  }
+
+  if (state.chartJsPromise) {
+    return state.chartJsPromise;
+  }
+
+  state.chartJsPromise = new Promise((resolve) => {
+    const script = document.createElement("script");
+    script.src = "/vendor/chart.js";
+    script.async = true;
+    script.onload = () => resolve(typeof window.Chart === "function");
+    script.onerror = () => resolve(false);
+    document.head.appendChild(script);
+  });
+
+  return state.chartJsPromise;
 }
 
 function showToast(message, type = "info") {
@@ -1001,6 +1066,13 @@ async function loadSocDashboard() {
     socRangeInfo.textContent = `Rango ${formatDate(data?.range?.from)} - ${formatDate(data?.range?.to)}`;
   }
 
+  const chartReady = await ensureChartJsLoaded();
+  if (!chartReady) {
+    destroySocCharts();
+    showToast("No se pudo cargar el modulo de graficas del dashboard.", "error");
+    return;
+  }
+
   renderSocDashboardCharts(data);
 }
 
@@ -1285,7 +1357,8 @@ function canModifyEvent() {
 function openReportWindow() {
   const params = buildReportParams(false);
   params.set("page", "1");
-  params.set("pageSize", String(Math.max(Number(pageSizeInput.value || 20), 250)));
+  const fullViewMinRows = state.performanceLite ? 120 : 250;
+  params.set("pageSize", String(Math.max(Number(pageSizeInput.value || 20), fullViewMinRows)));
   const width = 1400;
   const height = 860;
   const left = Math.max(0, Math.round((window.screen.width - width) / 2));
@@ -1776,6 +1849,16 @@ async function handleMfaEnable(event) {
   }
 
   if (!response.ok) {
+    if (response.status === 429) {
+      const retry = readRetrySeconds(response, data);
+      showToast(
+        retry > 0
+          ? `Demasiados intentos de registro. Espera ${retry}s.`
+          : "Demasiados intentos de registro. Intenta de nuevo en unos minutos.",
+        "error"
+      );
+      return;
+    }
     showToast(resolveErrorMessage(data?.error, data?.details), "error");
     return;
   }
@@ -2899,6 +2982,11 @@ function startMatrixRain(options = {}) {
     return;
   }
 
+  if (state.performanceLite) {
+    canvas.style.display = "none";
+    return;
+  }
+
   if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
     canvas.style.display = "none";
     return;
@@ -2973,6 +3061,9 @@ function startMatrixRain(options = {}) {
 
   function drawFrame(timestamp) {
     frameId = window.requestAnimationFrame(drawFrame);
+    if (document.hidden) {
+      return;
+    }
     if (timestamp - lastFrameTime < frameInterval) {
       return;
     }
@@ -3052,6 +3143,7 @@ function startMatrixRain(options = {}) {
 async function bootstrap() {
   state.authView = getRequestedAuthView();
   state.authPopup = getAuthPopupMode();
+  applyPerformanceProfile();
   setAuthView(state.authView);
   setDateDefaults();
 
@@ -3142,7 +3234,7 @@ async function bootstrap() {
 
   loadPdfBrandingDraft();
 
-  if (!state.authPopup) {
+  if (!state.authPopup && !state.performanceLite) {
     setupCardPointerMotion();
   }
   startMatrixRain({ lowPower: state.authPopup });
@@ -3159,7 +3251,7 @@ async function bootstrap() {
 
     window.addEventListener("load", () => {
       navigator.serviceWorker
-        .register("/sw.js?v=11")
+        .register("/sw.js?v=12")
         .then((registration) => registration.update())
         .catch(() => {
           // No interrumpir flujo principal si falla el service worker.
