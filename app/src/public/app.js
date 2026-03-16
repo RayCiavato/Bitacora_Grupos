@@ -77,6 +77,9 @@ const recoverConfirmPasswordInput = document.getElementById("recoverConfirmPassw
 const adminTools = document.getElementById("adminTools");
 const adminPasswordForm = document.getElementById("adminPasswordForm");
 const adminUserSelect = document.getElementById("adminUserSelect");
+const adminRoleForm = document.getElementById("adminRoleForm");
+const adminRoleUserSelect = document.getElementById("adminRoleUserSelect");
+const adminRoleSelect = document.getElementById("adminRoleSelect");
 const adminNewPassword = document.getElementById("adminNewPassword");
 const adminGeneratePassword = document.getElementById("adminGeneratePassword");
 const adminUnlockUser = document.getElementById("adminUnlockUser");
@@ -156,6 +159,7 @@ const ERROR_MESSAGES = {
   invalid_file_type: "Tipo de archivo no permitido.",
   past_date_not_allowed: "No se permite registrar bitacoras en fechas anteriores.",
   cannot_delete_current_user: "No puedes eliminar tu propio usuario.",
+  cannot_change_own_role: "No puedes cambiar tu propio rol admin.",
   last_admin_not_allowed: "No puedes eliminar el ultimo admin del sistema.",
   invalid_current_password: "La contrasena actual es incorrecta.",
   refresh_token_required: "Sesion no disponible. Inicia sesion de nuevo.",
@@ -327,6 +331,17 @@ function normalizePriority(priority) {
 function formatPriorityLabel(priority) {
   const normalized = normalizePriority(priority);
   return PRIORITY_LABELS[normalized] || PRIORITY_LABELS.media;
+}
+
+function formatRoleLabel(role) {
+  const value = String(role || "").toLowerCase();
+  if (value === "admin") {
+    return "Administrador";
+  }
+  if (value === "supervisor") {
+    return "Supervisor";
+  }
+  return "Funcionario";
 }
 
 function resolveErrorMessage(errorCode, details) {
@@ -576,6 +591,9 @@ function clearSession() {
   attachmentForm.reset();
   if (recoverForm) {
     recoverForm.reset();
+  }
+  if (adminRoleForm) {
+    adminRoleForm.reset();
   }
   closeRecoverModal();
   refreshAttachmentUploadState();
@@ -967,6 +985,9 @@ async function loadSocDashboard() {
 
 function renderUsersOptions() {
   adminUserSelect.innerHTML = "";
+  if (adminRoleUserSelect) {
+    adminRoleUserSelect.innerHTML = "";
+  }
   userFilterInput.innerHTML = "";
 
   const allOption = document.createElement("option");
@@ -979,22 +1000,42 @@ function renderUsersOptions() {
     emptyAdminOption.value = "";
     emptyAdminOption.textContent = "No hay usuarios";
     adminUserSelect.appendChild(emptyAdminOption);
+    if (adminRoleUserSelect) {
+      const emptyRoleOption = document.createElement("option");
+      emptyRoleOption.value = "";
+      emptyRoleOption.textContent = "No hay usuarios";
+      adminRoleUserSelect.appendChild(emptyRoleOption);
+    }
     return;
   }
 
   state.users.forEach((user) => {
-    const userText = `${user.name} (${user.email})`;
+    const userText = `${user.name} (${user.email}) - ${formatRoleLabel(user.role)}`;
 
     const adminOption = document.createElement("option");
     adminOption.value = String(user.id);
     adminOption.textContent = userText;
     adminUserSelect.appendChild(adminOption);
 
+    if (adminRoleUserSelect) {
+      const roleOption = document.createElement("option");
+      roleOption.value = String(user.id);
+      roleOption.textContent = userText;
+      adminRoleUserSelect.appendChild(roleOption);
+    }
+
     const filterOption = document.createElement("option");
     filterOption.value = String(user.id);
     filterOption.textContent = userText;
     userFilterInput.appendChild(filterOption);
   });
+
+  if (adminRoleUserSelect && adminRoleSelect) {
+    const selectedUserId = Number(adminRoleUserSelect.value || state.users[0].id);
+    adminRoleUserSelect.value = String(selectedUserId);
+    const selectedUser = state.users.find((user) => Number(user.id) === selectedUserId);
+    adminRoleSelect.value = selectedUser?.role || "funcionario";
+  }
 }
 
 function renderTemplates() {
@@ -1123,12 +1164,18 @@ function applyRouteMode() {
   setElementVisible(templateTools, showPlantillas && canManageTemplates());
 
   if (mainWorkspaceSection) {
-    mainWorkspaceSection.classList.toggle("single-column", showRegistro || showInformes);
+    mainWorkspaceSection.classList.toggle(
+      "single-column",
+      showRegistro || showInformes || showAdjuntos
+    );
     mainWorkspaceSection.classList.toggle("registro-focus", showRegistro);
   }
 
   if (secondaryWorkspaceSection) {
-    secondaryWorkspaceSection.classList.toggle("single-column", showTendencias || showResumen);
+    secondaryWorkspaceSection.classList.toggle(
+      "single-column",
+      showTendencias || showResumen || showAdjuntos
+    );
   }
 
   syncSidebarActiveLink();
@@ -1164,11 +1211,7 @@ function renderDashboardView() {
   eventForm.reset();
   setDateDefaults();
 
-  const roleLabel = {
-    admin: "Administrador",
-    supervisor: "Supervisor",
-    funcionario: "Funcionario"
-  }[state.user.role] || state.user.role;
+  const roleLabel = formatRoleLabel(state.user.role);
 
   if (welcomeMessage) {
     welcomeMessage.textContent = `Bienvenido, ${state.user.name}`;
@@ -1211,18 +1254,17 @@ function buildReportParams(includePagination = true) {
   return params;
 }
 
-function canModifyEvent(eventOwnerId) {
-  if (!state.user || !eventOwnerId) {
+function canModifyEvent() {
+  if (!state.user) {
     return false;
   }
-
-  return String(eventOwnerId) === String(state.user.id);
+  return isAdminSession();
 }
 
 function openReportWindow() {
   const params = buildReportParams(false);
   params.set("page", "1");
-  params.set("pageSize", String(Math.max(Number(pageSizeInput.value || 20), 100)));
+  params.set("pageSize", String(Math.max(Number(pageSizeInput.value || 20), 250)));
   const width = 1400;
   const height = 860;
   const left = Math.max(0, Math.round((window.screen.width - width) / 2));
@@ -2072,6 +2114,60 @@ async function handleEventDelete(button) {
   showToast("Registro eliminado correctamente.", "success");
   await loadReport();
   await loadTrends();
+}
+
+function syncSelectedRoleUser() {
+  if (!adminRoleUserSelect || !adminRoleSelect) {
+    return;
+  }
+  const userId = Number(adminRoleUserSelect.value || 0);
+  const selectedUser = state.users.find((user) => Number(user.id) === userId);
+  adminRoleSelect.value = selectedUser?.role || "funcionario";
+}
+
+async function handleAdminRoleUpdate(event) {
+  event.preventDefault();
+  const submitButton = event.submitter || adminRoleForm.querySelector('button[type="submit"]');
+  setButtonBusy(submitButton, true, "Actualizando...");
+
+  if (!isAdminSession()) {
+    setButtonBusy(submitButton, false);
+    showToast("Operacion solo disponible para administradores.", "error");
+    return;
+  }
+
+  const userId = Number(adminRoleUserSelect?.value || 0);
+  const role = (adminRoleSelect?.value || "").trim();
+  if (!userId || !role) {
+    setButtonBusy(submitButton, false);
+    showToast("Selecciona usuario y rol.", "error");
+    return;
+  }
+
+  const { response, data, networkError } = await apiAuth(`/users/${userId}/role`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role })
+  });
+
+  setButtonBusy(submitButton, false);
+
+  if (networkError) {
+    showToast("No hay conexion para actualizar rol.", "error");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  showToast("Rol actualizado correctamente.", "success");
+  await loadUsers();
 }
 
 async function handleAdminPasswordUpdate(event) {
@@ -2951,6 +3047,12 @@ async function bootstrap() {
   }
 
   adminPasswordForm.addEventListener("submit", handleAdminPasswordUpdate);
+  if (adminRoleForm) {
+    adminRoleForm.addEventListener("submit", handleAdminRoleUpdate);
+  }
+  if (adminRoleUserSelect) {
+    adminRoleUserSelect.addEventListener("change", syncSelectedRoleUser);
+  }
   adminGeneratePassword.addEventListener("click", handleGenerateAdminPassword);
   adminUnlockUser.addEventListener("click", handleAdminUnlockUser);
   adminDeleteUser.addEventListener("click", handleAdminUserDelete);

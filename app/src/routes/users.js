@@ -18,6 +18,9 @@ const createUserSchema = z.object({
 const resetPasswordSchema = z.object({
   newPassword: z.string().min(1)
 });
+const updateRoleSchema = z.object({
+  role: z.enum(["admin", "supervisor", "funcionario"])
+});
 
 const selfPasswordSchema = z.object({
   currentPassword: z.string().min(1),
@@ -202,6 +205,81 @@ router.patch("/:id/password", authenticate, requireRole(["admin"]), async (req, 
         role: updateResult.rows[0].role,
         updated_at: updateResult.rows[0].updated_at
       }
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+    }
+    return next(error);
+  }
+});
+
+router.patch("/:id/role", authenticate, requireRole(["admin"]), async (req, res, next) => {
+  try {
+    const userId = Number(req.params.id);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ error: "invalid_user_id" });
+    }
+
+    const payload = updateRoleSchema.parse(req.body);
+    const actorUserId = Number(req.user?.sub);
+
+    const targetResult = await pool.query(
+      `
+        SELECT id, name, email, role
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [userId]
+    );
+
+    if (targetResult.rowCount === 0) {
+      return res.status(404).json({ error: "user_not_found" });
+    }
+
+    const targetUser = targetResult.rows[0];
+
+    if (userId === actorUserId && payload.role !== "admin") {
+      return res.status(400).json({ error: "cannot_change_own_role" });
+    }
+
+    if (targetUser.role === "admin" && payload.role !== "admin") {
+      const adminCountResult = await pool.query(
+        "SELECT COUNT(*)::int AS total FROM users WHERE role = 'admin'"
+      );
+      const adminTotal = Number(adminCountResult.rows[0]?.total || 0);
+      if (adminTotal <= 1) {
+        return res.status(400).json({ error: "last_admin_not_allowed" });
+      }
+    }
+
+    const updateResult = await pool.query(
+      `
+        UPDATE users
+        SET role = $2
+        WHERE id = $1
+        RETURNING id, name, email, role, updated_at
+      `,
+      [userId, payload.role]
+    );
+
+    await createAuditLog({
+      userId: req.user.sub,
+      action: "users.role_updated",
+      entity: "user",
+      entityId: userId,
+      metadata: {
+        targetUserId: userId,
+        previousRole: targetUser.role,
+        newRole: payload.role
+      },
+      req
+    });
+
+    return res.json({
+      message: "Rol actualizado correctamente",
+      user: updateResult.rows[0]
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

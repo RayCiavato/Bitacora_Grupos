@@ -514,6 +514,21 @@
                   </label>
                   <button type="submit" class="btn btn-primary">Asignar/Reiniciar</button>
                 </form>
+                <form id="adminRoleForm" class="filter-row">
+                  <label>
+                    Usuario
+                    <select id="adminRoleUserSelect" required></select>
+                  </label>
+                  <label>
+                    Rol
+                    <select id="adminRoleSelect" required>
+                      <option value="funcionario">Funcionario</option>
+                      <option value="supervisor">Supervisor</option>
+                      <option value="admin">Administrador</option>
+                    </select>
+                  </label>
+                  <button type="submit" class="btn btn-secondary">Actualizar rol</button>
+                </form>
                 <button id="adminGeneratePassword" class="btn btn-ghost">Generar contrasena fuerte</button>
                 <button id="adminUnlockUser" class="btn btn-ghost">Desbloquear usuario</button>
                 <button id="adminDeleteUser" class="btn btn-ghost">Eliminar usuario</button>

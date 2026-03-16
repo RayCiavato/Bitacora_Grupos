@@ -61,11 +61,15 @@ function renderEmpty(message) {
   rowsEl.appendChild(tr);
 }
 
-function canDeleteEvent(item) {
-  if (!state.currentUser) {
-    return false;
-  }
-  return String(item.encargadoId) === String(state.currentUser.id);
+function normalizePriority(value) {
+  const normalized = String(value || "").toLowerCase();
+  return ["baja", "media", "alta", "observacion"].includes(normalized)
+    ? normalized
+    : "media";
+}
+
+function canAdminManageEvents() {
+  return state.currentUser?.role === "admin";
 }
 
 function renderRows(items) {
@@ -94,17 +98,30 @@ function renderRows(items) {
     });
 
     const actionsTd = document.createElement("td");
-    if (canDeleteEvent(item)) {
+    if (canAdminManageEvents()) {
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.className = "btn btn-ghost report-edit";
+      editButton.dataset.eventId = String(item.id);
+      editButton.dataset.eventPayload = JSON.stringify({
+        fecha: item.fecha,
+        descripcionActividad: item.descripcionActividad || "",
+        observacion: item.observacion || "",
+        prioridad: normalizePriority(item.prioridad)
+      });
+      editButton.textContent = "Editar";
+
       const deleteButton = document.createElement("button");
       deleteButton.type = "button";
       deleteButton.className = "btn btn-ghost report-delete";
       deleteButton.dataset.eventId = String(item.id);
       deleteButton.textContent = "Eliminar";
+      actionsTd.appendChild(editButton);
       actionsTd.appendChild(deleteButton);
     } else {
       const readOnlyTag = document.createElement("span");
       readOnlyTag.className = "help-text";
-      readOnlyTag.textContent = "Solo lectura";
+      readOnlyTag.textContent = "Solo admin";
       actionsTd.appendChild(readOnlyTag);
     }
     tr.appendChild(actionsTd);
@@ -183,6 +200,11 @@ async function handleDelete(eventId) {
     return;
   }
 
+  if (!canAdminManageEvents()) {
+    summaryEl.textContent = "Solo admin puede eliminar registros.";
+    return;
+  }
+
   const confirmed = window.confirm(
     `Confirma eliminar el registro #${eventId}. Esta accion no se puede deshacer.`
   );
@@ -202,6 +224,74 @@ async function handleDelete(eventId) {
 
   if (!response.ok) {
     summaryEl.textContent = "No se pudo eliminar el registro.";
+    return;
+  }
+
+  await loadPage();
+}
+
+async function handleEdit(eventId, payloadRaw) {
+  if (!canAdminManageEvents()) {
+    summaryEl.textContent = "Solo admin puede editar registros.";
+    return;
+  }
+
+  let current = null;
+  try {
+    current = JSON.parse(payloadRaw || "{}");
+  } catch (_error) {
+    current = null;
+  }
+
+  const fecha = window.prompt("Fecha (YYYY-MM-DD)", current?.fecha || "");
+  if (fecha === null) {
+    return;
+  }
+  const descripcionActividad = window.prompt(
+    "Descripcion de actividad",
+    current?.descripcionActividad || ""
+  );
+  if (descripcionActividad === null) {
+    return;
+  }
+  const observacion = window.prompt("Observacion", current?.observacion || "");
+  if (observacion === null) {
+    return;
+  }
+  const prioridadRaw = window.prompt(
+    "Prioridad (baja, media, alta, observacion)",
+    normalizePriority(current?.prioridad)
+  );
+  if (prioridadRaw === null) {
+    return;
+  }
+
+  const prioridad = normalizePriority(prioridadRaw.trim());
+
+  const response = await fetch(`/events/${eventId}`, {
+    method: "PATCH",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      fecha: fecha.trim(),
+      descripcionActividad: descripcionActividad.trim(),
+      observacion: observacion.trim(),
+      prioridad
+    })
+  });
+
+  if (response.status === 401) {
+    summaryEl.textContent = "Tu sesion expiro. Cierra esta ventana y vuelve a iniciar sesion.";
+    return;
+  }
+
+  if (response.status === 403) {
+    summaryEl.textContent = "Solo admin puede editar registros.";
+    return;
+  }
+
+  if (!response.ok) {
+    summaryEl.textContent = "No se pudo editar el registro.";
     return;
   }
 
@@ -240,6 +330,13 @@ closeBtn.addEventListener("click", () => {
 rowsEl.addEventListener("click", async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  const editButton = target.closest(".report-edit");
+  if (editButton instanceof HTMLButtonElement) {
+    const eventId = Number(editButton.dataset.eventId || 0);
+    await handleEdit(eventId, editButton.dataset.eventPayload || "");
     return;
   }
 

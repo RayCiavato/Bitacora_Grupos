@@ -26,6 +26,15 @@
   flex-wrap: wrap;
 }
 
+#rows td:last-child {
+  min-width: 170px;
+}
+
+#rows td:last-child .btn {
+  margin-right: 0.35rem;
+  margin-bottom: 0.3rem;
+}
+
 @media (max-width: 820px) {
   .report-shell {
     width: min(1580px, 98vw);

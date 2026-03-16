@@ -863,6 +863,13 @@ textarea {
   width: 100%;
 }
 
+/* Fallback: if one card in main workspace is hidden, force remaining card to fill width. */
+.grid-main > #registroSection.hidden ~ #informeSection {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+}
+
 .grid-secondary {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
@@ -871,6 +878,13 @@ textarea {
 
 .grid-secondary.single-column {
   grid-template-columns: minmax(0, 1fr);
+}
+
+/* Fallback for secondary workspace single-card layouts. */
+.grid-secondary > #tendenciasSection.hidden ~ #attachmentsCard {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
 }
 
 .table-wrap {

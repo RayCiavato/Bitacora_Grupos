@@ -40,7 +40,7 @@ const reportQuerySchema = z.object({
   priority: z.enum(["baja", "media", "alta", "observacion"]).optional(),
   encargadoId: z.coerce.number().int().positive().optional(),
   page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20)
+  pageSize: z.coerce.number().int().min(1).max(500).default(20)
 });
 
 const exportQuerySchema = reportQuerySchema.extend({
@@ -155,6 +155,13 @@ function buildReportFilters(query) {
     whereSql: whereParts.join(" AND "),
     params
   };
+}
+
+function getScopedEncargadoId(req, requestedEncargadoId) {
+  if (req.user?.role === "admin" || req.user?.role === "supervisor") {
+    return requestedEncargadoId || undefined;
+  }
+  return Number(req.user?.sub);
 }
 
 function escapeCsvValue(value) {
@@ -366,7 +373,20 @@ async function getEventWithOwner(eventId) {
   };
 }
 
-function ensureEventWriteAccessOrForbidden(req, res, event) {
+function ensureAdminOnlyOrForbidden(req, res) {
+  if (req.user?.role !== "admin") {
+    res.status(403).json({ error: "forbidden" });
+    return false;
+  }
+
+  return true;
+}
+
+function ensureEventOwnerOrAdminOrForbidden(req, res, event) {
+  if (req.user?.role === "admin") {
+    return true;
+  }
+
   if (String(event.encargado_id) !== String(req.user.sub)) {
     res.status(403).json({ error: "forbidden" });
     return false;
@@ -446,7 +466,11 @@ router.post("/", authenticate, async (req, res, next) => {
 router.get("/report", authenticate, async (req, res, next) => {
   try {
     const query = reportQuerySchema.parse(req.query);
-    const { whereSql, params } = buildReportFilters(query);
+    const scopedQuery = {
+      ...query,
+      encargadoId: getScopedEncargadoId(req, query.encargadoId)
+    };
+    const { whereSql, params } = buildReportFilters(scopedQuery);
 
     const countResult = await pool.query(
       `
@@ -459,12 +483,12 @@ router.get("/report", authenticate, async (req, res, next) => {
     );
 
     const totalEvents = Number(countResult.rows[0]?.total || 0);
-    const totalPages = totalEvents === 0 ? 1 : Math.ceil(totalEvents / query.pageSize);
-    const currentPage = Math.min(query.page, totalPages);
-    const offset = (currentPage - 1) * query.pageSize;
+    const totalPages = totalEvents === 0 ? 1 : Math.ceil(totalEvents / scopedQuery.pageSize);
+    const currentPage = Math.min(scopedQuery.page, totalPages);
+    const offset = (currentPage - 1) * scopedQuery.pageSize;
 
     const eventsParams = [...params];
-    const limitIndex = eventsParams.push(query.pageSize);
+    const limitIndex = eventsParams.push(scopedQuery.pageSize);
     const offsetIndex = eventsParams.push(offset);
 
     const eventsResult = await pool.query(
@@ -519,7 +543,7 @@ router.get("/report", authenticate, async (req, res, next) => {
       events: eventsResult.rows,
       pagination: {
         page: currentPage,
-        pageSize: query.pageSize,
+        pageSize: scopedQuery.pageSize,
         totalPages,
         totalItems: totalEvents
       }
@@ -535,7 +559,11 @@ router.get("/report", authenticate, async (req, res, next) => {
 async function handleReportExport(req, res, next, source) {
   try {
     const payload = source === "body" ? exportBodySchema.parse(req.body) : exportQuerySchema.parse(req.query);
-    const { whereSql, params } = buildReportFilters(payload);
+    const scopedPayload = {
+      ...payload,
+      encargadoId: getScopedEncargadoId(req, payload.encargadoId)
+    };
+    const { whereSql, params } = buildReportFilters(scopedPayload);
 
     const eventsResult = await pool.query(
       `
@@ -556,7 +584,7 @@ async function handleReportExport(req, res, next, source) {
       params
     );
 
-    const fileNameBase = `bitacora-${payload.from}-${payload.to}`;
+    const fileNameBase = `bitacora-${scopedPayload.from}-${scopedPayload.to}`;
 
     if (payload.format === "csv") {
       const buffer = buildCsvBuffer(eventsResult.rows);
@@ -576,7 +604,7 @@ async function handleReportExport(req, res, next, source) {
     }
 
     const branding = source === "body" ? exportPdfBrandingSchema.parse(req.body) : {};
-    const pdfBuffer = await buildPdfBuffer(eventsResult.rows, payload, branding);
+    const pdfBuffer = await buildPdfBuffer(eventsResult.rows, scopedPayload, branding);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${fileNameBase}.pdf"`);
     return res.send(pdfBuffer);
@@ -608,7 +636,7 @@ router.get("/trends", authenticate, async (req, res, next) => {
       to,
       q: undefined,
       priority: undefined,
-      encargadoId: undefined,
+      encargadoId: getScopedEncargadoId(req, undefined),
       page: 1,
       pageSize: 50
     };
@@ -759,16 +787,16 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
 
 router.patch("/:id", authenticate, async (req, res, next) => {
   try {
+    if (!ensureAdminOnlyOrForbidden(req, res)) {
+      return;
+    }
+
     const params = eventParamsSchema.parse(req.params);
     const payload = updateEventSchema.parse(req.body);
     const event = await getEventById(params.id);
 
     if (!event) {
       return res.status(404).json({ error: "event_not_found" });
-    }
-
-    if (!ensureEventWriteAccessOrForbidden(req, res, { encargado_id: event.encargadoId })) {
-      return;
     }
 
     if (payload.fecha && isPastDate(payload.fecha)) {
@@ -868,15 +896,15 @@ router.patch("/:id", authenticate, async (req, res, next) => {
 
 router.delete("/:id", authenticate, async (req, res, next) => {
   try {
+    if (!ensureAdminOnlyOrForbidden(req, res)) {
+      return;
+    }
+
     const params = eventParamsSchema.parse(req.params);
     const event = await getEventById(params.id);
 
     if (!event) {
       return res.status(404).json({ error: "event_not_found" });
-    }
-
-    if (!ensureEventWriteAccessOrForbidden(req, res, { encargado_id: event.encargadoId })) {
-      return;
     }
 
     await pool.query("DELETE FROM events WHERE id = $1", [params.id]);
@@ -917,7 +945,7 @@ router.post("/:id/attachments", authenticate, async (req, res, next) => {
       return res.status(404).json({ error: "event_not_found" });
     }
 
-    if (!ensureEventWriteAccessOrForbidden(req, res, event)) {
+    if (!ensureEventOwnerOrAdminOrForbidden(req, res, event)) {
       return;
     }
 
@@ -984,7 +1012,7 @@ router.get("/:id/attachments", authenticate, async (req, res, next) => {
       return res.status(404).json({ error: "event_not_found" });
     }
 
-    if (!ensureEventWriteAccessOrForbidden(req, res, event)) {
+    if (!ensureEventOwnerOrAdminOrForbidden(req, res, event)) {
       return;
     }
 
@@ -1040,7 +1068,7 @@ router.get("/attachments/:attachmentId/download", authenticate, async (req, res,
     }
 
     const attachment = attachmentResult.rows[0];
-    if (!ensureEventWriteAccessOrForbidden(req, res, attachment)) {
+    if (!ensureEventOwnerOrAdminOrForbidden(req, res, attachment)) {
       return;
     }
     const filePath = path.join(config.uploadDir, attachment.stored_name);
