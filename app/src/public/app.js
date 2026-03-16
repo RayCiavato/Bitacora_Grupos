@@ -164,7 +164,8 @@ const ERROR_MESSAGES = {
   invalid_current_password: "La contrasena actual es incorrecta.",
   refresh_token_required: "Sesion no disponible. Inicia sesion de nuevo.",
   invalid_refresh_token: "Sesion invalida. Inicia sesion otra vez.",
-  refresh_token_expired: "Tu sesion expiro. Inicia sesion nuevamente."
+  refresh_token_expired: "Tu sesion expiro. Inicia sesion nuevamente.",
+  too_many_requests: "Demasiados intentos. Espera un momento e intenta de nuevo."
 };
 
 const state = {
@@ -351,7 +352,27 @@ function resolveErrorMessage(errorCode, details) {
   if (errorCode === "weak_password" && Array.isArray(details)) {
     return `Contrasena invalida: ${details.join(", ")}`;
   }
+  if (errorCode === "too_many_requests") {
+    const retry = Number(details?.retryAfterSeconds || details?.retryAfter || 0);
+    if (Number.isFinite(retry) && retry > 0) {
+      return `Demasiados intentos. Espera ${retry}s e intenta de nuevo.`;
+    }
+  }
   return ERROR_MESSAGES[errorCode] || errorCode;
+}
+
+function readRetrySeconds(response, data) {
+  const retryFromBody = Number(data?.retryAfterSeconds || data?.retryAfter || 0);
+  if (Number.isFinite(retryFromBody) && retryFromBody > 0) {
+    return Math.ceil(retryFromBody);
+  }
+
+  const retryFromHeader = Number(response?.headers?.get?.("ratelimit-reset") || 0);
+  if (Number.isFinite(retryFromHeader) && retryFromHeader > 0) {
+    return Math.ceil(retryFromHeader);
+  }
+
+  return 0;
 }
 
 function showToast(message, type = "info") {
@@ -1551,10 +1572,14 @@ async function loadAttachments(eventId, eventOwnerId = null) {
 }
 
 async function loadCurrentSession() {
-  const { response, data, networkError } = await apiAuth("/auth/me");
+  const { response, data, networkError } = await api("/auth/me", {
+    timeoutMs: state.authPopup ? 3500 : 5000
+  });
 
   if (networkError) {
-    showToast("No hay conexion con el servidor.", "error");
+    if (!state.authPopup) {
+      showToast("No hay conexion con el servidor.", "error");
+    }
     return false;
   }
 
@@ -1575,8 +1600,7 @@ async function loadDashboardData() {
   }
 
   if (route === "/resumen") {
-    await loadReport();
-    await loadTrends();
+    await Promise.all([loadReport(), loadTrends()]);
     return;
   }
 
@@ -1586,8 +1610,7 @@ async function loadDashboardData() {
   }
 
   if (route === "/informes") {
-    await loadUsers();
-    await loadReport();
+    await Promise.all([loadUsers(), loadReport()]);
     return;
   }
 
@@ -1597,8 +1620,7 @@ async function loadDashboardData() {
   }
 
   if (route === "/adjuntos") {
-    await loadUsers();
-    await loadReport();
+    await Promise.all([loadUsers(), loadReport()]);
     return;
   }
 
@@ -1612,10 +1634,7 @@ async function loadDashboardData() {
     return;
   }
 
-  await loadUsers();
-  await loadTemplates();
-  await loadReport();
-  await loadTrends();
+  await Promise.all([loadUsers(), loadTemplates(), loadReport(), loadTrends()]);
 }
 async function handleLogin(event) {
   event.preventDefault();
@@ -1676,6 +1695,17 @@ async function handleLogin(event) {
     return;
   }
 
+  if (response.status === 429) {
+    const retry = readRetrySeconds(response, data);
+    showToast(
+      retry > 0
+        ? `Demasiados intentos de inicio de sesion. Espera ${retry}s.`
+        : "Demasiados intentos de inicio de sesion. Intenta de nuevo en unos minutos.",
+      "error"
+    );
+    return;
+  }
+
   if (data?.error === "mfa_token_required" || data?.error === "invalid_mfa_token") {
     const mfaInput = document.getElementById("mfaToken");
     if (mfaInput instanceof HTMLInputElement) {
@@ -1705,6 +1735,16 @@ async function loadMfaSetup() {
   }
 
   if (!response.ok) {
+    if (response.status === 429) {
+      const retry = readRetrySeconds(response, data);
+      showToast(
+        retry > 0
+          ? `Demasiadas solicitudes MFA. Espera ${retry}s.`
+          : "Demasiadas solicitudes MFA. Intenta de nuevo en unos minutos.",
+        "error"
+      );
+      return;
+    }
     showToast(resolveErrorMessage(data?.error, data?.details), "error");
     return;
   }
@@ -2730,6 +2770,16 @@ async function handleRecoverPasswordSubmit(event) {
   }
 
   if (!response.ok) {
+    if (response.status === 429) {
+      const retry = readRetrySeconds(response, data);
+      showToast(
+        retry > 0
+          ? `Demasiados intentos de recuperacion. Espera ${retry}s.`
+          : "Demasiados intentos de recuperacion. Intenta de nuevo en unos minutos.",
+        "error"
+      );
+      return;
+    }
     showToast(resolveErrorMessage(data?.error, data?.details), "error");
     return;
   }
@@ -2842,7 +2892,8 @@ function setupCardPointerMotion() {
   });
 }
 
-function startMatrixRain() {
+function startMatrixRain(options = {}) {
+  const lowPower = Boolean(options.lowPower);
   const canvas = document.getElementById("matrixCanvas");
   if (!(canvas instanceof HTMLCanvasElement)) {
     return;
@@ -2865,9 +2916,9 @@ function startMatrixRain() {
     { r: 60, g: 186, b: 255 },
     { r: 162, g: 244, b: 255 }
   ];
-  const fontSize = 12;
-  const trailFade = "rgba(1, 8, 20, 0.08)";
-  const frameInterval = 1000 / 42;
+  const fontSize = lowPower ? 16 : 12;
+  const trailFade = lowPower ? "rgba(1, 8, 20, 0.16)" : "rgba(1, 8, 20, 0.08)";
+  const frameInterval = lowPower ? 1000 / 20 : 1000 / 42;
 
   let streamLayers = [[], [], []];
   let viewportWidth = Math.max(window.innerWidth, 320);
@@ -2909,6 +2960,10 @@ function startMatrixRain() {
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const columns = Math.floor(viewportWidth / fontSize) + 4;
+    if (lowPower) {
+      streamLayers = [Array.from({ length: columns }, (_unused, index) => createStream(index, 1))];
+      return;
+    }
     streamLayers = [
       Array.from({ length: columns }, (_unused, index) => createStream(index, 0)),
       Array.from({ length: columns }, (_unused, index) => createStream(index, 1)),
@@ -2932,7 +2987,7 @@ function startMatrixRain() {
     context.globalCompositeOperation = "screen";
 
     streamLayers.forEach((layer, layerIndex) => {
-      const layerOpacity = layerIndex === 0 ? 1 : layerIndex === 1 ? 0.72 : 0.56;
+      const layerOpacity = lowPower ? 0.8 : layerIndex === 0 ? 1 : layerIndex === 1 ? 0.72 : 0.56;
 
       layer.forEach((stream, index) => {
         for (let offset = 0; offset < stream.length; offset += 1) {
@@ -2949,10 +3004,10 @@ function startMatrixRain() {
           const tailStrength = Math.pow(Math.max(0.02, trailProgress), 1.48);
           const alpha = Math.max(0.025, tailStrength * stream.opacity * layerOpacity);
 
-          if (offset === 0) {
+          if (!lowPower && offset === 0) {
             context.shadowColor = `rgba(${tone.r}, ${tone.g}, ${tone.b}, 0.95)`;
             context.shadowBlur = layerIndex === 0 ? 18 : 12;
-          } else if (offset < 4) {
+          } else if (!lowPower && offset < 4) {
             context.shadowColor = `rgba(${tone.r}, ${tone.g}, ${tone.b}, 0.48)`;
             context.shadowBlur = 6;
           } else {
@@ -2963,7 +3018,7 @@ function startMatrixRain() {
           context.fillText(glyph, stream.x, y);
         }
 
-        if (Math.random() > 0.92) {
+        if (!lowPower && Math.random() > 0.92) {
           const headTone = palette[stream.paletteIndex % palette.length];
           context.fillStyle = `rgba(${headTone.r}, ${headTone.g}, ${headTone.b}, 0.92)`;
           context.shadowColor = `rgba(${headTone.r}, ${headTone.g}, ${headTone.b}, 0.9)`;
@@ -3087,8 +3142,10 @@ async function bootstrap() {
 
   loadPdfBrandingDraft();
 
-  setupCardPointerMotion();
-  startMatrixRain();
+  if (!state.authPopup) {
+    setupCardPointerMotion();
+  }
+  startMatrixRain({ lowPower: state.authPopup });
 
   if ("serviceWorker" in navigator) {
     let swRefreshing = false;
@@ -3102,7 +3159,7 @@ async function bootstrap() {
 
     window.addEventListener("load", () => {
       navigator.serviceWorker
-        .register("/sw.js?v=10")
+        .register("/sw.js?v=11")
         .then((registration) => registration.update())
         .catch(() => {
           // No interrumpir flujo principal si falla el service worker.

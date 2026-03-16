@@ -49,41 +49,57 @@ function createApp() {
   app.use(pinoHttp({ logger }));
   app.use(metricsMiddleware);
 
-  const globalLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 250,
-    standardHeaders: true,
-    legacyHeaders: false
-  });
+  const buildLimiter = (windowMs, max, message) =>
+    rateLimit({
+      windowMs,
+      max,
+      standardHeaders: true,
+      legacyHeaders: false,
+      handler: (req, res, _next, options) => {
+        const resetTime = req.rateLimit?.resetTime;
+        const retryAfterSeconds =
+          resetTime instanceof Date
+            ? Math.max(1, Math.ceil((resetTime.getTime() - Date.now()) / 1000))
+            : undefined;
+
+        return res.status(options.statusCode).json({
+          error: "too_many_requests",
+          message,
+          retryAfterSeconds
+        });
+      }
+    });
+
+  const globalLimiter = buildLimiter(
+    15 * 60 * 1000,
+    300,
+    "Demasiadas solicitudes. Intenta nuevamente en unos minutos."
+  );
   app.use(globalLimiter);
 
-  const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 25,
-    standardHeaders: true,
-    legacyHeaders: false
-  });
+  const authLimiter = buildLimiter(
+    15 * 60 * 1000,
+    60,
+    "Demasiados intentos de inicio de sesion."
+  );
 
-  const registerLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000,
-    max: 8,
-    standardHeaders: true,
-    legacyHeaders: false
-  });
+  const registerLimiter = buildLimiter(
+    60 * 60 * 1000,
+    25,
+    "Demasiados intentos de registro."
+  );
 
-  const refreshLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 40,
-    standardHeaders: true,
-    legacyHeaders: false
-  });
+  const refreshLimiter = buildLimiter(
+    15 * 60 * 1000,
+    80,
+    "Demasiados intentos de refresco de sesion."
+  );
 
-  const recoverLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 12,
-    standardHeaders: true,
-    legacyHeaders: false
-  });
+  const recoverLimiter = buildLimiter(
+    15 * 60 * 1000,
+    20,
+    "Demasiados intentos de recuperacion de contrasena."
+  );
 
   app.use("/", healthRouter);
   app.get("/metrics", metricsHandler);

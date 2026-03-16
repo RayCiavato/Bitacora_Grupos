@@ -142,9 +142,9 @@ body.landing-mode .shell {
 body.auth-popup-mode {
   position: relative;
   background:
-    radial-gradient(circle at 10% 12%, rgba(96, 255, 136, 0.2), transparent 44%),
-    radial-gradient(circle at 88% 18%, rgba(48, 201, 115, 0.2), transparent 40%),
-    radial-gradient(circle at 52% 100%, rgba(26, 125, 74, 0.25), transparent 55%),
+    radial-gradient(circle at 10% 12%, rgba(89, 192, 255, 0.24), transparent 44%),
+    radial-gradient(circle at 88% 18%, rgba(77, 126, 255, 0.22), transparent 40%),
+    radial-gradient(circle at 52% 100%, rgba(33, 85, 168, 0.28), transparent 55%),
     linear-gradient(150deg, var(--bg) 0%, var(--bg-alt) 100%);
 }
 
@@ -157,15 +157,15 @@ body.auth-popup-mode::before {
   height: 46vh;
   z-index: -3;
   background:
-    radial-gradient(circle at 18% 22%, rgba(36, 189, 96, 0.38), transparent 44%),
-    radial-gradient(circle at 86% 20%, rgba(75, 255, 141, 0.25), transparent 42%),
+    radial-gradient(circle at 18% 22%, rgba(53, 144, 255, 0.38), transparent 44%),
+    radial-gradient(circle at 86% 20%, rgba(92, 180, 255, 0.24), transparent 42%),
     conic-gradient(
       from 210deg at 30% 48%,
-      rgba(27, 132, 68, 0.75) 0deg 65deg,
-      rgba(47, 196, 107, 0.65) 65deg 130deg,
-      rgba(38, 152, 87, 0.7) 130deg 205deg,
-      rgba(97, 255, 156, 0.65) 205deg 290deg,
-      rgba(24, 110, 62, 0.76) 290deg 360deg
+      rgba(24, 77, 168, 0.8) 0deg 65deg,
+      rgba(35, 110, 215, 0.72) 65deg 130deg,
+      rgba(24, 62, 138, 0.74) 130deg 205deg,
+      rgba(60, 164, 255, 0.68) 205deg 290deg,
+      rgba(17, 47, 112, 0.82) 290deg 360deg
     );
 }
 
@@ -177,7 +177,7 @@ body.auth-popup-mode::after {
   bottom: 0;
   height: 22vh;
   z-index: -2;
-  background: linear-gradient(120deg, rgba(4, 17, 9, 0.95) 0%, rgba(10, 33, 17, 0.92) 56%, rgba(5, 22, 11, 0.95) 100%);
+  background: linear-gradient(120deg, rgba(4, 12, 32, 0.95) 0%, rgba(8, 22, 54, 0.94) 56%, rgba(5, 14, 37, 0.95) 100%);
 }
 
 body.auth-popup-mode .ambient {
@@ -220,10 +220,10 @@ body.auth-popup-mode .auth-ornament {
   overflow: hidden;
   z-index: 0;
   background:
-    linear-gradient(135deg, rgba(89, 255, 140, 0.4) 0%, transparent 45%),
-    linear-gradient(45deg, rgba(28, 130, 75, 0.45) 12%, transparent 58%),
-    linear-gradient(220deg, rgba(35, 213, 103, 0.35) 0%, transparent 52%),
-    linear-gradient(150deg, rgba(4, 21, 10, 0.95) 0%, rgba(8, 33, 16, 0.92) 54%, rgba(11, 47, 22, 0.93) 100%);
+    linear-gradient(135deg, rgba(83, 173, 255, 0.35) 0%, transparent 45%),
+    linear-gradient(45deg, rgba(35, 87, 200, 0.4) 12%, transparent 58%),
+    linear-gradient(220deg, rgba(72, 130, 255, 0.28) 0%, transparent 52%),
+    linear-gradient(150deg, rgba(5, 18, 45, 0.95) 0%, rgba(8, 28, 70, 0.93) 54%, rgba(10, 34, 86, 0.94) 100%);
   box-shadow: 0 18px 30px rgba(5, 10, 28, 0.46);
 }
 
@@ -232,8 +232,8 @@ body.auth-popup-mode .auth-ornament::before {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 12% 85%, rgba(149, 255, 182, 0.22), transparent 43%),
-    radial-gradient(circle at 84% 18%, rgba(72, 247, 132, 0.2), transparent 45%);
+    radial-gradient(circle at 12% 85%, rgba(126, 203, 255, 0.2), transparent 43%),
+    radial-gradient(circle at 84% 18%, rgba(95, 149, 255, 0.2), transparent 45%);
 }
 
 body.auth-popup-mode .auth-lock-badge {
@@ -247,7 +247,7 @@ body.auth-popup-mode .auth-lock-badge {
   height: 88px;
   padding: 5px;
   border-radius: 50%;
-  border: 3px solid rgba(126, 167, 235, 0.55);
+  border: 3px solid rgba(141, 182, 255, 0.58);
   background: linear-gradient(145deg, rgba(10, 19, 43, 0.98), rgba(17, 30, 66, 0.95));
   box-shadow: 0 14px 26px rgba(4, 10, 30, 0.52);
   z-index: 3;
@@ -303,6 +303,23 @@ body.auth-popup-mode select {
   color: var(--ink);
   padding: 0.74rem 0.96rem;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+body.auth-popup-mode input:-webkit-autofill,
+body.auth-popup-mode input:-webkit-autofill:hover,
+body.auth-popup-mode input:-webkit-autofill:focus,
+body.auth-popup-mode textarea:-webkit-autofill,
+body.auth-popup-mode select:-webkit-autofill {
+  -webkit-text-fill-color: #d8e9ff;
+  box-shadow: 0 0 0 1000px #0d234e inset;
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+body.auth-popup-mode input:-moz-autofill,
+body.auth-popup-mode textarea:-moz-autofill,
+body.auth-popup-mode select:-moz-autofill {
+  box-shadow: 0 0 0 1000px #0d234e inset;
+  -moz-text-fill-color: #d8e9ff;
 }
 
 body.auth-popup-mode textarea {
@@ -1098,6 +1115,7 @@ th {
   position: fixed;
   right: 1rem;
   bottom: 1rem;
+  z-index: 80;
   max-width: min(92vw, 420px);
   border-radius: 10px;
   padding: 0.68rem 0.82rem;
@@ -1174,11 +1192,11 @@ body.modal-open {
   --ink: #d9ebff;
   --muted: #91a9c9;
   --line: rgba(95, 145, 214, 0.26);
-  --primary: #58f3c2;
-  --primary-strong: #2fc28e;
-  --secondary: #2cc8ff;
-  --secondary-strong: #1f87d5;
-  --success: #63f0c0;
+  --primary: #3fb8ff;
+  --primary-strong: #1b7be0;
+  --secondary: #6e8fff;
+  --secondary-strong: #3f66da;
+  --success: #5ad4ff;
   --danger: #ff6f8c;
   --shadow: 0 24px 54px rgba(0, 0, 0, 0.44);
 }
