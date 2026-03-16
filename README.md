@@ -45,7 +45,7 @@ El script genera secretos fuertes y deja:
 - `ALLOW_PUBLIC_REGISTRATION=true`
 - `UPLOAD_DIR=/usr/src/app/uploads` (persistente)
 - `POSTGRES_PASSWORD` URL-safe (`A-Za-z0-9_-`) para no romper `DATABASE_URL`
-- `MFA_REQUIRED=false` (el login solo exige MFA a cuentas que ya lo activaron; el registro nuevo siempre inicia enrolamiento por QR)
+- `MFA_REQUIRED=true` (MFA obligatorio para todas las cuentas; si una cuenta aun no lo activo, el sistema exige enrolamiento antes de permitir acceso)
 
 Para instalacion nueva en servidor (flujo recomendado, sin choques de passwords/volumenes):
 

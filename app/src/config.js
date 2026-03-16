@@ -30,7 +30,7 @@ const config = {
   maxFailedAttempts: Number(process.env.MAX_FAILED_ATTEMPTS || 5),
   lockMinutes: Number(process.env.LOCK_MINUTES || 15),
   passwordMinLength: Number(process.env.PASSWORD_MIN_LENGTH || 12),
-  mfaRequired: readBool(process.env.MFA_REQUIRED, false),
+  mfaRequired: readBool(process.env.MFA_REQUIRED, true),
   allowPublicRegistration: readBool(process.env.ALLOW_PUBLIC_REGISTRATION, true),
   uploadDir: process.env.UPLOAD_DIR || "/tmp/bitacora-uploads",
   uploadMaxBytes: Number(process.env.UPLOAD_MAX_BYTES || 10 * 1024 * 1024),
