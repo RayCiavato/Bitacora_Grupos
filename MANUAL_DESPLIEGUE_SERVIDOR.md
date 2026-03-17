@@ -26,6 +26,25 @@ docker compose version
 git --version
 ```
 
+Si `docker compose version` falla con `unknown command`, usa:
+
+```bash
+docker-compose --version
+```
+
+Si no tienes ninguna variante de Compose instalada:
+
+```bash
+sudo apt update
+sudo apt install -y docker-compose-plugin
+```
+
+Alternativa legacy:
+
+```bash
+sudo apt install -y docker-compose
+```
+
 Si `git` no existe:
 
 ```bash
@@ -152,8 +171,10 @@ Asegurate de tener abiertos `80` y `443` en firewall/router cuando uses `CADDY_P
 ```bash
 cd ~/apps/bitacora
 chmod +x scripts/*.sh
-docker compose up -d --build
-docker compose ps
+COMPOSE_CMD="docker compose"
+if ! docker compose version >/dev/null 2>&1; then COMPOSE_CMD="docker-compose"; fi
+$COMPOSE_CMD up -d --build
+$COMPOSE_CMD ps
 ```
 
 ## 8) Verificacion post-despliegue

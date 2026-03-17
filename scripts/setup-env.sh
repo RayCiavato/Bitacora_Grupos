@@ -263,6 +263,13 @@ set_env_value "GRAFANA_ADMIN_PASSWORD" "$GRAFANA_PASSWORD_VALUE"
 
 chmod 600 "$ENV_FILE" || true
 
+NEXT_COMPOSE_CMD="docker compose"
+if ! docker compose version >/dev/null 2>&1; then
+  if command -v docker-compose >/dev/null 2>&1; then
+    NEXT_COMPOSE_CMD="docker-compose"
+  fi
+fi
+
 cat <<EOF
 $ENV_FILE generado correctamente.
 
@@ -278,5 +285,5 @@ Valores configurados:
 - GRAFANA_ADMIN_PASSWORD: $GRAFANA_PASSWORD_VALUE
 
 Siguiente paso:
-  docker compose up -d --build
+  $NEXT_COMPOSE_CMD up -d --build
 EOF

@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# shellcheck source=scripts/lib/compose.sh
+source "$ROOT_DIR/scripts/lib/compose.sh"
+detect_compose_cmd
+
 usage() {
   cat <<'EOF'
 Uso:
@@ -12,7 +16,7 @@ Uso:
 Opciones:
   --pull                   Ejecuta git pull --ff-only origin <branch>.
   --branch <nombre>        Rama para --pull (default: main).
-  --fresh-db               Reinicia stack con docker compose down -v.
+  --fresh-db               Reinicia stack con Compose down -v.
   --ensure-admin           Ejecuta scripts/provision-admin.sh al final.
   --admin-email <correo>   Correo para --ensure-admin (default: ADMIN_DEFAULT_EMAIL de .env).
   --admin-password <pass>  Password para --ensure-admin (default: ADMIN_DEFAULT_PASSWORD de .env).
@@ -135,13 +139,13 @@ if [[ "$PULL" -eq 1 ]]; then
 fi
 
 if [[ "$FRESH_DB" -eq 1 ]]; then
-  docker compose down -v
+  "${COMPOSE_CMD[@]}" down -v
 fi
 
 if [[ "$NO_BUILD" -eq 1 ]]; then
-  docker compose up -d
+  "${COMPOSE_CMD[@]}" up -d
 else
-  docker compose up -d --build
+  "${COMPOSE_CMD[@]}" up -d --build
 fi
 
 for _ in {1..90}; do
@@ -157,5 +161,5 @@ if [[ "$ENSURE_ADMIN" -eq 1 ]]; then
   bash scripts/provision-admin.sh "$ADMIN_EMAIL" "$ADMIN_PASSWORD" "$ADMIN_NAME_ARG"
 fi
 
-docker compose ps
-docker compose logs --tail=120 app
+"${COMPOSE_CMD[@]}" ps
+"${COMPOSE_CMD[@]}" logs --tail=120 app

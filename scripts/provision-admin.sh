@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/compose.sh
+source "$SCRIPT_DIR/lib/compose.sh"
+detect_compose_cmd
+
 ADMIN_EMAIL="${1:-admin@n1njahack.local}"
 ADMIN_PASSWORD="${2:-N1njaHack@2026!}"
 ADMIN_NAME="${3:-Administrador N1njaHack}"
@@ -10,12 +15,12 @@ if [ "${#ADMIN_PASSWORD}" -lt 12 ]; then
   exit 1
 fi
 
-if ! docker compose ps app >/dev/null 2>&1; then
-  echo "ERROR: no se pudo consultar el servicio app. Ejecuta primero: docker compose up -d"
+if ! "${COMPOSE_CMD[@]}" ps app >/dev/null 2>&1; then
+  echo "ERROR: no se pudo consultar el servicio app. Ejecuta primero: ${COMPOSE_CMD[*]} up -d"
   exit 1
 fi
 
-docker compose exec -T \
+"${COMPOSE_CMD[@]}" exec -T \
   -e ADMIN_EMAIL="$ADMIN_EMAIL" \
   -e ADMIN_PASSWORD="$ADMIN_PASSWORD" \
   -e ADMIN_NAME="$ADMIN_NAME" \

@@ -89,6 +89,9 @@ chmod +x scripts/*.sh
 docker compose up -d --build
 ```
 
+Si tu servidor no reconoce `docker compose`, usa `docker-compose up -d --build`
+o instala el plugin con `sudo apt install -y docker-compose-plugin`.
+
 > El backend aplica migraciones idempotentes al iniciar (`ensureDatabaseSchema`).
 
 Despliegue seguro recomendado (valida `.env` antes de levantar):
