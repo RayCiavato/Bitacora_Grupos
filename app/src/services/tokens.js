@@ -122,13 +122,27 @@ function getRefreshCookieOptions() {
   return buildCookieOptions(refreshMs);
 }
 
+function createCsrfToken() {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+function getCsrfCookieOptions() {
+  const refreshMs = durationToMs(config.refreshTokenExpiresIn) || 7 * 24 * 60 * 60 * 1000;
+  return {
+    ...buildCookieOptions(refreshMs),
+    httpOnly: false
+  };
+}
+
 module.exports = {
   durationToMs,
   createAccessToken,
   createRefreshToken,
+  createCsrfToken,
   verifyAccessToken,
   verifyRefreshToken,
   hashToken,
   getAccessCookieOptions,
-  getRefreshCookieOptions
+  getRefreshCookieOptions,
+  getCsrfCookieOptions
 };

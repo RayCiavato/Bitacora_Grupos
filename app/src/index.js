@@ -49,6 +49,27 @@ function createApp() {
   app.use(pinoHttp({ logger }));
   app.use(metricsMiddleware);
 
+  const allowedMethods = new Set(["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"]);
+  app.use((req, res, next) => {
+    if (!allowedMethods.has(req.method)) {
+      return res.status(405).json({ error: "method_not_allowed" });
+    }
+    return next();
+  });
+
+  app.use((req, res, next) => {
+    if (
+      req.path.startsWith("/auth") ||
+      req.path.startsWith("/users") ||
+      req.path.startsWith("/events") ||
+      req.path.startsWith("/templates") ||
+      req.path.startsWith("/audit")
+    ) {
+      res.set("Cache-Control", "no-store");
+    }
+    next();
+  });
+
   const buildLimiter = (windowMs, max, message) =>
     rateLimit({
       windowMs,

@@ -12,10 +12,12 @@ const { createAuditLog } = require("../services/audit");
 const {
   createAccessToken,
   createRefreshToken,
+  createCsrfToken,
   hashToken,
   verifyRefreshToken,
   getAccessCookieOptions,
-  getRefreshCookieOptions
+  getRefreshCookieOptions,
+  getCsrfCookieOptions
 } = require("../services/tokens");
 
 const router = express.Router();
@@ -148,22 +150,25 @@ async function revokeAllRefreshTokensForUser(userId) {
   );
 }
 
-function setSessionCookies(res, accessToken, refreshToken) {
+function setSessionCookies(res, accessToken, refreshToken, csrfToken) {
   res.cookie(config.authCookieName, accessToken, getAccessCookieOptions());
   res.cookie(config.refreshCookieName, refreshToken, getRefreshCookieOptions());
+  res.cookie(config.csrfCookieName, csrfToken, getCsrfCookieOptions());
 }
 
 function clearSessionCookies(res) {
   res.clearCookie(config.authCookieName, getAccessCookieOptions());
   res.clearCookie(config.refreshCookieName, getRefreshCookieOptions());
+  res.clearCookie(config.csrfCookieName, getCsrfCookieOptions());
 }
 
 async function issueSession({ user, req, res, auditAction = "auth.session_created" }) {
   const accessToken = createAccessToken(user);
   const refreshTokenObj = createRefreshToken(user);
+  const csrfToken = createCsrfToken();
 
   await persistRefreshToken(user.id, refreshTokenObj);
-  setSessionCookies(res, accessToken, refreshTokenObj.token);
+  setSessionCookies(res, accessToken, refreshTokenObj.token, csrfToken);
 
   await createAuditLog({
     userId: user.id,
@@ -518,6 +523,10 @@ router.post("/logout", async (req, res, next) => {
 
 router.get("/me", authenticate, async (req, res, next) => {
   try {
+    if (!req.cookies?.[config.csrfCookieName]) {
+      res.cookie(config.csrfCookieName, createCsrfToken(), getCsrfCookieOptions());
+    }
+
     const result = await pool.query(
       `
         SELECT id, name, email, role

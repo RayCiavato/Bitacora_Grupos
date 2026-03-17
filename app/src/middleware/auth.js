@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const { config } = require("../config");
 const { pool } = require("../db");
 const { verifyAccessToken } = require("../services/tokens");
@@ -20,6 +21,46 @@ function getAccessTokenFromRequest(req) {
   }
 
   return null;
+}
+
+function isSafeMethod(method) {
+  return method === "GET" || method === "HEAD" || method === "OPTIONS";
+}
+
+function safeTokenEquals(left, right) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function shouldValidateCsrf(req) {
+  if (isSafeMethod(String(req.method || "").toUpperCase())) {
+    return false;
+  }
+
+  const hasSessionCookie = Boolean(
+    req.cookies?.[config.authCookieName] || req.cookies?.[config.refreshCookieName]
+  );
+  return hasSessionCookie;
+}
+
+function hasValidCsrfToken(req) {
+  const csrfCookie = req.cookies?.[config.csrfCookieName];
+  const csrfHeader = req.headers["x-csrf-token"];
+
+  if (typeof csrfCookie !== "string" || typeof csrfHeader !== "string") {
+    return false;
+  }
+
+  const normalizedHeader = csrfHeader.trim();
+  if (!normalizedHeader || normalizedHeader.length > 256 || csrfCookie.length > 256) {
+    return false;
+  }
+
+  return safeTokenEquals(csrfCookie, normalizedHeader);
 }
 
 async function authenticate(req, res, next) {
@@ -52,6 +93,10 @@ async function authenticate(req, res, next) {
     const user = result.rows[0];
     if (typeof payload.tokenVersion !== "number" || payload.tokenVersion !== user.token_version) {
       return res.status(401).json({ error: "session_revoked" });
+    }
+
+    if (shouldValidateCsrf(req) && !hasValidCsrfToken(req)) {
+      return res.status(403).json({ error: "invalid_csrf_token" });
     }
 
     req.user = {

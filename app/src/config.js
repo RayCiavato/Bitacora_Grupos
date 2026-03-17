@@ -21,6 +21,7 @@ const config = {
   jwtAudience: process.env.JWT_AUDIENCE || "bitacora-clients",
   authCookieName: process.env.AUTH_COOKIE_NAME || "bitacora_access",
   refreshCookieName: process.env.REFRESH_COOKIE_NAME || "bitacora_refresh",
+  csrfCookieName: process.env.CSRF_COOKIE_NAME || "bitacora_csrf",
   cookieDomain: process.env.COOKIE_DOMAIN || "",
   cookieSecure: readBool(process.env.COOKIE_SECURE, process.env.NODE_ENV === "production"),
   cookieSameSite: process.env.COOKIE_SAMESITE || "strict",

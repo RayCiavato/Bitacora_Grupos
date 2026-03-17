@@ -1437,18 +1437,45 @@ function reportParamsToPayload(params) {
   return payload;
 }
 
+function readCookie(name) {
+  const escapedName = String(name || "").replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
+  const match = document.cookie.match(new RegExp(`(?:^|; )${escapedName}=([^;]*)`));
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function getCsrfToken() {
+  return readCookie("bitacora_csrf");
+}
+
+function addCsrfHeaderIfNeeded(headers = {}, method = "GET") {
+  const normalizedMethod = String(method || "GET").toUpperCase();
+  if (normalizedMethod === "GET" || normalizedMethod === "HEAD" || normalizedMethod === "OPTIONS") {
+    return headers;
+  }
+
+  const csrfToken = getCsrfToken();
+  if (!csrfToken) {
+    return headers;
+  }
+
+  return {
+    ...headers,
+    "x-csrf-token": csrfToken
+  };
+}
+
 async function api(path, options = {}) {
   const { timeoutMs = 20000, ...fetchOptions } = options;
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  const method = String(fetchOptions.method || "GET").toUpperCase();
 
   const requestOptions = {
     credentials: "same-origin",
     ...fetchOptions,
     signal: controller.signal,
-    headers: {
-      ...(fetchOptions.headers || {})
-    }
+    method,
+    headers: addCsrfHeaderIfNeeded(fetchOptions.headers || {}, method)
   };
 
   try {
@@ -1950,11 +1977,13 @@ async function handleRegister(event) {
 async function uploadEventAttachmentByFile(eventId, file) {
   const formData = new FormData();
   formData.append("file", file);
+  const csrfToken = getCsrfToken();
 
   let uploadResponse = await fetch(`/events/${eventId}/attachments`, {
     method: "POST",
     body: formData,
-    credentials: "same-origin"
+    credentials: "same-origin",
+    headers: csrfToken ? { "x-csrf-token": csrfToken } : {}
   });
 
   if (uploadResponse.status === 401) {
@@ -1963,7 +1992,8 @@ async function uploadEventAttachmentByFile(eventId, file) {
       uploadResponse = await fetch(`/events/${eventId}/attachments`, {
         method: "POST",
         body: formData,
-        credentials: "same-origin"
+        credentials: "same-origin",
+        headers: csrfToken ? { "x-csrf-token": csrfToken } : {}
       });
     }
   }
@@ -2594,7 +2624,7 @@ async function handleExportClick(event) {
       response = await fetch("/events/report/export", {
         method: "POST",
         credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
+        headers: addCsrfHeaderIfNeeded({ "Content-Type": "application/json" }, "POST"),
         body: JSON.stringify(exportPayload)
       });
 
@@ -2604,7 +2634,7 @@ async function handleExportClick(event) {
           response = await fetch("/events/report/export", {
             method: "POST",
             credentials: "same-origin",
-            headers: { "Content-Type": "application/json" },
+            headers: addCsrfHeaderIfNeeded({ "Content-Type": "application/json" }, "POST"),
             body: JSON.stringify(exportPayload)
           });
         }

@@ -20,6 +20,33 @@ const state = {
   currentUser: null
 };
 
+function readCookie(name) {
+  const escapedName = String(name || "").replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
+  const match = document.cookie.match(new RegExp(`(?:^|; )${escapedName}=([^;]*)`));
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function getCsrfToken() {
+  return readCookie("bitacora_csrf");
+}
+
+function addCsrfHeaderIfNeeded(headers = {}, method = "GET") {
+  const normalizedMethod = String(method || "GET").toUpperCase();
+  if (normalizedMethod === "GET" || normalizedMethod === "HEAD" || normalizedMethod === "OPTIONS") {
+    return headers;
+  }
+
+  const csrfToken = getCsrfToken();
+  if (!csrfToken) {
+    return headers;
+  }
+
+  return {
+    ...headers,
+    "x-csrf-token": csrfToken
+  };
+}
+
 const PRIORITY_LABELS = {
   baja: "Baja",
   media: "Media",
@@ -214,7 +241,8 @@ async function handleDelete(eventId) {
 
   const response = await fetch(`/events/${eventId}`, {
     method: "DELETE",
-    credentials: "same-origin"
+    credentials: "same-origin",
+    headers: addCsrfHeaderIfNeeded({}, "DELETE")
   });
 
   if (response.status === 401) {
@@ -271,7 +299,7 @@ async function handleEdit(eventId, payloadRaw) {
   const response = await fetch(`/events/${eventId}`, {
     method: "PATCH",
     credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
+    headers: addCsrfHeaderIfNeeded({ "Content-Type": "application/json" }, "PATCH"),
     body: JSON.stringify({
       fecha: fecha.trim(),
       descripcionActividad: descripcionActividad.trim(),
