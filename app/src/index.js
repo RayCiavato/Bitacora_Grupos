@@ -42,11 +42,20 @@ function createApp() {
   const app = express();
   app.set("trust proxy", 1);
   app.disable("x-powered-by");
+  const isObservabilityPath = (pathname) =>
+    pathname === "/metrics" || pathname === "/health" || pathname === "/ready";
 
   app.use(helmet(buildHelmetConfig()));
   app.use(cookieParser());
   app.use(express.json({ limit: "2mb" }));
-  app.use(pinoHttp({ logger }));
+  app.use(
+    pinoHttp({
+      logger,
+      autoLogging: {
+        ignore: (req) => isObservabilityPath((req.url || "").split("?")[0] || "")
+      }
+    })
+  );
   app.use(metricsMiddleware);
 
   const allowedMethods = new Set(["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"]);
@@ -70,12 +79,13 @@ function createApp() {
     next();
   });
 
-  const buildLimiter = (windowMs, max, message) =>
+  const buildLimiter = (windowMs, max, message, skipFn) =>
     rateLimit({
       windowMs,
       max,
       standardHeaders: true,
       legacyHeaders: false,
+      skip: skipFn,
       handler: (req, res, _next, options) => {
         const resetTime = req.rateLimit?.resetTime;
         const retryAfterSeconds =
@@ -94,7 +104,8 @@ function createApp() {
   const globalLimiter = buildLimiter(
     15 * 60 * 1000,
     300,
-    "Demasiadas solicitudes. Intenta nuevamente en unos minutos."
+    "Demasiadas solicitudes. Intenta nuevamente en unos minutos.",
+    (req) => isObservabilityPath(req.path)
   );
   app.use(globalLimiter);
 
