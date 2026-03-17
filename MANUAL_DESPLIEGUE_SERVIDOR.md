@@ -1,6 +1,6 @@
 # Manual De Despliegue En Ubuntu Server (Docker Ya Instalado)
 
-Este manual esta optimizado para tu caso: servidor Ubuntu ya con Docker/Compose, acceso por SSH desde MobaXterm y repositorio privado en GitHub (`RayCiavato/bitacora`).
+Este manual esta optimizado para tu caso: servidor Ubuntu ya con Docker/Compose, acceso por SSH desde MobaXterm y repositorio privado en GitHub (`RayCiavato/BitacoraHardening`).
 
 ## 1) Conexion al servidor desde MobaXterm
 
@@ -46,7 +46,7 @@ cat ~/.ssh/bitacora_github.pub
 ```
 
 1. Copia la salida de `cat`.
-2. Ve a GitHub -> `RayCiavato/bitacora` -> `Settings` -> `Deploy keys` -> `Add deploy key`.
+2. Ve a GitHub -> `RayCiavato/BitacoraHardening` -> `Settings` -> `Deploy keys` -> `Add deploy key`.
 3. Pega la clave publica.
 4. Marca **Allow write access** solo si vas a hacer push desde servidor (si no, dejalo solo lectura).
 
@@ -69,7 +69,7 @@ ssh -T github-bitacora
 ```bash
 mkdir -p ~/apps
 cd ~/apps
-git clone git@github-bitacora:RayCiavato/bitacora.git
+git clone git@github-bitacora:RayCiavato/BitacoraHardening.git bitacora
 cd bitacora
 ```
 
