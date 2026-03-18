@@ -9,6 +9,12 @@ https://{$APP_DOMAIN} {
   @blocked_metrics path /metrics
   respond @blocked_metrics 404
 
+  @blocked_source_view {
+    path_regexp js_source ^/.*\.(js|map)$
+    header Accept *text/html*
+  }
+  respond @blocked_source_view 404
+
   header {
     -Server
     Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
