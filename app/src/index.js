@@ -79,6 +79,25 @@ function createApp() {
     next();
   });
 
+  // Evita navegacion directa a bundles JS desde barra de direcciones.
+  // Nota: esto no "oculta" codigo al navegador, solo reduce exposicion casual.
+  app.use((req, res, next) => {
+    if (req.method !== "GET" || !req.path.endsWith(".js")) {
+      return next();
+    }
+
+    const secFetchDest = String(req.headers["sec-fetch-dest"] || "").toLowerCase();
+    const acceptHeader = String(req.headers.accept || "").toLowerCase();
+    const directDocumentRequest =
+      secFetchDest === "document" || (!secFetchDest && acceptHeader.includes("text/html"));
+
+    if (directDocumentRequest) {
+      return res.status(404).send("Not found");
+    }
+
+    return next();
+  });
+
   const buildLimiter = (windowMs, max, message, skipFn) =>
     rateLimit({
       windowMs,

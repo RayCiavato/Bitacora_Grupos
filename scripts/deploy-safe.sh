@@ -142,10 +142,28 @@ if [[ "$FRESH_DB" -eq 1 ]]; then
   "${COMPOSE_CMD[@]}" down -v
 fi
 
-if [[ "$NO_BUILD" -eq 1 ]]; then
-  "${COMPOSE_CMD[@]}" up -d
-else
-  "${COMPOSE_CMD[@]}" up -d --build
+is_legacy_compose() {
+  [[ "${COMPOSE_CMD[0]}" == "docker-compose" ]]
+}
+
+compose_up_stack() {
+  if [[ "$NO_BUILD" -eq 1 ]]; then
+    "${COMPOSE_CMD[@]}" up -d
+  else
+    "${COMPOSE_CMD[@]}" up -d --build
+  fi
+}
+
+if ! compose_up_stack; then
+  if is_legacy_compose; then
+    echo "WARN: fallo de recreate detectado en docker-compose legacy. Aplicando workaround seguro..."
+    "${COMPOSE_CMD[@]}" rm -f -s app >/dev/null 2>&1 || true
+    "${COMPOSE_CMD[@]}" down --remove-orphans >/dev/null 2>&1 || true
+    compose_up_stack
+  else
+    echo "ERROR: fallo en deploy con Compose."
+    exit 1
+  fi
 fi
 
 for _ in {1..90}; do

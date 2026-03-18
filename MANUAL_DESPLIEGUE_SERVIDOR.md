@@ -326,6 +326,30 @@ Valida especialmente `DATABASE_URL` (se arma desde compose), `JWT_SECRET`, `POST
 - Puertos 80/443 abiertos.
 - En pruebas internas usa temporalmente `tls internal`.
 
+### E) Error `KeyError: 'ContainerConfig'` con `docker-compose` legacy
+
+Suele ocurrir con `docker-compose v1` al recrear contenedores en motores Docker nuevos.
+
+Recuperacion rapida sin borrar datos:
+
+```bash
+cd ~/apps/bitacora
+docker-compose rm -f app || true
+docker rm -f bitacora-app 2>/dev/null || true
+docker-compose up -d --no-deps --force-recreate app
+docker-compose ps
+```
+
+Si persiste:
+
+```bash
+cd ~/apps/bitacora
+docker-compose down --remove-orphans
+docker-compose up -d --build
+```
+
+Nota: `scripts/deploy-safe.sh` ya aplica un workaround automatico cuando detecta `docker-compose` legacy.
+
 ## 14) Checklist final
 
 1. Repo privado clonado correctamente desde servidor.
