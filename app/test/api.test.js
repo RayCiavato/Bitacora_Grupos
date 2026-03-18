@@ -26,3 +26,27 @@ test("POST /auth/refresh sin refresh token devuelve 401", async () => {
   assert.equal(response.status, 401);
   assert.equal(response.body.error, "refresh_token_required");
 });
+
+test("GET /app.js con perfil de navegacion directa devuelve 404", async () => {
+  const response = await request(app).get("/app.js").set("Accept", "text/html");
+  assert.equal(response.status, 404);
+});
+
+test("GET /app.js como carga normal de asset devuelve 200", async () => {
+  const response = await request(app)
+    .get("/app.js")
+    .set("Host", "bitacora.local")
+    .set("Referer", "http://bitacora.local/")
+    .set("Accept", "*/*");
+  assert.equal(response.status, 200);
+});
+
+test("GET /app.js con Upgrade-Insecure-Requests se bloquea", async () => {
+  const response = await request(app)
+    .get("/app.js")
+    .set("Host", "bitacora.local")
+    .set("Referer", "http://bitacora.local/")
+    .set("Accept", "*/*")
+    .set("Upgrade-Insecure-Requests", "1");
+  assert.equal(response.status, 404);
+});

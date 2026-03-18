@@ -82,31 +82,36 @@ function createApp() {
   // Evita navegacion directa a bundles JS desde barra de direcciones.
   // Nota: esto no "oculta" codigo al navegador, solo reduce exposicion casual.
   app.use((req, res, next) => {
-    if (req.method !== "GET" || !req.path.endsWith(".js")) {
+    if (req.method !== "GET" || !/\.(js|map)$/i.test(req.path)) {
       return next();
     }
 
     const secFetchDest = String(req.headers["sec-fetch-dest"] || "").toLowerCase();
     const secFetchMode = String(req.headers["sec-fetch-mode"] || "").toLowerCase();
+    const secFetchUser = String(req.headers["sec-fetch-user"] || "").toLowerCase();
+    const upgradeInsecureRequests = String(req.headers["upgrade-insecure-requests"] || "");
     const acceptHeader = String(req.headers.accept || "").toLowerCase();
     const referer = String(req.headers.referer || "");
     const host = String(req.headers.host || "");
     const sameOriginHttp = `http://${host}/`;
     const sameOriginHttps = `https://${host}/`;
     const hasSameOriginReferer =
-      referer.startsWith(sameOriginHttp) || referer.startsWith(sameOriginHttps);
-    const looksLikeAssetFetch =
+      host && (referer.startsWith(sameOriginHttp) || referer.startsWith(sameOriginHttps));
+
+    const scriptLikeRequest =
       secFetchDest === "script" ||
       secFetchDest === "worker" ||
       secFetchDest === "serviceworker" ||
-      secFetchDest === "sharedworker" ||
-      hasSameOriginReferer;
+      secFetchDest === "sharedworker";
     const htmlNavigationAccept =
       acceptHeader.includes("text/html") || acceptHeader.includes("application/xhtml+xml");
     const directDocumentRequest =
       secFetchMode === "navigate" ||
       secFetchDest === "document" ||
+      secFetchUser === "?1" ||
+      upgradeInsecureRequests === "1" ||
       htmlNavigationAccept;
+    const looksLikeAssetFetch = scriptLikeRequest || (hasSameOriginReferer && !directDocumentRequest);
 
     if (directDocumentRequest || !looksLikeAssetFetch) {
       return res.status(404).send("Not found");

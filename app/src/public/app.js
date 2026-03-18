@@ -848,7 +848,12 @@ function renderBars(container, rows, valueField, labelField) {
 
     const meta = document.createElement("div");
     meta.className = "bar-meta";
-    meta.innerHTML = `<span>${label}</span><span>${value}</span>`;
+    const labelSpan = document.createElement("span");
+    labelSpan.textContent = String(label ?? "-");
+    const valueSpan = document.createElement("span");
+    valueSpan.textContent = String(value);
+    meta.appendChild(labelSpan);
+    meta.appendChild(valueSpan);
 
     const track = document.createElement("div");
     track.className = "bar-track";
