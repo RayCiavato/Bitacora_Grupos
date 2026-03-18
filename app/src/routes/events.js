@@ -1071,7 +1071,17 @@ router.get("/attachments/:attachmentId/download", authenticate, async (req, res,
     if (!ensureEventOwnerOrAdminOrForbidden(req, res, attachment)) {
       return;
     }
-    const filePath = path.join(config.uploadDir, attachment.stored_name);
+    const normalizedStoredName = path.basename(String(attachment.stored_name || ""));
+    if (!normalizedStoredName || normalizedStoredName !== attachment.stored_name) {
+      return res.status(404).json({ error: "attachment_not_found" });
+    }
+
+    const uploadsRoot = path.resolve(config.uploadDir);
+    const filePath = path.resolve(uploadsRoot, normalizedStoredName);
+    if (!filePath.startsWith(`${uploadsRoot}${path.sep}`)) {
+      return res.status(404).json({ error: "attachment_not_found" });
+    }
+
     await fs.access(filePath);
 
     res.setHeader("Content-Type", attachment.mime_type);

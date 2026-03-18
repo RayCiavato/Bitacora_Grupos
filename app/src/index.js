@@ -15,6 +15,11 @@ const { templatesRouter } = require("./routes/templates");
 const { auditRouter } = require("./routes/audit");
 const { healthRouter } = require("./routes/health");
 const { startReminderScheduler } = require("./services/reminders");
+const {
+  hardenPathExposure,
+  notFoundHandler,
+  secureErrorHandler
+} = require("./middleware/hardening");
 
 assertConfig();
 
@@ -41,6 +46,7 @@ function buildHelmetConfig() {
 function createApp() {
   const app = express();
   app.set("trust proxy", 1);
+  app.set("query parser", "simple");
   app.disable("x-powered-by");
   const isObservabilityPath = (pathname) =>
     pathname === "/metrics" || pathname === "/health" || pathname === "/ready";
@@ -57,6 +63,7 @@ function createApp() {
     })
   );
   app.use(metricsMiddleware);
+  app.use(hardenPathExposure);
 
   const allowedMethods = new Set(["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"]);
   app.use((req, res, next) => {
@@ -205,6 +212,9 @@ function createApp() {
   app.use("/audit", auditRouter);
   app.use("/templates", templatesRouter);
   app.use("/events", eventsRouter);
+  app.get("/", (_req, res) => {
+    res.sendFile(path.join(__dirname, "public", "index.html"));
+  });
 
   app.get("/sw.js", (_req, res) => {
     res.set("Cache-Control", "no-cache");
@@ -239,14 +249,15 @@ function createApp() {
 
   app.use(
     express.static(path.join(__dirname, "public"), {
-      maxAge: "6h"
+      maxAge: "6h",
+      dotfiles: "deny",
+      index: false,
+      redirect: false
     })
   );
 
-  app.use((err, _req, res, _next) => {
-    logger.error({ err }, "Unhandled API error");
-    res.status(500).json({ error: "internal_server_error" });
-  });
+  app.use(notFoundHandler);
+  app.use(secureErrorHandler);
 
   return app;
 }

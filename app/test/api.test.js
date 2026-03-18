@@ -55,3 +55,25 @@ test("GET /app.js sin token de asset devuelve 404", async () => {
   const response = await request(app).get("/app.js").set("Accept", "*/*");
   assert.equal(response.status, 404);
 });
+
+test("GET /.env devuelve 404 generico", async () => {
+  const response = await request(app).get("/.env");
+  assert.equal(response.status, 404);
+  assert.ok(!String(response.text || "").includes("Cannot GET"));
+});
+
+test("GET /src/index.js devuelve 404 generico", async () => {
+  const response = await request(app).get("/src/index.js");
+  assert.equal(response.status, 404);
+});
+
+test("GET con intento de path traversal devuelve 404", async () => {
+  const response = await request(app).get("/..%2F..%2Fetc%2Fpasswd");
+  assert.equal(response.status, 404);
+});
+
+test("GET /auth/inexistente devuelve 404 json sin stack", async () => {
+  const response = await request(app).get("/auth/inexistente");
+  assert.equal(response.status, 404);
+  assert.equal(response.body.error, "not_found");
+});

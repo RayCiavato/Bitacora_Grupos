@@ -9,6 +9,16 @@ https://{$APP_DOMAIN} {
   @blocked_metrics path /metrics
   respond @blocked_metrics 404
 
+  @blocked_sensitive_path {
+    path_regexp sensitive_path (?i)^/(?:\.|src(?:/|$)|routes?(?:/|$)|controllers?(?:/|$)|uploads(?:/|$)|views?(?:/|$)|configs?(?:/|$)|logs?(?:/|$)|backups?(?:/|$)|scripts?(?:/|$)|node_modules(?:/|$)|db(?:/|$)|infra(?:/|$)|monitoring(?:/|$)|package(?:-lock)?\.json$|docker-compose\.(?:yml|yaml)$|caddyfile(?:\..+)?$)
+  }
+  respond @blocked_sensitive_path 404
+
+  @blocked_sensitive_files {
+    path_regexp sensitive_file (?i)^/.*\.(?:env|ini|conf|log|bak|backup|sql|ya?ml|sh|ps1)(?:\..*)?$
+  }
+  respond @blocked_sensitive_files 404
+
   @blocked_source_view {
     path_regexp js_source ^/.*\.(js|map)$
     header Accept *text/html*
