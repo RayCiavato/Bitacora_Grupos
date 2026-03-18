@@ -34,7 +34,7 @@ test("GET /app.js con perfil de navegacion directa devuelve 404", async () => {
 
 test("GET /app.js como carga normal de asset devuelve 200", async () => {
   const response = await request(app)
-    .get("/app.js")
+    .get("/app.js?asset=web")
     .set("Host", "bitacora.local")
     .set("Referer", "http://bitacora.local/")
     .set("Accept", "*/*");
@@ -43,10 +43,15 @@ test("GET /app.js como carga normal de asset devuelve 200", async () => {
 
 test("GET /app.js con Upgrade-Insecure-Requests se bloquea", async () => {
   const response = await request(app)
-    .get("/app.js")
+    .get("/app.js?asset=web")
     .set("Host", "bitacora.local")
     .set("Referer", "http://bitacora.local/")
     .set("Accept", "*/*")
     .set("Upgrade-Insecure-Requests", "1");
+  assert.equal(response.status, 404);
+});
+
+test("GET /app.js sin token de asset devuelve 404", async () => {
+  const response = await request(app).get("/app.js").set("Accept", "*/*");
   assert.equal(response.status, 404);
 });

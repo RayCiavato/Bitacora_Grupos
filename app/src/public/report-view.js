@@ -3,6 +3,20 @@ const summaryEl = document.getElementById("summary");
 const prevBtn = document.getElementById("prevBtn");
 const nextBtn = document.getElementById("nextBtn");
 const closeBtn = document.getElementById("closeBtn");
+const security = window.BitacoraSecurity || {
+  toSafeText(value) {
+    if (value === null || value === undefined) {
+      return "";
+    }
+    return String(value);
+  },
+  setSafeText(target, value) {
+    if (!target) {
+      return;
+    }
+    target.textContent = this.toSafeText(value);
+  }
+};
 
 const params = new URLSearchParams(window.location.search);
 const baseQuery = {
@@ -83,7 +97,7 @@ function renderEmpty(message) {
   const tr = document.createElement("tr");
   const td = document.createElement("td");
   td.colSpan = 8;
-  td.textContent = message;
+  security.setSafeText(td, message);
   tr.appendChild(td);
   rowsEl.appendChild(tr);
 }
@@ -120,7 +134,7 @@ function renderRows(items) {
 
     values.forEach((value) => {
       const td = document.createElement("td");
-      td.textContent = value;
+      security.setSafeText(td, value);
       tr.appendChild(td);
     });
 
@@ -167,7 +181,7 @@ async function loadCurrentUser() {
 
 async function loadPage() {
   if (!baseQuery.from || !baseQuery.to) {
-    summaryEl.textContent = "Faltan parametros de rango (from/to).";
+    security.setSafeText(summaryEl, "Faltan parametros de rango (from/to).");
     renderEmpty("No se recibio un rango valido.");
     prevBtn.disabled = true;
     nextBtn.disabled = true;
@@ -196,7 +210,7 @@ async function loadPage() {
   });
 
   if (response.status === 401) {
-    summaryEl.textContent = "Tu sesion expiro. Cierra esta ventana y vuelve a iniciar sesion.";
+    security.setSafeText(summaryEl, "Tu sesion expiro. Cierra esta ventana y vuelve a iniciar sesion.");
     renderEmpty("Sesion no valida.");
     prevBtn.disabled = true;
     nextBtn.disabled = true;
@@ -204,7 +218,7 @@ async function loadPage() {
   }
 
   if (!response.ok) {
-    summaryEl.textContent = "No se pudo cargar la vista completa.";
+    security.setSafeText(summaryEl, "No se pudo cargar la vista completa.");
     renderEmpty("Error al cargar informacion.");
     prevBtn.disabled = true;
     nextBtn.disabled = true;
@@ -213,9 +227,12 @@ async function loadPage() {
 
   const data = await response.json();
   state.totalPages = Number(data.pagination?.totalPages || 1);
-  summaryEl.textContent = `Rango ${formatDate(baseQuery.from)} - ${formatDate(baseQuery.to)} | Registros ${
-    data.totalEvents || 0
-  } | Pagina ${state.page} de ${state.totalPages}`;
+  security.setSafeText(
+    summaryEl,
+    `Rango ${formatDate(baseQuery.from)} - ${formatDate(baseQuery.to)} | Registros ${
+      data.totalEvents || 0
+    } | Pagina ${state.page} de ${state.totalPages}`
+  );
 
   renderRows(Array.isArray(data.events) ? data.events : []);
   prevBtn.disabled = state.page <= 1;
@@ -228,7 +245,7 @@ async function handleDelete(eventId) {
   }
 
   if (!canAdminManageEvents()) {
-    summaryEl.textContent = "Solo admin puede eliminar registros.";
+    security.setSafeText(summaryEl, "Solo admin puede eliminar registros.");
     return;
   }
 
@@ -246,12 +263,12 @@ async function handleDelete(eventId) {
   });
 
   if (response.status === 401) {
-    summaryEl.textContent = "Tu sesion expiro. Cierra esta ventana y vuelve a iniciar sesion.";
+    security.setSafeText(summaryEl, "Tu sesion expiro. Cierra esta ventana y vuelve a iniciar sesion.");
     return;
   }
 
   if (!response.ok) {
-    summaryEl.textContent = "No se pudo eliminar el registro.";
+    security.setSafeText(summaryEl, "No se pudo eliminar el registro.");
     return;
   }
 
@@ -260,7 +277,7 @@ async function handleDelete(eventId) {
 
 async function handleEdit(eventId, payloadRaw) {
   if (!canAdminManageEvents()) {
-    summaryEl.textContent = "Solo admin puede editar registros.";
+    security.setSafeText(summaryEl, "Solo admin puede editar registros.");
     return;
   }
 
@@ -309,17 +326,17 @@ async function handleEdit(eventId, payloadRaw) {
   });
 
   if (response.status === 401) {
-    summaryEl.textContent = "Tu sesion expiro. Cierra esta ventana y vuelve a iniciar sesion.";
+    security.setSafeText(summaryEl, "Tu sesion expiro. Cierra esta ventana y vuelve a iniciar sesion.");
     return;
   }
 
   if (response.status === 403) {
-    summaryEl.textContent = "Solo admin puede editar registros.";
+    security.setSafeText(summaryEl, "Solo admin puede editar registros.");
     return;
   }
 
   if (!response.ok) {
-    summaryEl.textContent = "No se pudo editar el registro.";
+    security.setSafeText(summaryEl, "No se pudo editar el registro.");
     return;
   }
 

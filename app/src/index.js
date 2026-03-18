@@ -86,6 +86,13 @@ function createApp() {
       return next();
     }
 
+    const protectedAssetTokens = {
+      "/app.js": "web",
+      "/report-view.js": "report"
+    };
+    const expectedAssetToken = protectedAssetTokens[req.path];
+    const requestAssetToken = String(req.query?.asset || "");
+
     const secFetchDest = String(req.headers["sec-fetch-dest"] || "").toLowerCase();
     const secFetchMode = String(req.headers["sec-fetch-mode"] || "").toLowerCase();
     const secFetchUser = String(req.headers["sec-fetch-user"] || "").toLowerCase();
@@ -111,9 +118,22 @@ function createApp() {
       secFetchUser === "?1" ||
       upgradeInsecureRequests === "1" ||
       htmlNavigationAccept;
+
+    if (expectedAssetToken && requestAssetToken !== expectedAssetToken) {
+      return res.status(404).send("Not found");
+    }
+
+    if (directDocumentRequest) {
+      return res.status(404).send("Not found");
+    }
+
+    if (expectedAssetToken) {
+      return next();
+    }
+
     const looksLikeAssetFetch = scriptLikeRequest || (hasSameOriginReferer && !directDocumentRequest);
 
-    if (directDocumentRequest || !looksLikeAssetFetch) {
+    if (!looksLikeAssetFetch) {
       return res.status(404).send("Not found");
     }
 

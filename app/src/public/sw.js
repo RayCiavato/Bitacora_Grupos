@@ -1,17 +1,19 @@
-const CACHE_NAME = "bitacora-v12";
+const CACHE_NAME = "bitacora-v13";
 const PRECACHE = [
   "/",
   "/index.html",
   "/report-view.html",
   "/report-view.css",
-  "/report-view.js",
+  "/report-view.js?asset=report",
   "/styles.css",
-  "/app.js",
+  "/app.js?asset=web",
+  "/security.js",
   "/manifest.webmanifest",
   "/offline.html",
   "/icons/icon.svg",
   "/icons/icon-maskable.svg"
 ];
+const STATIC_ASSET_PATHS = new Set(PRECACHE.map((entry) => new URL(entry, self.location.origin).pathname));
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -40,7 +42,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   const normalizedPath = url.pathname === "" ? "/" : url.pathname;
-  const isStaticAsset = PRECACHE.includes(normalizedPath);
+  const isStaticAsset = STATIC_ASSET_PATHS.has(normalizedPath);
 
   if (request.mode === "navigate") {
     event.respondWith(

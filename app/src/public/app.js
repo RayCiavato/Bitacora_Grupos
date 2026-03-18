@@ -8,6 +8,20 @@ const mfaManualKey = document.getElementById("mfaManualKey");
 const sessionInfo = document.getElementById("sessionInfo");
 const toast = document.getElementById("toast");
 const reportRange = document.getElementById("reportRange");
+const security = window.BitacoraSecurity || {
+  toSafeText(value) {
+    if (value === null || value === undefined) {
+      return "";
+    }
+    return String(value);
+  },
+  setSafeText(target, value) {
+    if (!target) {
+      return;
+    }
+    target.textContent = this.toSafeText(value);
+  }
+};
 
 const kpiTotal = document.getElementById("kpiTotal");
 const kpiAlta = document.getElementById("kpiAlta");
@@ -849,9 +863,9 @@ function renderBars(container, rows, valueField, labelField) {
     const meta = document.createElement("div");
     meta.className = "bar-meta";
     const labelSpan = document.createElement("span");
-    labelSpan.textContent = String(label ?? "-");
+    security.setSafeText(labelSpan, label ?? "-");
     const valueSpan = document.createElement("span");
-    valueSpan.textContent = String(value);
+    security.setSafeText(valueSpan, value);
     meta.appendChild(labelSpan);
     meta.appendChild(valueSpan);
 
