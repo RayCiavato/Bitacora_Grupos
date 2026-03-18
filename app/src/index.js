@@ -87,11 +87,26 @@ function createApp() {
     }
 
     const secFetchDest = String(req.headers["sec-fetch-dest"] || "").toLowerCase();
+    const secFetchMode = String(req.headers["sec-fetch-mode"] || "").toLowerCase();
     const acceptHeader = String(req.headers.accept || "").toLowerCase();
+    const referer = String(req.headers.referer || "");
+    const host = String(req.headers.host || "");
+    const sameOriginHttp = `http://${host}/`;
+    const sameOriginHttps = `https://${host}/`;
+    const hasSameOriginReferer =
+      referer.startsWith(sameOriginHttp) || referer.startsWith(sameOriginHttps);
+    const looksLikeAssetFetch =
+      secFetchDest === "script" ||
+      secFetchDest === "worker" ||
+      secFetchDest === "serviceworker" ||
+      secFetchDest === "sharedworker" ||
+      hasSameOriginReferer;
     const directDocumentRequest =
-      secFetchDest === "document" || (!secFetchDest && acceptHeader.includes("text/html"));
+      secFetchMode === "navigate" ||
+      secFetchDest === "document" ||
+      (!secFetchDest && !hasSameOriginReferer && acceptHeader.includes("text/html"));
 
-    if (directDocumentRequest) {
+    if (directDocumentRequest || !looksLikeAssetFetch) {
       return res.status(404).send("Not found");
     }
 
