@@ -56,6 +56,25 @@ test("GET /app.js sin token de asset devuelve 404", async () => {
   assert.equal(response.status, 404);
 });
 
+test("GET /security.js sin token de asset devuelve 404", async () => {
+  const response = await request(app).get("/security.js").set("Accept", "*/*");
+  assert.equal(response.status, 404);
+});
+
+test("GET /security.js como asset controlado devuelve 200", async () => {
+  const response = await request(app)
+    .get("/security.js?asset=sec")
+    .set("Host", "bitacora.local")
+    .set("Referer", "http://bitacora.local/")
+    .set("Accept", "*/*");
+  assert.equal(response.status, 200);
+});
+
+test("GET *.map en produccion devuelve 404", async () => {
+  const response = await request(app).get("/app.js.map").set("Accept", "*/*");
+  assert.equal(response.status, 404);
+});
+
 test("GET /.env devuelve 404 generico", async () => {
   const response = await request(app).get("/.env");
   assert.equal(response.status, 404);

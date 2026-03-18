@@ -14,7 +14,7 @@
   respond @blocked_sensitive_path 404
 
   @blocked_sensitive_files {
-    path_regexp sensitive_file (?i)^/.*\.(?:env|ini|conf|log|bak|backup|sql|ya?ml|sh|ps1)(?:\..*)?$
+    path_regexp sensitive_file (?i)^/.*\.(?:env|ini|conf|log|bak|backup|sql|sqlite|ya?ml|sh|ps1|map)(?:\..*)?$
   }
   respond @blocked_sensitive_files 404
 

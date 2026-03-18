@@ -41,7 +41,8 @@ const SENSITIVE_BASENAMES = new Set([
   "readme.md",
   "manual_despliegue_servidor.md"
 ]);
-const SENSITIVE_EXTENSION_RE = /\.(?:bak|backup|log|sql|yml|yaml|ini|conf|sh|ps1)(?:$|\?)/i;
+const SENSITIVE_EXTENSION_RE =
+  /\.(?:bak|backup|log|sql|sqlite|yml|yaml|ini|conf|sh|ps1|map)(?:$|\?)/i;
 
 function isApiPath(pathname) {
   return API_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));

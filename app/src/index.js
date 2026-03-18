@@ -93,9 +93,25 @@ function createApp() {
       return next();
     }
 
+    if (req.path.toLowerCase().endsWith(".map")) {
+      return res.status(404).send("Not found");
+    }
+
+    const allowedPublicJs = new Set([
+      "/app.js",
+      "/report-view.js",
+      "/security.js",
+      "/sw.js",
+      "/vendor/chart.js"
+    ]);
+    if (req.path.toLowerCase().endsWith(".js") && !allowedPublicJs.has(req.path)) {
+      return res.status(404).send("Not found");
+    }
+
     const protectedAssetTokens = {
       "/app.js": "web",
-      "/report-view.js": "report"
+      "/report-view.js": "report",
+      "/security.js": "sec"
     };
     const expectedAssetToken = protectedAssetTokens[req.path];
     const requestAssetToken = String(req.query?.asset || "");
