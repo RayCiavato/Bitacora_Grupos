@@ -26,6 +26,16 @@ assertConfig();
 function buildHelmetConfig() {
   return {
     crossOriginResourcePolicy: { policy: "same-origin" },
+    referrerPolicy: { policy: "no-referrer" },
+    permissionsPolicy: {
+      features: {
+        geolocation: [],
+        microphone: [],
+        camera: [],
+        payment: [],
+        usb: []
+      }
+    },
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
@@ -216,6 +226,16 @@ function createApp() {
     20,
     "Demasiados intentos de recuperacion de contrasena."
   );
+  const reportExportLimiter = buildLimiter(
+    15 * 60 * 1000,
+    40,
+    "Demasiadas exportaciones de reportes."
+  );
+  const attachmentsLimiter = buildLimiter(
+    15 * 60 * 1000,
+    90,
+    "Demasiadas operaciones de adjuntos."
+  );
 
   app.use("/", healthRouter);
   app.get("/metrics", metricsHandler);
@@ -223,6 +243,9 @@ function createApp() {
   app.use("/auth/register", registerLimiter);
   app.use("/auth/refresh", refreshLimiter);
   app.use("/auth/password/recover", recoverLimiter);
+  app.use("/events/report/export", reportExportLimiter);
+  app.use("/events/:id/attachments", attachmentsLimiter);
+  app.use("/events/attachments/:attachmentId/download", attachmentsLimiter);
   app.use("/auth", authRouter);
   app.use("/users", usersRouter);
   app.use("/audit", auditRouter);

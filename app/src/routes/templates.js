@@ -99,7 +99,7 @@ router.post("/", authenticate, requireRole(["admin", "supervisor"]), async (req,
     return res.status(201).json(result.rows[0]);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     if (error.code === "23505") {
       return res.status(409).json({ error: "template_name_exists" });
@@ -174,7 +174,7 @@ router.patch("/:id", authenticate, requireRole(["admin", "supervisor"]), async (
     return res.json(result.rows[0]);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     if (error.code === "23505") {
       return res.status(409).json({ error: "template_name_exists" });
@@ -215,7 +215,7 @@ router.delete(
       return res.json({ message: "Plantilla desactivada" });
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: "validation_error", details: error.flatten() });
+        return res.status(400).json({ error: "validation_error" });
       }
       return next(error);
     }
@@ -223,3 +223,4 @@ router.delete(
 );
 
 module.exports = { templatesRouter: router };
+

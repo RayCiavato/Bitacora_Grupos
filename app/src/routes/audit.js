@@ -92,7 +92,7 @@ router.get("/", authenticate, requireRole(["admin", "supervisor"]), async (req, 
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     return next(error);
   }

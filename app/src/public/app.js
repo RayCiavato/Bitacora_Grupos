@@ -207,6 +207,8 @@ const ERROR_MESSAGES = {
   file_required: "Selecciona un archivo para subir.",
   file_too_large: "El archivo supera el tamano permitido.",
   invalid_file_type: "Tipo de archivo no permitido.",
+  invalid_file_name: "El nombre del archivo no es valido.",
+  invalid_file_extension: "La extension del archivo no es valida para su tipo.",
   past_date_not_allowed: "No se permite registrar bitacoras en fechas anteriores.",
   cannot_delete_current_user: "No puedes eliminar tu propio usuario.",
   cannot_change_own_role: "No puedes cambiar tu propio rol admin.",
@@ -3570,7 +3572,7 @@ async function bootstrap() {
 
     window.addEventListener("load", () => {
       navigator.serviceWorker
-        .register("/sw.js?v=15")
+        .register("/sw.js?v=16")
         .then((registration) => registration.update())
         .catch(() => {
           // No interrumpir flujo principal si falla el service worker.

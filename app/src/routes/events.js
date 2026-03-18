@@ -95,6 +95,61 @@ const allowedMimeTypes = new Set([
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/vnd.ms-excel"
 ]);
+const allowedExtensionsByMime = Object.freeze({
+  "image/png": [".png"],
+  "image/jpeg": [".jpg", ".jpeg"],
+  "image/webp": [".webp"],
+  "image/gif": [".gif"],
+  "application/pdf": [".pdf"],
+  "text/plain": [".txt", ".csv"],
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+  "application/msword": [".doc"],
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+  "application/vnd.ms-excel": [".xls"]
+});
+
+function sanitizeOriginalFileName(originalName) {
+  const withoutControlChars = Array.from(path.basename(String(originalName || "")).normalize("NFKC"))
+    .filter((char) => {
+      const codePoint = char.codePointAt(0);
+      return Number.isInteger(codePoint) && codePoint >= 32 && codePoint !== 127;
+    })
+    .join("");
+
+  const cleaned = withoutControlChars
+    .replace(/[^a-zA-Z0-9._()\- ]/g, "_")
+    .trim()
+    .replace(/\s+/g, " ");
+
+  if (!cleaned || cleaned === "." || cleaned === "..") {
+    return null;
+  }
+
+  if (cleaned.length > 180) {
+    return null;
+  }
+
+  return cleaned;
+}
+
+function hasAllowedExtensionForMime(fileName, mimeType) {
+  const allowedExtensions = allowedExtensionsByMime[mimeType];
+  if (!Array.isArray(allowedExtensions) || allowedExtensions.length === 0) {
+    return false;
+  }
+  const extension = path.extname(String(fileName || "")).toLowerCase();
+  return allowedExtensions.includes(extension);
+}
+
+function safeDownloadFileName(name, mimeType, attachmentId) {
+  const sanitized = sanitizeOriginalFileName(name);
+  if (sanitized) {
+    return sanitized;
+  }
+
+  const defaultExtension = allowedExtensionsByMime[mimeType]?.[0] || ".bin";
+  return `adjunto-${attachmentId}${defaultExtension}`;
+}
 
 const storage = multer.diskStorage({
   destination: async (_req, _file, cb) => {
@@ -118,11 +173,24 @@ const upload = multer({
     fileSize: config.uploadMaxBytes
   },
   fileFilter: (_req, file, cb) => {
-    if (allowedMimeTypes.has(file.mimetype)) {
-      cb(null, true);
+    if (!allowedMimeTypes.has(file.mimetype)) {
+      cb(new Error("invalid_file_type"));
       return;
     }
-    cb(new Error("invalid_file_type"));
+
+    const safeOriginalName = sanitizeOriginalFileName(file.originalname);
+    if (!safeOriginalName) {
+      cb(new Error("invalid_file_name"));
+      return;
+    }
+
+    if (!hasAllowedExtensionForMime(safeOriginalName, file.mimetype)) {
+      cb(new Error("invalid_file_extension"));
+      return;
+    }
+
+    file.originalname = safeOriginalName;
+    cb(null, true);
   }
 });
 
@@ -483,7 +551,7 @@ router.post("/", authenticate, async (req, res, next) => {
     return res.status(201).json(event);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     return next(error);
   }
@@ -586,7 +654,7 @@ router.get("/report", authenticate, async (req, res, next) => {
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     return next(error);
   }
@@ -646,7 +714,7 @@ async function handleReportExport(req, res, next, source) {
     return res.send(pdfBuffer);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     return next(error);
   }
@@ -724,7 +792,7 @@ router.get("/trends", authenticate, async (req, res, next) => {
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     return next(error);
   }
@@ -828,7 +896,7 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     return next(error);
   }
@@ -937,7 +1005,7 @@ router.patch("/:id", authenticate, async (req, res, next) => {
     return res.json(updatedEvent);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     return next(error);
   }
@@ -979,7 +1047,7 @@ router.delete("/:id", authenticate, async (req, res, next) => {
     return res.json({ message: "Registro eliminado correctamente" });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     return next(error);
   }
@@ -1037,7 +1105,7 @@ router.post("/:id/attachments", authenticate, async (req, res, next) => {
     return res.status(201).json(insertResult.rows[0]);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
 
     if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
@@ -1046,6 +1114,12 @@ router.post("/:id/attachments", authenticate, async (req, res, next) => {
 
     if (error.message === "invalid_file_type") {
       return res.status(400).json({ error: "invalid_file_type" });
+    }
+    if (error.message === "invalid_file_name") {
+      return res.status(400).json({ error: "invalid_file_name" });
+    }
+    if (error.message === "invalid_file_extension") {
+      return res.status(400).json({ error: "invalid_file_extension" });
     }
 
     return next(error);
@@ -1090,7 +1164,7 @@ router.get("/:id/attachments", authenticate, async (req, res, next) => {
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     return next(error);
   }
@@ -1147,11 +1221,16 @@ router.get("/attachments/:attachmentId/download", authenticate, async (req, res,
 
     await fs.access(filePath);
 
+    const downloadName = safeDownloadFileName(
+      attachment.original_name,
+      attachment.mime_type,
+      attachment.id
+    );
     res.setHeader("Content-Type", attachment.mime_type);
-    return res.download(filePath, attachment.original_name);
+    return res.download(filePath, downloadName);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
 
     if (error.code === "ENOENT") {
@@ -1163,3 +1242,4 @@ router.get("/attachments/:attachmentId/download", authenticate, async (req, res,
 });
 
 module.exports = { eventsRouter: router };
+
