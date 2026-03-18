@@ -101,10 +101,12 @@ function createApp() {
       secFetchDest === "serviceworker" ||
       secFetchDest === "sharedworker" ||
       hasSameOriginReferer;
+    const htmlNavigationAccept =
+      acceptHeader.includes("text/html") || acceptHeader.includes("application/xhtml+xml");
     const directDocumentRequest =
       secFetchMode === "navigate" ||
       secFetchDest === "document" ||
-      (!secFetchDest && !hasSameOriginReferer && acceptHeader.includes("text/html"));
+      htmlNavigationAccept;
 
     if (directDocumentRequest || !looksLikeAssetFetch) {
       return res.status(404).send("Not found");
