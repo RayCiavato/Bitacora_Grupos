@@ -89,8 +89,15 @@ chmod +x scripts/*.sh
 docker compose up -d --build
 ```
 
-Si tu servidor no reconoce `docker compose`, usa `docker-compose up -d --build`
-o instala el plugin con `sudo apt install -y docker-compose-plugin`.
+Si tu servidor no reconoce `docker compose`, instala el plugin oficial:
+
+```bash
+sudo apt update
+sudo apt install -y docker-compose-plugin
+docker compose version
+```
+
+No uses `docker-compose v1` (legacy), porque puede generar errores como `KeyError: 'ContainerConfig'`.
 
 > El backend aplica migraciones idempotentes al iniciar (`ensureDatabaseSchema`).
 
@@ -105,6 +112,121 @@ Opciones utiles:
 - `--fresh-db`: reinicia volumenes (solo para instalacion nueva o cuando no necesitas conservar datos).
 - `--ensure-admin`: reprovisiona admin al final.
 - `--no-build`: despliegue mas rapido sin rebuild.
+
+## 2.1) Flujo recomendado de actualizacion en servidor (sin errores previos)
+
+Usa este flujo cuando ya tienes la app corriendo y quieres actualizar sin romper nada:
+
+### Paso 1: entrar al proyecto y validar estado
+
+```bash
+cd ~/apps/bitacora
+git status --short
+docker compose version
+```
+
+Si `docker compose version` falla, instala plugin:
+
+```bash
+sudo apt update
+sudo apt install -y docker-compose-plugin
+docker compose version
+```
+
+### Paso 2: evitar conflicto de cambios locales al hacer pull
+
+Si `git status --short` muestra archivos modificados y quieres conservarlos:
+
+```bash
+git stash push -u -m "tmp-server-before-pull-$(date +%F-%H%M%S)"
+```
+
+### Paso 3: desplegar con script seguro
+
+```bash
+chmod +x scripts/*.sh
+bash scripts/deploy-safe.sh --pull
+```
+
+Este script:
+- corta si detecta cambios locales sin guardar (para no pisarlos),
+- hace `git pull --ff-only`,
+- levanta stack en modo seguro,
+- y muestra `ps` + logs del `app`.
+
+### Paso 4: validar version y estado
+
+```bash
+git rev-parse --short HEAD
+docker compose ps
+docker compose logs --tail=120 app
+```
+
+### Paso 5: validacion rapida anti-regresion
+
+```bash
+curl -I http://127.0.0.1/health
+curl -I http://127.0.0.1/app.js
+curl -I http://127.0.0.1/preview-dashboard.html
+```
+
+Esperado:
+- `/health` responde `200` o `301/308` segun proxy.
+- `/app.js` responde `404`.
+- `/preview-dashboard.html` responde `404`.
+
+## 2.2) Si aparece un error conocido
+
+### Error: `docker: 'compose' is not a docker command`
+
+```bash
+sudo apt update
+sudo apt install -y docker-compose-plugin
+docker compose version
+```
+
+### Error: `permission denied` contra `/var/run/docker.sock`
+
+```bash
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER
+newgrp docker
+id -nG
+docker ps
+```
+
+### Error: `Your local changes would be overwritten by merge`
+
+```bash
+git stash push -u -m "tmp-before-pull-$(date +%F-%H%M%S)"
+bash scripts/deploy-safe.sh --pull
+```
+
+### Error: `KeyError: 'ContainerConfig'`
+
+Suele ser por Compose legacy o estado viejo de contenedores:
+
+```bash
+cd ~/apps/bitacora
+docker compose down --remove-orphans
+docker compose build --no-cache app
+docker compose up -d --force-recreate app caddy
+docker compose ps
+```
+
+### Error app reinicia por password admin
+
+La politica exige password robusta con caracter especial.
+Ejemplo valido: `N1njaHack@2026!`
+
+Reprovisionar admin:
+
+```bash
+cd ~/apps/bitacora
+bash scripts/provision-admin.sh admin@n1njahack.local 'N1njaHack@2026!' 'Administrador Principal'
+docker compose restart app
+docker compose logs --tail=80 app
+```
 
 Servicios principales:
 

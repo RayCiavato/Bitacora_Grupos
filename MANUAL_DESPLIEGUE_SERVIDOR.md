@@ -2,6 +2,31 @@
 
 Este manual esta optimizado para tu caso: servidor Ubuntu ya con Docker/Compose, acceso por SSH desde MobaXterm y repositorio privado en GitHub (`RayCiavato/BitacoraHardening`).
 
+## 0) Flujo recomendado (resumen anti-errores)
+
+Si quieres evitar los errores que ya aparecieron antes, usa este orden:
+
+1. Verificar Docker Compose v2 (`docker compose version`).
+2. Verificar permisos Docker para tu usuario (`docker ps` sin sudo).
+3. Entrar al repo y revisar cambios locales (`git status --short`).
+4. Si hay cambios locales, guardar con `git stash`.
+5. Desplegar con `bash scripts/deploy-safe.sh --pull`.
+6. Verificar estado con `docker compose ps` y logs del `app`.
+
+Comandos de referencia:
+
+```bash
+cd ~/apps/bitacora
+docker compose version
+docker ps
+git status --short
+bash scripts/deploy-safe.sh --pull
+docker compose ps
+docker compose logs --tail=120 app
+```
+
+Si cualquier paso falla, revisa primero la seccion **13) Solucion de problemas comunes** de este mismo manual.
+
 ## 1) Conexion al servidor desde MobaXterm
 
 Conecta por SSH:
@@ -26,30 +51,43 @@ docker compose version
 git --version
 ```
 
-Si `docker compose version` falla con `unknown command`, usa:
-
-```bash
-docker-compose --version
-```
-
-Si no tienes ninguna variante de Compose instalada:
+Si `docker compose version` falla con `unknown command`, instala plugin oficial:
 
 ```bash
 sudo apt update
 sudo apt install -y docker-compose-plugin
+docker compose version
 ```
 
-Alternativa legacy:
+Si existe `docker-compose` legacy v1, no lo uses para este proyecto:
 
 ```bash
-sudo apt install -y docker-compose
+docker-compose --version || true
 ```
+
+`docker-compose v1` puede provocar errores como `KeyError: 'ContainerConfig'`.
 
 Si `git` no existe:
 
 ```bash
 sudo apt update
 sudo apt install -y git
+```
+
+Verificar permiso Docker para tu usuario (sin sudo):
+
+```bash
+docker ps
+```
+
+Si sale `permission denied` en `/var/run/docker.sock`:
+
+```bash
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER
+newgrp docker
+id -nG
+docker ps
 ```
 
 ## 3) Acceso al repo privado en GitHub
@@ -168,13 +206,21 @@ Asegurate de tener abiertos `80` y `443` en firewall/router cuando uses `CADDY_P
 
 ## 7) Levantar la plataforma con Docker Compose
 
+Flujo recomendado:
+
 ```bash
 cd ~/apps/bitacora
 chmod +x scripts/*.sh
-COMPOSE_CMD="docker compose"
-if ! docker compose version >/dev/null 2>&1; then COMPOSE_CMD="docker-compose"; fi
-$COMPOSE_CMD up -d --build
-$COMPOSE_CMD ps
+bash scripts/deploy-safe.sh
+docker compose ps
+```
+
+Si quieres forzar actualizacion de codigo desde GitHub durante despliegue:
+
+```bash
+cd ~/apps/bitacora
+bash scripts/deploy-safe.sh --pull
+docker compose ps
 ```
 
 ## 8) Verificacion post-despliegue
@@ -268,9 +314,32 @@ Este proceso reinicia MFA del admin (si esta habilitado) para forzar una configu
 
 ## 11) Actualizar version en servidor
 
+### Opcion recomendada (paso a paso)
+
+```bash
+cd ~/apps/bitacora
+git status --short
+```
+
+Si `git status --short` muestra cambios locales y quieres conservarlos:
+
+```bash
+git stash push -u -m "tmp-server-before-pull-$(date +%F-%H%M%S)"
+```
+
+Actualizar y desplegar:
+
 ```bash
 cd ~/apps/bitacora
 bash scripts/deploy-safe.sh --pull
+git rev-parse --short HEAD
+docker compose ps
+docker compose logs --tail=120 app
+```
+
+Limpieza de imagenes no usadas (opcional):
+
+```bash
 docker image prune -f
 ```
 
@@ -328,27 +397,63 @@ Valida especialmente `DATABASE_URL` (se arma desde compose), `JWT_SECRET`, `POST
 
 ### E) Error `KeyError: 'ContainerConfig'` con `docker-compose` legacy
 
-Suele ocurrir con `docker-compose v1` al recrear contenedores en motores Docker nuevos.
+Suele ocurrir cuando se usa `docker-compose v1` (legacy) en motores Docker nuevos.
+Este proyecto requiere `docker compose` (plugin v2).
+
+Verifica version:
+
+```bash
+docker compose version
+```
 
 Recuperacion rapida sin borrar datos:
 
 ```bash
 cd ~/apps/bitacora
-docker-compose rm -f app || true
-docker rm -f bitacora-app 2>/dev/null || true
-docker-compose up -d --no-deps --force-recreate app
-docker-compose ps
+docker compose down --remove-orphans
+docker compose build --no-cache app
+docker compose up -d --force-recreate app caddy
+docker compose ps
 ```
 
-Si persiste:
+### F) Error: `Your local changes to the following files would be overwritten by merge`
+
+Ocurre cuando haces pull con archivos modificados en servidor.
+
+Solucion segura:
 
 ```bash
 cd ~/apps/bitacora
-docker-compose down --remove-orphans
-docker-compose up -d --build
+git status --short
+git stash push -u -m "tmp-before-pull-$(date +%F-%H%M%S)"
+bash scripts/deploy-safe.sh --pull
 ```
 
-Nota: `scripts/deploy-safe.sh` ya aplica un workaround automatico cuando detecta `docker-compose` legacy.
+### G) Error: `ADMIN_DEFAULT_PASSWORD no cumple politica`
+
+La app exige password robusta con caracter especial.
+
+Ejemplo valido:
+- `N1njaHack@2026!`
+
+Reprovisionar admin:
+
+```bash
+cd ~/apps/bitacora
+bash scripts/provision-admin.sh admin@n1njahack.local 'N1njaHack@2026!' 'Administrador Principal'
+docker compose restart app
+docker compose logs --tail=80 app
+```
+
+### H) Error: comandos tipo `@blocked_sensitive_path` en bash
+
+Esas lineas pertenecen a archivo de configuracion (por ejemplo Caddyfile), no a bash.
+Si las pegas en terminal, veras `command not found`.
+
+Regla:
+1. Edita el archivo con `nano`.
+2. Pega el bloque dentro del archivo.
+3. Guarda y reinicia servicio/stack.
 
 ## 14) Checklist final
 
