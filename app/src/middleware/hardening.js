@@ -35,12 +35,18 @@ const SENSITIVE_BASENAMES = new Set([
   ".env.development",
   "package.json",
   "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
   "docker-compose.yml",
   "docker-compose.yaml",
   "caddyfile",
+  "server.js",
+  "config.js",
+  "db.js",
   "readme.md",
   "manual_despliegue_servidor.md"
 ]);
+const SENSITIVE_BASENAME_RE = /^(?:config|server|docker-compose)(?:\..+)?$/i;
 const SENSITIVE_EXTENSION_RE =
   /\.(?:bak|backup|log|sql|sqlite|yml|yaml|ini|conf|sh|ps1|map)(?:$|\?)/i;
 
@@ -76,7 +82,11 @@ function hasTraversalAttempt(pathname, originalUrl) {
 function hasSensitiveFileName(pathname) {
   const lowerPath = pathname.toLowerCase();
   const baseName = path.posix.basename(lowerPath);
-  return SENSITIVE_BASENAMES.has(baseName) || SENSITIVE_EXTENSION_RE.test(lowerPath);
+  return (
+    SENSITIVE_BASENAMES.has(baseName) ||
+    SENSITIVE_BASENAME_RE.test(baseName) ||
+    SENSITIVE_EXTENSION_RE.test(lowerPath)
+  );
 }
 
 function hasSensitivePrefix(pathname) {

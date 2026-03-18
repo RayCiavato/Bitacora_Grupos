@@ -210,6 +210,13 @@ const state = {
   }
 };
 
+function clearElement(node) {
+  if (!node) {
+    return;
+  }
+  node.replaceChildren();
+}
+
 function toLocalISODate(date = new Date()) {
   const tzOffsetMs = date.getTimezoneOffset() * 60000;
   return new Date(date.getTime() - tzOffsetMs).toISOString().slice(0, 10);
@@ -672,13 +679,13 @@ function clearSession() {
   state.sidebarOpen = true;
 
   setKpi({});
-  dateSummary.innerHTML = "";
-  reportBody.innerHTML = "";
-  trendByDate.innerHTML = "";
-  trendPriority.innerHTML = "";
-  trendTopUsers.innerHTML = "";
-  templateList.innerHTML = "";
-  attachmentList.innerHTML = "";
+  clearElement(dateSummary);
+  clearElement(reportBody);
+  clearElement(trendByDate);
+  clearElement(trendPriority);
+  clearElement(trendTopUsers);
+  clearElement(templateList);
+  clearElement(attachmentList);
   attachmentEventId.value = "";
   attachmentFileInput.value = "";
   loginForm.reset();
@@ -711,7 +718,7 @@ function setKpi(report) {
 }
 
 function renderSummaryChips(report) {
-  dateSummary.innerHTML = "";
+  clearElement(dateSummary);
   const items = Array.isArray(report.byDate) ? report.byDate : [];
 
   if (items.length === 0) {
@@ -742,7 +749,7 @@ function renderPagination(pagination) {
 }
 
 function renderReportRows(report) {
-  reportBody.innerHTML = "";
+  clearElement(reportBody);
   const rows = Array.isArray(report.events) ? report.events : [];
   state.eventOwners = {};
 
@@ -841,7 +848,7 @@ function renderReportRows(report) {
   });
 }
 function renderBars(container, rows, valueField, labelField) {
-  container.innerHTML = "";
+  clearElement(container);
 
   if (!rows.length) {
     const empty = document.createElement("p");
@@ -887,7 +894,7 @@ function renderTrends(data) {
   renderBars(trendByDate, data.byDate || [], "total", "fecha");
   renderBars(trendTopUsers, data.topEncargados || [], "total", "encargado");
 
-  trendPriority.innerHTML = "";
+  clearElement(trendPriority);
   const priorities = data.byPriority || [];
   if (!priorities.length) {
     const chip = document.createElement("span");
@@ -1096,11 +1103,11 @@ async function loadSocDashboard() {
 }
 
 function renderUsersOptions() {
-  adminUserSelect.innerHTML = "";
+  clearElement(adminUserSelect);
   if (adminRoleUserSelect) {
-    adminRoleUserSelect.innerHTML = "";
+    clearElement(adminRoleUserSelect);
   }
-  userFilterInput.innerHTML = "";
+  clearElement(userFilterInput);
 
   const allOption = document.createElement("option");
   allOption.value = "";
@@ -1151,7 +1158,7 @@ function renderUsersOptions() {
 }
 
 function renderTemplates() {
-  eventTemplateSelect.innerHTML = "";
+  clearElement(eventTemplateSelect);
 
   const defaultOption = document.createElement("option");
   defaultOption.value = "";
@@ -1167,7 +1174,7 @@ function renderTemplates() {
       eventTemplateSelect.appendChild(option);
     });
 
-  templateList.innerHTML = "";
+  clearElement(templateList);
   if (!state.templates.length) {
     const empty = document.createElement("p");
     empty.className = "help-text";
@@ -1208,7 +1215,7 @@ function renderTemplates() {
 }
 
 function renderAttachments(items) {
-  attachmentList.innerHTML = "";
+  clearElement(attachmentList);
 
   if (!items.length) {
     const empty = document.createElement("p");
@@ -2278,7 +2285,7 @@ async function handleEventDelete(button) {
   if (String(state.selectedEventId) === String(eventId)) {
     state.selectedEventId = null;
     state.selectedEventOwnerId = null;
-    attachmentList.innerHTML = "";
+    clearElement(attachmentList);
     attachmentEventId.value = "";
     refreshAttachmentUploadState();
   }

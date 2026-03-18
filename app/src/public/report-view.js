@@ -34,6 +34,13 @@ const state = {
   currentUser: null
 };
 
+function clearElement(node) {
+  if (!node) {
+    return;
+  }
+  node.replaceChildren();
+}
+
 function readCookie(name) {
   const escapedName = String(name || "").replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
   const match = document.cookie.match(new RegExp(`(?:^|; )${escapedName}=([^;]*)`));
@@ -93,7 +100,7 @@ function formatPriority(value) {
 }
 
 function renderEmpty(message) {
-  rowsEl.innerHTML = "";
+  clearElement(rowsEl);
   const tr = document.createElement("tr");
   const td = document.createElement("td");
   td.colSpan = 8;
@@ -114,7 +121,7 @@ function canAdminManageEvents() {
 }
 
 function renderRows(items) {
-  rowsEl.innerHTML = "";
+  clearElement(rowsEl);
   if (!items.length) {
     renderEmpty("No hay registros para el rango seleccionado.");
     return;

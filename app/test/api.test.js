@@ -86,6 +86,22 @@ test("GET /src/index.js devuelve 404 generico", async () => {
   assert.equal(response.status, 404);
 });
 
+test("GET /package.json devuelve 404 generico", async () => {
+  const response = await request(app).get("/package.json");
+  assert.equal(response.status, 404);
+  assert.ok(!String(response.text || "").includes("name"));
+});
+
+test("GET /config.js devuelve 404 generico", async () => {
+  const response = await request(app).get("/config.js");
+  assert.equal(response.status, 404);
+});
+
+test("GET /server.js devuelve 404 generico", async () => {
+  const response = await request(app).get("/server.js");
+  assert.equal(response.status, 404);
+});
+
 test("GET con intento de path traversal devuelve 404", async () => {
   const response = await request(app).get("/..%2F..%2Fetc%2Fpasswd");
   assert.equal(response.status, 404);
