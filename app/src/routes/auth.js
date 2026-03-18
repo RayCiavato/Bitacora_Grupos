@@ -9,6 +9,7 @@ const { config } = require("../config");
 const { logger } = require("../logger");
 const { authenticate, requirePurpose } = require("../middleware/auth");
 const { validatePasswordPolicy } = require("../services/passwordPolicy");
+const { validateFullName } = require("../services/namePolicy");
 const { createAuditLog } = require("../services/audit");
 const { buildSessionUser } = require("../services/authorization");
 const {
@@ -35,7 +36,7 @@ const mfaEnableSchema = z.object({
 });
 
 const registerSchema = z.object({
-  name: z.string().min(2).max(120),
+  name: z.string().min(1),
   email: z.string().email(),
   password: z.string().min(1)
 });
@@ -290,8 +291,20 @@ router.post("/register", async (req, res, next) => {
 
     const payload = registerSchema.parse(req.body);
     email = normalizeEmail(payload.email);
+    const nameResult = validateFullName(payload.name);
+    if (!nameResult.valid) {
+      logger.warn({ email, reasons: nameResult.errors }, "Register rejected by name policy");
+      return res.status(400).json({
+        error: "invalid_name"
+      });
+    }
 
-    const policyResult = validatePasswordPolicy(payload.password);
+    const normalizedName = nameResult.value;
+
+    const policyResult = validatePasswordPolicy(payload.password, {
+      email,
+      name: normalizedName
+    });
     if (!policyResult.valid) {
       logger.warn({ email, reasons: policyResult.errors }, "Register rejected by password policy");
       return res.status(400).json({
@@ -306,7 +319,7 @@ router.post("/register", async (req, res, next) => {
         VALUES ($1, $2, $3, 'funcionario')
         RETURNING id, name, email, role, token_version
       `,
-      [payload.name, email, passwordHash]
+      [normalizedName, email, passwordHash]
     );
 
     const user = insertResult.rows[0];
@@ -384,7 +397,10 @@ router.post("/password/recover", async (req, res, next) => {
       return res.status(400).json({ error: "recover_failed" });
     }
 
-    const policyResult = validatePasswordPolicy(payload.newPassword);
+    const policyResult = validatePasswordPolicy(payload.newPassword, {
+      email: user.email,
+      name: user.name
+    });
     if (!policyResult.valid) {
       logger.warn(
         { email, userId: user.id, reasons: policyResult.errors },

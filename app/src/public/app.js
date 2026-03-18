@@ -88,6 +88,10 @@ const recoverEmailInput = document.getElementById("recoverEmail");
 const recoverMfaTokenInput = document.getElementById("recoverMfaToken");
 const recoverNewPasswordInput = document.getElementById("recoverNewPassword");
 const recoverConfirmPasswordInput = document.getElementById("recoverConfirmPassword");
+const registerNameInput = document.getElementById("registerName");
+const registerEmailInput = document.getElementById("registerEmail");
+const registerPasswordInput = document.getElementById("registerPassword");
+const registerPasswordConfirmInput = document.getElementById("registerPasswordConfirm");
 const adminTools = document.getElementById("adminTools");
 const adminPasswordForm = document.getElementById("adminPasswordForm");
 const adminUserSelect = document.getElementById("adminUserSelect");
@@ -153,6 +157,23 @@ const PANEL_ROUTE_CAPABILITY_MAP = Object.freeze({
   "/usuarios": "usuarios",
   "/plantillas": "plantillas"
 });
+const FULL_NAME_MIN_LENGTH = 2;
+const FULL_NAME_MAX_LENGTH = 120;
+const FULL_NAME_REGEX = /^[A-Za-zÀ-ÖØ-öø-ÿ0-9]+(?:[ -][A-Za-zÀ-ÖØ-öø-ÿ0-9]+)*$/;
+const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{12,}$/;
+const COMMON_WEAK_PASSWORDS = new Set([
+  "password",
+  "password123",
+  "admin123",
+  "123456",
+  "123456789",
+  "qwerty123",
+  "letmein",
+  "welcome",
+  "changeme",
+  "bitacora2026",
+  "n1njahack2026"
+]);
 
 const ERROR_MESSAGES = {
   unauthorized: "Acceso no autorizado. Inicia sesion.",
@@ -168,7 +189,9 @@ const ERROR_MESSAGES = {
   invalid_token_purpose: "Token no valido para esta operacion.",
   mfa_setup_not_started: "Primero debes iniciar la configuracion MFA.",
   mfa_setup_required: "Configura MFA para completar el acceso.",
-  weak_password: "No se pudo actualizar la contrasena.",
+  weak_password:
+    "La contrasena debe tener minimo 12 caracteres, mayuscula, minuscula, numero y simbolo.",
+  invalid_name: "Nombre completo invalido. Usa letras, numeros, espacios y guion medio.",
   registration_disabled: "El registro publico esta deshabilitado.",
   email_already_exists: "No se pudo completar el registro.",
   registration_unavailable: "No se pudo completar el registro.",
@@ -282,6 +305,82 @@ function formatBytes(bytes) {
     return `${(value / 1024).toFixed(1)} KB`;
   }
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function normalizeFullNameInput(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function validateFullNameInput(value) {
+  const normalized = normalizeFullNameInput(value);
+  if (normalized.length < FULL_NAME_MIN_LENGTH || normalized.length > FULL_NAME_MAX_LENGTH) {
+    return {
+      valid: false,
+      value: normalized,
+      message: `El nombre debe tener entre ${FULL_NAME_MIN_LENGTH} y ${FULL_NAME_MAX_LENGTH} caracteres.`
+    };
+  }
+
+  if (!FULL_NAME_REGEX.test(normalized)) {
+    return {
+      valid: false,
+      value: normalized,
+      message: "El nombre solo permite letras, numeros, espacios simples y guion medio."
+    };
+  }
+
+  return { valid: true, value: normalized };
+}
+
+function compactIdentity(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[\s\-_@.]+/g, "");
+}
+
+function validateStrongPasswordInput(password, options = {}) {
+  const value = String(password || "");
+  if (!STRONG_PASSWORD_REGEX.test(value)) {
+    return {
+      valid: false,
+      message:
+        "La contrasena debe tener minimo 12 caracteres, mayuscula, minuscula, numero y simbolo."
+    };
+  }
+
+  const compactPassword = compactIdentity(value);
+  if (COMMON_WEAK_PASSWORDS.has(value.toLowerCase()) || COMMON_WEAK_PASSWORDS.has(compactPassword)) {
+    return {
+      valid: false,
+      message: "La contrasena es muy comun. Usa una mas robusta."
+    };
+  }
+
+  const normalizedEmail = String(options.email || "").trim().toLowerCase();
+  if (normalizedEmail) {
+    const emailLocalPart = normalizedEmail.split("@")[0] || normalizedEmail;
+    if (
+      value.toLowerCase() === normalizedEmail ||
+      compactPassword === compactIdentity(emailLocalPart)
+    ) {
+      return {
+        valid: false,
+        message: "La contrasena no puede ser igual a tu correo."
+      };
+    }
+  }
+
+  const normalizedName = normalizeFullNameInput(options.name || "");
+  if (normalizedName && compactPassword === compactIdentity(normalizedName)) {
+    return {
+      valid: false,
+      message: "La contrasena no puede ser igual a tu nombre."
+    };
+  }
+
+  return { valid: true };
 }
 
 function persistPdfBrandingDraft() {
@@ -2036,14 +2135,32 @@ async function handleRegister(event) {
   const submitButton = event.submitter || registerForm.querySelector('button[type="submit"]');
   setButtonBusy(submitButton, true, "Creando...");
 
-  const name = document.getElementById("registerName").value.trim();
-  const email = document.getElementById("registerEmail").value.trim();
-  const password = document.getElementById("registerPassword").value;
-  const passwordConfirm = document.getElementById("registerPasswordConfirm").value;
+  const nameValidation = validateFullNameInput(registerNameInput?.value || "");
+  if (!nameValidation.valid) {
+    setButtonBusy(submitButton, false);
+    showToast(nameValidation.message, "error");
+    return;
+  }
+
+  if (registerNameInput instanceof HTMLInputElement) {
+    registerNameInput.value = nameValidation.value;
+  }
+
+  const name = nameValidation.value;
+  const email = (registerEmailInput?.value || "").trim();
+  const password = registerPasswordInput?.value || "";
+  const passwordConfirm = registerPasswordConfirmInput?.value || "";
 
   if (password !== passwordConfirm) {
     setButtonBusy(submitButton, false);
     showToast("Las contrasenas no coinciden.", "error");
+    return;
+  }
+
+  const passwordValidation = validateStrongPasswordInput(password, { email, name });
+  if (!passwordValidation.valid) {
+    setButtonBusy(submitButton, false);
+    showToast(passwordValidation.message, "error");
     return;
   }
 
@@ -2455,11 +2572,22 @@ async function handleAdminPasswordUpdate(event) {
   }
 
   const userId = adminUserSelect.value;
-  const newPassword = adminNewPassword.value.trim();
+  const newPassword = adminNewPassword.value;
 
   if (!userId) {
     setButtonBusy(submitButton, false);
     showToast("Selecciona un usuario.", "error");
+    return;
+  }
+
+  const selectedUser = state.users.find((item) => Number(item.id) === Number(userId));
+  const passwordValidation = validateStrongPasswordInput(newPassword, {
+    email: selectedUser?.email || "",
+    name: selectedUser?.name || ""
+  });
+  if (!passwordValidation.valid) {
+    setButtonBusy(submitButton, false);
+    showToast(passwordValidation.message, "error");
     return;
   }
 
@@ -2541,6 +2669,16 @@ async function handleAdminSelfPasswordUpdate(event) {
   if (newPassword !== confirmPassword) {
     setButtonBusy(submitButton, false);
     showToast("La nueva contrasena y su confirmacion no coinciden.", "error");
+    return;
+  }
+
+  const passwordValidation = validateStrongPasswordInput(newPassword, {
+    email: state.user?.email || "",
+    name: state.user?.name || ""
+  });
+  if (!passwordValidation.valid) {
+    setButtonBusy(submitButton, false);
+    showToast(passwordValidation.message, "error");
     return;
   }
 
@@ -2998,6 +3136,13 @@ async function handleRecoverPasswordSubmit(event) {
     return;
   }
 
+  const passwordValidation = validateStrongPasswordInput(newPassword, { email });
+  if (!passwordValidation.valid) {
+    setButtonBusy(submitButton, false);
+    showToast(passwordValidation.message, "error");
+    return;
+  }
+
   const { response, data, networkError, timedOut } = await api("/auth/password/recover", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -3318,6 +3463,11 @@ async function bootstrap() {
 
   loginForm.addEventListener("submit", handleLogin);
   registerForm.addEventListener("submit", handleRegister);
+  if (registerNameInput instanceof HTMLInputElement) {
+    registerNameInput.addEventListener("blur", () => {
+      registerNameInput.value = normalizeFullNameInput(registerNameInput.value);
+    });
+  }
   authLoginTab.addEventListener("click", handleAuthTabClick);
   authRegisterTab.addEventListener("click", handleAuthTabClick);
   if (switchToRegisterBtn) {
@@ -3420,7 +3570,7 @@ async function bootstrap() {
 
     window.addEventListener("load", () => {
       navigator.serviceWorker
-        .register("/sw.js?v=14")
+        .register("/sw.js?v=15")
         .then((registration) => registration.update())
         .catch(() => {
           // No interrumpir flujo principal si falla el service worker.

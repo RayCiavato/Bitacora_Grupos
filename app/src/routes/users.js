@@ -4,6 +4,7 @@ const { z } = require("zod");
 const { pool } = require("../db");
 const { authenticate, requireRole } = require("../middleware/auth");
 const { validatePasswordPolicy } = require("../services/passwordPolicy");
+const { validateFullName } = require("../services/namePolicy");
 const { createAuditLog } = require("../services/audit");
 
 const router = express.Router();
@@ -27,15 +28,26 @@ const selfPasswordSchema = z.object({
   newPassword: z.string().min(1)
 });
 
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
 router.post("/", authenticate, requireRole(["admin"]), async (req, res, next) => {
   try {
     const payload = createUserSchema.parse(req.body);
+    const email = normalizeEmail(payload.email);
+    const nameResult = validateFullName(payload.name);
+    if (!nameResult.valid) {
+      return res.status(400).json({ error: "invalid_name" });
+    }
 
-    const policyResult = validatePasswordPolicy(payload.password);
+    const policyResult = validatePasswordPolicy(payload.password, {
+      email,
+      name: nameResult.value
+    });
     if (!policyResult.valid) {
       return res.status(400).json({
-        error: "weak_password",
-        details: policyResult.errors
+        error: "weak_password"
       });
     }
 
@@ -46,7 +58,7 @@ router.post("/", authenticate, requireRole(["admin"]), async (req, res, next) =>
         VALUES ($1, $2, $3, $4)
         RETURNING id, name, email, role, created_at
       `,
-      [payload.name, payload.email, passwordHash, payload.role]
+      [nameResult.value, email, passwordHash, payload.role]
     );
 
     await createAuditLog({
@@ -61,7 +73,7 @@ router.post("/", authenticate, requireRole(["admin"]), async (req, res, next) =>
     return res.status(201).json(insertResult.rows[0]);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     if (error.code === "23505") {
       return res.status(409).json({ error: "email_already_exists" });
@@ -109,11 +121,13 @@ router.patch("/me/password", authenticate, requireRole(["admin"]), async (req, r
       return res.status(401).json({ error: "invalid_current_password" });
     }
 
-    const policyResult = validatePasswordPolicy(payload.newPassword);
+    const policyResult = validatePasswordPolicy(payload.newPassword, {
+      email: currentUser.email,
+      name: currentUser.name
+    });
     if (!policyResult.valid) {
       return res.status(400).json({
-        error: "weak_password",
-        details: policyResult.errors
+        error: "weak_password"
       });
     }
 
@@ -147,7 +161,7 @@ router.patch("/me/password", authenticate, requireRole(["admin"]), async (req, r
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     return next(error);
   }
@@ -161,11 +175,28 @@ router.patch("/:id/password", authenticate, requireRole(["admin"]), async (req, 
     }
 
     const payload = resetPasswordSchema.parse(req.body);
-    const policyResult = validatePasswordPolicy(payload.newPassword);
+    const targetUserResult = await pool.query(
+      `
+        SELECT id, name, email
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [userId]
+    );
+
+    if (targetUserResult.rowCount === 0) {
+      return res.status(404).json({ error: "user_not_found" });
+    }
+
+    const targetUser = targetUserResult.rows[0];
+    const policyResult = validatePasswordPolicy(payload.newPassword, {
+      email: targetUser.email,
+      name: targetUser.name
+    });
     if (!policyResult.valid) {
       return res.status(400).json({
-        error: "weak_password",
-        details: policyResult.errors
+        error: "weak_password"
       });
     }
 
@@ -208,7 +239,7 @@ router.patch("/:id/password", authenticate, requireRole(["admin"]), async (req, 
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     return next(error);
   }
@@ -283,7 +314,7 @@ router.patch("/:id/role", authenticate, requireRole(["admin"]), async (req, res,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     return next(error);
   }

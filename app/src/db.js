@@ -3,6 +3,7 @@ const bcrypt = require("bcryptjs");
 const { config } = require("./config");
 const { logger } = require("./logger");
 const { validatePasswordPolicy } = require("./services/passwordPolicy");
+const { validateFullName } = require("./services/namePolicy");
 
 const pool = new Pool({
   connectionString: config.databaseUrl
@@ -255,6 +256,11 @@ async function ensureDatabaseSchema() {
 }
 
 async function ensureAdminUser() {
+  const nameResult = validateFullName(config.adminDefaultName);
+  if (!nameResult.valid) {
+    throw new Error(`ADMIN_DEFAULT_NAME no cumple politica: ${nameResult.errors.join(", ")}`);
+  }
+
   const existing = await pool.query(
     "SELECT id FROM users WHERE email = $1 LIMIT 1",
     [config.adminDefaultEmail]
@@ -264,7 +270,10 @@ async function ensureAdminUser() {
     return;
   }
 
-  const policyResult = validatePasswordPolicy(config.adminDefaultPassword);
+  const policyResult = validatePasswordPolicy(config.adminDefaultPassword, {
+    email: config.adminDefaultEmail,
+    name: nameResult.value
+  });
   if (!policyResult.valid) {
     throw new Error(`ADMIN_DEFAULT_PASSWORD no cumple politica: ${policyResult.errors.join(", ")}`);
   }
@@ -278,7 +287,7 @@ async function ensureAdminUser() {
       ON CONFLICT (email) DO NOTHING
       RETURNING id
     `,
-    [config.adminDefaultName, config.adminDefaultEmail, passwordHash]
+    [nameResult.value, config.adminDefaultEmail, passwordHash]
   );
 
   if (insertResult.rowCount > 0) {

@@ -4,6 +4,8 @@ const request = require("supertest");
 
 require("./_env");
 const { createApp } = require("../src/index");
+const { validateFullName } = require("../src/services/namePolicy");
+const { validatePasswordPolicy } = require("../src/services/passwordPolicy");
 
 const app = createApp();
 
@@ -116,4 +118,37 @@ test("GET /auth/inexistente devuelve 404 json sin stack", async () => {
   const response = await request(app).get("/auth/inexistente");
   assert.equal(response.status, 404);
   assert.equal(response.body.error, "not_found");
+});
+
+test("Politica de nombre rechaza *23-102", () => {
+  const result = validateFullName("*23-102");
+  assert.equal(result.valid, false);
+});
+
+test("Politica de nombre acepta formatos validos y normaliza espacios", () => {
+  const names = ["Juan Perez", "Ana Maria", "Pedro-01", "Usuario 23-102"];
+  names.forEach((name) => {
+    const result = validateFullName(name);
+    assert.equal(result.valid, true);
+  });
+
+  const normalized = validateFullName("  Juan    Perez  ");
+  assert.equal(normalized.valid, true);
+  assert.equal(normalized.value, "Juan Perez");
+});
+
+test("Politica de password rechaza contrasena debil", () => {
+  const weak = validatePasswordPolicy("Password123", {
+    email: "admin@bitacora.local",
+    name: "Administrador"
+  });
+  assert.equal(weak.valid, false);
+});
+
+test("Politica de password acepta contrasena robusta", () => {
+  const strong = validatePasswordPolicy("N1njaHack@2026!", {
+    email: "admin@bitacora.local",
+    name: "Administrador"
+  });
+  assert.equal(strong.valid, true);
 });
