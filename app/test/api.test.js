@@ -27,23 +27,23 @@ test("POST /auth/refresh sin refresh token devuelve 401", async () => {
   assert.equal(response.body.error, "refresh_token_required");
 });
 
-test("GET /app.js con perfil de navegacion directa devuelve 404", async () => {
-  const response = await request(app).get("/app.js").set("Accept", "text/html");
+test("GET /assets/app.min.js con perfil de navegacion directa devuelve 404", async () => {
+  const response = await request(app).get("/assets/app.min.js").set("Accept", "text/html");
   assert.equal(response.status, 404);
 });
 
-test("GET /app.js como carga normal de asset devuelve 200", async () => {
+test("GET /assets/app.min.js como carga normal de asset devuelve 200", async () => {
   const response = await request(app)
-    .get("/app.js?asset=web")
+    .get("/assets/app.min.js?asset=web")
     .set("Host", "bitacora.local")
     .set("Referer", "http://bitacora.local/")
     .set("Accept", "*/*");
   assert.equal(response.status, 200);
 });
 
-test("GET /app.js con Upgrade-Insecure-Requests se bloquea", async () => {
+test("GET /assets/app.min.js con Upgrade-Insecure-Requests se bloquea", async () => {
   const response = await request(app)
-    .get("/app.js?asset=web")
+    .get("/assets/app.min.js?asset=web")
     .set("Host", "bitacora.local")
     .set("Referer", "http://bitacora.local/")
     .set("Accept", "*/*")
@@ -51,7 +51,12 @@ test("GET /app.js con Upgrade-Insecure-Requests se bloquea", async () => {
   assert.equal(response.status, 404);
 });
 
-test("GET /app.js sin token de asset devuelve 404", async () => {
+test("GET /assets/app.min.js sin token de asset devuelve 404", async () => {
+  const response = await request(app).get("/assets/app.min.js").set("Accept", "*/*");
+  assert.equal(response.status, 404);
+});
+
+test("GET /app.js legacy bloqueado devuelve 404", async () => {
   const response = await request(app).get("/app.js").set("Accept", "*/*");
   assert.equal(response.status, 404);
 });

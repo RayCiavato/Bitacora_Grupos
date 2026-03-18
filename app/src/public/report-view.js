@@ -31,7 +31,8 @@ const baseQuery = {
 const state = {
   page: Number(params.get("page") || 1),
   totalPages: 1,
-  currentUser: null
+  currentUser: null,
+  eventPayloadById: {}
 };
 
 function clearElement(node) {
@@ -122,6 +123,7 @@ function canAdminManageEvents() {
 
 function renderRows(items) {
   clearElement(rowsEl);
+  state.eventPayloadById = {};
   if (!items.length) {
     renderEmpty("No hay registros para el rango seleccionado.");
     return;
@@ -147,16 +149,17 @@ function renderRows(items) {
 
     const actionsTd = document.createElement("td");
     if (canAdminManageEvents()) {
-      const editButton = document.createElement("button");
-      editButton.type = "button";
-      editButton.className = "btn btn-ghost report-edit";
-      editButton.dataset.eventId = String(item.id);
-      editButton.dataset.eventPayload = JSON.stringify({
+      state.eventPayloadById[item.id] = {
         fecha: item.fecha,
         descripcionActividad: item.descripcionActividad || "",
         observacion: item.observacion || "",
         prioridad: normalizePriority(item.prioridad)
-      });
+      };
+
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.className = "btn btn-ghost report-edit";
+      editButton.dataset.eventId = String(item.id);
       editButton.textContent = "Editar";
 
       const deleteButton = document.createElement("button");
@@ -282,18 +285,13 @@ async function handleDelete(eventId) {
   await loadPage();
 }
 
-async function handleEdit(eventId, payloadRaw) {
+async function handleEdit(eventId) {
   if (!canAdminManageEvents()) {
     security.setSafeText(summaryEl, "Solo admin puede editar registros.");
     return;
   }
 
-  let current = null;
-  try {
-    current = JSON.parse(payloadRaw || "{}");
-  } catch (_error) {
-    current = null;
-  }
+  const current = state.eventPayloadById[eventId] || null;
 
   const fecha = window.prompt("Fecha (YYYY-MM-DD)", current?.fecha || "");
   if (fecha === null) {
@@ -388,7 +386,7 @@ rowsEl.addEventListener("click", async (event) => {
   const editButton = target.closest(".report-edit");
   if (editButton instanceof HTMLButtonElement) {
     const eventId = Number(editButton.dataset.eventId || 0);
-    await handleEdit(eventId, editButton.dataset.eventPayload || "");
+    await handleEdit(eventId);
     return;
   }
 

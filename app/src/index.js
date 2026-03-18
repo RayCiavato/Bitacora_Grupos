@@ -98,7 +98,7 @@ function createApp() {
     }
 
     const allowedPublicJs = new Set([
-      "/app.js",
+      "/assets/app.min.js",
       "/report-view.js",
       "/security.js",
       "/sw.js",
@@ -109,7 +109,7 @@ function createApp() {
     }
 
     const protectedAssetTokens = {
-      "/app.js": "web",
+      "/assets/app.min.js": "web",
       "/report-view.js": "report",
       "/security.js": "sec"
     };

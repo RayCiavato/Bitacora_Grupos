@@ -148,26 +148,29 @@ const ERROR_MESSAGES = {
   unauthorized: "Acceso no autorizado. Inicia sesion.",
   invalid_token: "Sesion invalida. Inicia sesion nuevamente.",
   session_revoked: "La sesion fue revocada. Inicia sesion otra vez.",
-  invalid_credentials: "Correo o contrasena incorrectos.",
+  invalid_credentials: "No se pudo completar la autenticacion.",
+  auth_failed: "No se pudo completar la autenticacion.",
   account_locked: "Cuenta bloqueada temporalmente por seguridad.",
   mfa_token_required: "Debes ingresar el codigo MFA.",
-  invalid_mfa_token: "Codigo MFA invalido.",
-  mfa_not_enabled: "Este usuario no tiene MFA activo. Contacta al administrador para recuperar acceso.",
-  invalid_mfa_setup: "MFA no esta configurado correctamente para este usuario.",
+  invalid_mfa_token: "No se pudo verificar el codigo MFA.",
+  mfa_not_enabled: "No se pudo completar la operacion de MFA.",
+  invalid_mfa_setup: "No se pudo completar la operacion de MFA.",
   invalid_token_purpose: "Token no valido para esta operacion.",
   mfa_setup_not_started: "Primero debes iniciar la configuracion MFA.",
   mfa_setup_required: "Configura MFA para completar el acceso.",
-  weak_password: "La contrasena no cumple la politica de seguridad.",
+  weak_password: "No se pudo actualizar la contrasena.",
   registration_disabled: "El registro publico esta deshabilitado.",
-  email_already_exists: "Ese correo ya esta registrado.",
-  validation_error: "Hay campos invalidos en el formulario.",
+  email_already_exists: "No se pudo completar el registro.",
+  registration_unavailable: "No se pudo completar el registro.",
+  recover_failed: "No se pudo completar la recuperacion de contrasena.",
+  validation_error: "No se pudo validar la solicitud.",
   forbidden: "No tienes permisos para esta accion.",
-  user_not_found: "No se encontro el usuario.",
+  user_not_found: "No se pudo completar la operacion solicitada.",
   invalid_user_id: "ID de usuario invalido.",
-  template_not_found: "No se encontro la plantilla.",
-  template_name_exists: "Ya existe una plantilla con ese nombre.",
-  event_not_found: "No se encontro el registro.",
-  attachment_not_found: "No se encontro el adjunto.",
+  template_not_found: "No se pudo completar la operacion con la plantilla.",
+  template_name_exists: "No se pudo completar la operacion con la plantilla.",
+  event_not_found: "No se pudo completar la operacion con el registro.",
+  attachment_not_found: "No se pudo completar la operacion con el adjunto.",
   file_required: "Selecciona un archivo para subir.",
   file_too_large: "El archivo supera el tamano permitido.",
   invalid_file_type: "Tipo de archivo no permitido.",
@@ -192,6 +195,7 @@ const state = {
     pageSize: 20,
     totalPages: 1
   },
+  eventPayloadById: {},
   selectedEventId: null,
   selectedEventOwnerId: null,
   eventOwners: {},
@@ -371,9 +375,6 @@ function formatRoleLabel(role) {
 function resolveErrorMessage(errorCode, details) {
   if (!errorCode) {
     return "No se pudo completar la operacion.";
-  }
-  if (errorCode === "weak_password" && Array.isArray(details)) {
-    return `Contrasena invalida: ${details.join(", ")}`;
   }
   if (errorCode === "too_many_requests") {
     const retry = Number(details?.retryAfterSeconds || details?.retryAfter || 0);
@@ -665,6 +666,7 @@ function clearSession() {
   state.user = null;
   state.users = [];
   state.templates = [];
+  state.eventPayloadById = {};
   state.setupToken = null;
   state.report = {
     page: 1,
@@ -752,6 +754,7 @@ function renderReportRows(report) {
   clearElement(reportBody);
   const rows = Array.isArray(report.events) ? report.events : [];
   state.eventOwners = {};
+  state.eventPayloadById = {};
 
   if (rows.length === 0) {
     const row = document.createElement("tr");
@@ -801,26 +804,25 @@ function renderReportRows(report) {
     const actionWrap = document.createElement("div");
     actionWrap.className = "row-actions";
 
-    if (canModifyEvent(item.encargadoId)) {
-      const editButton = document.createElement("button");
-      editButton.type = "button";
-      editButton.className = "btn btn-ghost event-edit";
-      editButton.dataset.eventId = String(item.id);
-      editButton.dataset.ownerId = String(item.encargadoId || "");
-      editButton.dataset.eventPayload = JSON.stringify({
+    if (canModifyEvent()) {
+      state.eventPayloadById[item.id] = {
         fecha: item.fecha,
         descripcionActividad: item.descripcionActividad || "",
         observacion: item.observacion || "",
         prioridad: normalizePriority(item.prioridad),
         templateId: item.templateId ?? null
-      });
+      };
+
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.className = "btn btn-ghost event-edit";
+      editButton.dataset.eventId = String(item.id);
       editButton.textContent = "Editar";
 
       const deleteButton = document.createElement("button");
       deleteButton.type = "button";
       deleteButton.className = "btn btn-ghost event-delete";
       deleteButton.dataset.eventId = String(item.id);
-      deleteButton.dataset.ownerId = String(item.encargadoId || "");
       deleteButton.textContent = "Eliminar";
 
       actionWrap.appendChild(editButton);
@@ -1380,6 +1382,14 @@ function canModifyEvent() {
   return isAdminSession();
 }
 
+function isSafeMfaQrDataUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw.length > 900000) {
+    return false;
+  }
+  return /^data:image\/png;base64,[a-zA-Z0-9+/=]+$/.test(raw);
+}
+
 function openReportWindow() {
   const params = buildReportParams(false);
   params.set("page", "1");
@@ -1875,6 +1885,12 @@ async function loadMfaSetup() {
     return;
   }
 
+  if (!isSafeMfaQrDataUrl(data?.qrDataUrl)) {
+    showToast("No se pudo generar un QR MFA valido.", "error");
+    return;
+  }
+
+  mfaQr.removeAttribute("src");
   mfaQr.src = data.qrDataUrl;
   mfaManualKey.textContent = data.manualKey;
 }
@@ -2168,19 +2184,13 @@ async function handleAttachmentSubmit(event) {
 
 async function handleEventEdit(button) {
   const eventId = Number(button.dataset.eventId || 0);
-  const ownerId = Number(button.dataset.ownerId || 0);
 
-  if (!eventId || !canModifyEvent(ownerId)) {
+  if (!eventId || !canModifyEvent()) {
     showToast("No tienes permisos para editar este registro.", "error");
     return;
   }
 
-  let current = null;
-  try {
-    current = JSON.parse(button.dataset.eventPayload || "{}");
-  } catch (_error) {
-    current = null;
-  }
+  const current = state.eventPayloadById[eventId] || null;
 
   if (!current) {
     showToast("No se pudo cargar la informacion del registro.", "error");
@@ -2253,9 +2263,8 @@ async function handleEventEdit(button) {
 
 async function handleEventDelete(button) {
   const eventId = Number(button.dataset.eventId || 0);
-  const ownerId = Number(button.dataset.ownerId || 0);
 
-  if (!eventId || !canModifyEvent(ownerId)) {
+  if (!eventId || !canModifyEvent()) {
     showToast("No tienes permisos para eliminar este registro.", "error");
     return;
   }
@@ -3307,7 +3316,7 @@ async function bootstrap() {
 
     window.addEventListener("load", () => {
       navigator.serviceWorker
-        .register("/sw.js?v=12")
+        .register("/sw.js?v=13")
         .then((registration) => registration.update())
         .catch(() => {
           // No interrumpir flujo principal si falla el service worker.

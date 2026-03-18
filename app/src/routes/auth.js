@@ -6,6 +6,7 @@ const jwt = require("jsonwebtoken");
 const { z } = require("zod");
 const { pool } = require("../db");
 const { config } = require("../config");
+const { logger } = require("../logger");
 const { authenticate, requirePurpose } = require("../middleware/auth");
 const { validatePasswordPolicy } = require("../services/passwordPolicy");
 const { createAuditLog } = require("../services/audit");
@@ -278,26 +279,27 @@ router.post("/login", async (req, res, next) => {
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     return next(error);
   }
 });
 
 router.post("/register", async (req, res, next) => {
+  let email = "";
   try {
     if (!config.allowPublicRegistration) {
       return res.status(403).json({ error: "registration_disabled" });
     }
 
     const payload = registerSchema.parse(req.body);
-    const email = normalizeEmail(payload.email);
+    email = normalizeEmail(payload.email);
 
     const policyResult = validatePasswordPolicy(payload.password);
     if (!policyResult.valid) {
+      logger.warn({ email, reasons: policyResult.errors }, "Register rejected by password policy");
       return res.status(400).json({
-        error: "weak_password",
-        details: policyResult.errors
+        error: "weak_password"
       });
     }
 
@@ -336,19 +338,21 @@ router.post("/register", async (req, res, next) => {
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     if (error.code === "23505") {
-      return res.status(409).json({ error: "email_already_exists" });
+      logger.warn({ email }, "Register failed due to duplicate email");
+      return res.status(400).json({ error: "registration_unavailable" });
     }
     return next(error);
   }
 });
 
 router.post("/password/recover", async (req, res, next) => {
+  let email = "";
   try {
     const payload = recoverPasswordSchema.parse(req.body);
-    const email = normalizeEmail(payload.email);
+    email = normalizeEmail(payload.email);
 
     const userResult = await pool.query(
       `
@@ -361,13 +365,15 @@ router.post("/password/recover", async (req, res, next) => {
     );
 
     if (userResult.rowCount === 0) {
-      return res.status(404).json({ error: "user_not_found" });
+      logger.warn({ email }, "Password recover rejected: user not found");
+      return res.status(400).json({ error: "recover_failed" });
     }
 
     const user = userResult.rows[0];
 
     if (!user.mfa_enabled || !user.mfa_secret) {
-      return res.status(400).json({ error: "mfa_not_enabled" });
+      logger.warn({ email, userId: user.id }, "Password recover rejected: MFA not enabled");
+      return res.status(400).json({ error: "recover_failed" });
     }
 
     const mfaValid = speakeasy.totp.verify({
@@ -378,14 +384,18 @@ router.post("/password/recover", async (req, res, next) => {
     });
 
     if (!mfaValid) {
-      return res.status(401).json({ error: "invalid_mfa_token" });
+      logger.warn({ email, userId: user.id }, "Password recover rejected: invalid MFA token");
+      return res.status(400).json({ error: "recover_failed" });
     }
 
     const policyResult = validatePasswordPolicy(payload.newPassword);
     if (!policyResult.valid) {
+      logger.warn(
+        { email, userId: user.id, reasons: policyResult.errors },
+        "Password recover rejected by password policy"
+      );
       return res.status(400).json({
-        error: "weak_password",
-        details: policyResult.errors
+        error: "weak_password"
       });
     }
 
@@ -418,7 +428,7 @@ router.post("/password/recover", async (req, res, next) => {
     return res.json({ message: "Contrasena actualizada correctamente. Ya puedes iniciar sesion." });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     return next(error);
   }
@@ -630,7 +640,7 @@ router.post("/mfa/enable", authenticate, requirePurpose("mfa_setup"), async (req
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: "validation_error", details: error.flatten() });
+      return res.status(400).json({ error: "validation_error" });
     }
     return next(error);
   }

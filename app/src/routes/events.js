@@ -382,13 +382,13 @@ function ensureAdminOnlyOrForbidden(req, res) {
   return true;
 }
 
-function ensureEventOwnerOrAdminOrForbidden(req, res, event) {
+function ensureEventOwnerOrAdminOrNotFound(req, res, event, notFoundCode = "event_not_found") {
   if (req.user?.role === "admin") {
     return true;
   }
 
   if (String(event.encargado_id) !== String(req.user.sub)) {
-    res.status(403).json({ error: "forbidden" });
+    res.status(404).json({ error: notFoundCode });
     return false;
   }
 
@@ -700,6 +700,10 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
     const days = query.days;
     const today = toISODate(new Date());
     const from = toISODate(new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000));
+    const scopedEncargadoId = getScopedEncargadoId(req, undefined);
+    const hasScope = Number.isInteger(Number(scopedEncargadoId)) && Number(scopedEncargadoId) > 0;
+    const scopeWhere = hasScope ? "WHERE encargado_id = $1" : "";
+    const scopeParams = hasScope ? [Number(scopedEncargadoId)] : [];
 
     const totalsResult = await pool.query(
       `
@@ -710,9 +714,12 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
           COUNT(*) FILTER (WHERE prioridad = 'media')::int AS media,
           COUNT(*) FILTER (WHERE prioridad = 'baja')::int AS baja
         FROM events
-      `
+        ${scopeWhere}
+      `,
+      scopeParams
     );
 
+    const byUserParams = hasScope ? [days, Number(scopedEncargadoId)] : [days];
     const byUserResult = await pool.query(
       `
         SELECT
@@ -721,24 +728,30 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
         FROM events e
         JOIN users u ON u.id = e.encargado_id
         WHERE e.fecha >= CURRENT_DATE - ($1::int - 1)
+        ${hasScope ? "AND e.encargado_id = $2" : ""}
         GROUP BY u.name
         ORDER BY total DESC, u.name ASC
         LIMIT 12
       `,
-      [days]
+      byUserParams
     );
 
+    const byPriorityParams = hasScope ? [Number(scopedEncargadoId)] : [];
     const byPriorityResult = await pool.query(
       `
         SELECT
           prioridad,
           COUNT(*)::int AS total
         FROM events
-        WHERE prioridad IN ('alta', 'media', 'baja')
+        ${hasScope ? "WHERE encargado_id = $1" : ""}
+        ${hasScope ? "AND" : "WHERE"} prioridad IN ('alta', 'media', 'baja')
         GROUP BY prioridad
-      `
+      `,
+      byPriorityParams
     );
 
+    const byDateJoinScope = hasScope ? "AND e.encargado_id = $2" : "";
+    const byDateParams = hasScope ? [days, Number(scopedEncargadoId)] : [days];
     const byDateResult = await pool.query(
       `
         WITH calendar AS (
@@ -753,11 +766,11 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
           to_char(c.fecha, 'YYYY-MM-DD') AS fecha,
           COALESCE(COUNT(e.id), 0)::int AS total
         FROM calendar c
-        LEFT JOIN events e ON e.fecha = c.fecha
+        LEFT JOIN events e ON e.fecha = c.fecha ${byDateJoinScope}
         GROUP BY c.fecha
         ORDER BY c.fecha ASC
       `,
-      [days]
+      byDateParams
     );
 
     return res.json({
@@ -945,7 +958,7 @@ router.post("/:id/attachments", authenticate, async (req, res, next) => {
       return res.status(404).json({ error: "event_not_found" });
     }
 
-    if (!ensureEventOwnerOrAdminOrForbidden(req, res, event)) {
+    if (!ensureEventOwnerOrAdminOrNotFound(req, res, event)) {
       return;
     }
 
@@ -1012,7 +1025,7 @@ router.get("/:id/attachments", authenticate, async (req, res, next) => {
       return res.status(404).json({ error: "event_not_found" });
     }
 
-    if (!ensureEventOwnerOrAdminOrForbidden(req, res, event)) {
+    if (!ensureEventOwnerOrAdminOrNotFound(req, res, event)) {
       return;
     }
 
@@ -1068,7 +1081,7 @@ router.get("/attachments/:attachmentId/download", authenticate, async (req, res,
     }
 
     const attachment = attachmentResult.rows[0];
-    if (!ensureEventOwnerOrAdminOrForbidden(req, res, attachment)) {
+    if (!ensureEventOwnerOrAdminOrNotFound(req, res, attachment, "attachment_not_found")) {
       return;
     }
     const normalizedStoredName = path.basename(String(attachment.stored_name || ""));
