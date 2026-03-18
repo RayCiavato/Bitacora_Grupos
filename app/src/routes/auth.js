@@ -10,6 +10,7 @@ const { logger } = require("../logger");
 const { authenticate, requirePurpose } = require("../middleware/auth");
 const { validatePasswordPolicy } = require("../services/passwordPolicy");
 const { createAuditLog } = require("../services/audit");
+const { buildSessionUser } = require("../services/authorization");
 const {
   createAccessToken,
   createRefreshToken,
@@ -184,12 +185,7 @@ async function issueSession({ user, req, res, auditAction = "auth.session_create
 
   return {
     accessToken,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role
-    }
+    user: buildSessionUser(user)
   };
 }
 
@@ -551,7 +547,7 @@ router.get("/me", authenticate, async (req, res, next) => {
       return res.status(404).json({ error: "user_not_found" });
     }
 
-    return res.json(result.rows[0]);
+    return res.json(buildSessionUser(result.rows[0]));
   } catch (error) {
     return next(error);
   }

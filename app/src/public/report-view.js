@@ -32,7 +32,8 @@ const state = {
   page: Number(params.get("page") || 1),
   totalPages: 1,
   currentUser: null,
-  eventPayloadById: {}
+  eventPayloadById: {},
+  eventPermissionsById: {}
 };
 
 function clearElement(node) {
@@ -117,19 +118,27 @@ function normalizePriority(value) {
     : "media";
 }
 
-function canAdminManageEvents() {
-  return state.currentUser?.role === "admin";
+function getEventPermissions(eventId) {
+  return state.eventPermissionsById[String(eventId)] || null;
 }
 
 function renderRows(items) {
   clearElement(rowsEl);
   state.eventPayloadById = {};
+  state.eventPermissionsById = {};
   if (!items.length) {
     renderEmpty("No hay registros para el rango seleccionado.");
     return;
   }
 
   items.forEach((item) => {
+    const permissions = {
+      canEdit: Boolean(item?.permissions?.canEdit),
+      canDelete: Boolean(item?.permissions?.canDelete)
+    };
+    const eventId = Number(item.id || 0);
+    state.eventPermissionsById[String(eventId)] = permissions;
+
     const tr = document.createElement("tr");
     const values = [
       formatDate(item.fecha),
@@ -148,31 +157,35 @@ function renderRows(items) {
     });
 
     const actionsTd = document.createElement("td");
-    if (canAdminManageEvents()) {
-      state.eventPayloadById[item.id] = {
+    if (permissions.canEdit || permissions.canDelete) {
+      state.eventPayloadById[eventId] = {
         fecha: item.fecha,
         descripcionActividad: item.descripcionActividad || "",
         observacion: item.observacion || "",
         prioridad: normalizePriority(item.prioridad)
       };
 
-      const editButton = document.createElement("button");
-      editButton.type = "button";
-      editButton.className = "btn btn-ghost report-edit";
-      editButton.dataset.eventId = String(item.id);
-      editButton.textContent = "Editar";
+      if (permissions.canEdit) {
+        const editButton = document.createElement("button");
+        editButton.type = "button";
+        editButton.className = "btn btn-ghost report-edit";
+        editButton.dataset.eventId = String(eventId);
+        editButton.textContent = "Editar";
+        actionsTd.appendChild(editButton);
+      }
 
-      const deleteButton = document.createElement("button");
-      deleteButton.type = "button";
-      deleteButton.className = "btn btn-ghost report-delete";
-      deleteButton.dataset.eventId = String(item.id);
-      deleteButton.textContent = "Eliminar";
-      actionsTd.appendChild(editButton);
-      actionsTd.appendChild(deleteButton);
+      if (permissions.canDelete) {
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.className = "btn btn-ghost report-delete";
+        deleteButton.dataset.eventId = String(eventId);
+        deleteButton.textContent = "Eliminar";
+        actionsTd.appendChild(deleteButton);
+      }
     } else {
       const readOnlyTag = document.createElement("span");
       readOnlyTag.className = "help-text";
-      readOnlyTag.textContent = "Solo admin";
+      readOnlyTag.textContent = "Solo lectura";
       actionsTd.appendChild(readOnlyTag);
     }
     tr.appendChild(actionsTd);
@@ -254,8 +267,8 @@ async function handleDelete(eventId) {
     return;
   }
 
-  if (!canAdminManageEvents()) {
-    security.setSafeText(summaryEl, "Solo admin puede eliminar registros.");
+  if (!getEventPermissions(eventId)?.canDelete) {
+    security.setSafeText(summaryEl, "No tienes permisos para eliminar este registro.");
     return;
   }
 
@@ -286,8 +299,8 @@ async function handleDelete(eventId) {
 }
 
 async function handleEdit(eventId) {
-  if (!canAdminManageEvents()) {
-    security.setSafeText(summaryEl, "Solo admin puede editar registros.");
+  if (!getEventPermissions(eventId)?.canEdit) {
+    security.setSafeText(summaryEl, "No tienes permisos para editar este registro.");
     return;
   }
 

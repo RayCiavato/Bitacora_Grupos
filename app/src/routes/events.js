@@ -10,6 +10,15 @@ const { pool } = require("../db");
 const { authenticate } = require("../middleware/auth");
 const { createAuditLog } = require("../services/audit");
 const { config } = require("../config");
+const {
+  canUserFilterByUser,
+  canUserEditAnyEvent,
+  canUserDeleteAnyEvent,
+  canUserUploadEventAttachment,
+  canUserViewEventAttachments,
+  buildEventPermissions,
+  resolveActorId
+} = require("../services/authorization");
 
 const router = express.Router();
 
@@ -158,10 +167,10 @@ function buildReportFilters(query) {
 }
 
 function getScopedEncargadoId(req, requestedEncargadoId) {
-  if (req.user?.role === "admin" || req.user?.role === "supervisor") {
+  if (canUserFilterByUser(req.user)) {
     return requestedEncargadoId || undefined;
   }
-  return Number(req.user?.sub);
+  return resolveActorId(req.user) || undefined;
 }
 
 function escapeCsvValue(value) {
@@ -373,8 +382,8 @@ async function getEventWithOwner(eventId) {
   };
 }
 
-function ensureAdminOnlyOrForbidden(req, res) {
-  if (req.user?.role !== "admin") {
+function ensureCanEditEventsOrForbidden(req, res) {
+  if (!canUserEditAnyEvent(req.user)) {
     res.status(403).json({ error: "forbidden" });
     return false;
   }
@@ -382,12 +391,29 @@ function ensureAdminOnlyOrForbidden(req, res) {
   return true;
 }
 
-function ensureEventOwnerOrAdminOrNotFound(req, res, event, notFoundCode = "event_not_found") {
-  if (req.user?.role === "admin") {
-    return true;
+function ensureCanDeleteEventsOrForbidden(req, res) {
+  if (!canUserDeleteAnyEvent(req.user)) {
+    res.status(403).json({ error: "forbidden" });
+    return false;
   }
 
-  if (String(event.encargado_id) !== String(req.user.sub)) {
+  return true;
+}
+
+function ensureEventAttachmentPermissionOrNotFound(
+  req,
+  res,
+  event,
+  permission,
+  notFoundCode = "event_not_found"
+) {
+  const ownerId = Number(event?.encargado_id || 0);
+  const isAllowed =
+    permission === "upload"
+      ? canUserUploadEventAttachment(req.user, ownerId)
+      : canUserViewEventAttachments(req.user, ownerId);
+
+  if (!isAllowed) {
     res.status(404).json({ error: notFoundCode });
     return false;
   }
@@ -535,12 +561,22 @@ router.get("/report", authenticate, async (req, res, next) => {
       params
     );
 
+    const events = eventsResult.rows.map((event) => ({
+      ...event,
+      permissions: buildEventPermissions(req.user, event.encargadoId)
+    }));
+
     return res.json({
       from: query.from,
       to: query.to,
       totalEvents,
       byDate: summaryResult.rows,
-      events: eventsResult.rows,
+      events,
+      permissions: {
+        canFilterByUser: canUserFilterByUser(req.user),
+        canEditAnyEvent: canUserEditAnyEvent(req.user),
+        canDeleteAnyEvent: canUserDeleteAnyEvent(req.user)
+      },
       pagination: {
         page: currentPage,
         pageSize: scopedQuery.pageSize,
@@ -800,7 +836,7 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
 
 router.patch("/:id", authenticate, async (req, res, next) => {
   try {
-    if (!ensureAdminOnlyOrForbidden(req, res)) {
+    if (!ensureCanEditEventsOrForbidden(req, res)) {
       return;
     }
 
@@ -909,7 +945,7 @@ router.patch("/:id", authenticate, async (req, res, next) => {
 
 router.delete("/:id", authenticate, async (req, res, next) => {
   try {
-    if (!ensureAdminOnlyOrForbidden(req, res)) {
+    if (!ensureCanDeleteEventsOrForbidden(req, res)) {
       return;
     }
 
@@ -958,7 +994,7 @@ router.post("/:id/attachments", authenticate, async (req, res, next) => {
       return res.status(404).json({ error: "event_not_found" });
     }
 
-    if (!ensureEventOwnerOrAdminOrNotFound(req, res, event)) {
+    if (!ensureEventAttachmentPermissionOrNotFound(req, res, event, "upload")) {
       return;
     }
 
@@ -1025,7 +1061,7 @@ router.get("/:id/attachments", authenticate, async (req, res, next) => {
       return res.status(404).json({ error: "event_not_found" });
     }
 
-    if (!ensureEventOwnerOrAdminOrNotFound(req, res, event)) {
+    if (!ensureEventAttachmentPermissionOrNotFound(req, res, event, "view")) {
       return;
     }
 
@@ -1045,7 +1081,13 @@ router.get("/:id/attachments", authenticate, async (req, res, next) => {
       [params.id]
     );
 
-    return res.json(result.rows);
+    return res.json({
+      items: result.rows,
+      permissions: {
+        canUpload: canUserUploadEventAttachment(req.user, event.encargado_id),
+        canView: canUserViewEventAttachments(req.user, event.encargado_id)
+      }
+    });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: "validation_error", details: error.flatten() });
@@ -1081,7 +1123,15 @@ router.get("/attachments/:attachmentId/download", authenticate, async (req, res,
     }
 
     const attachment = attachmentResult.rows[0];
-    if (!ensureEventOwnerOrAdminOrNotFound(req, res, attachment, "attachment_not_found")) {
+    if (
+      !ensureEventAttachmentPermissionOrNotFound(
+        req,
+        res,
+        attachment,
+        "view",
+        "attachment_not_found"
+      )
+    ) {
       return;
     }
     const normalizedStoredName = path.basename(String(attachment.stored_name || ""));

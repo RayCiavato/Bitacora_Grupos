@@ -143,6 +143,16 @@ const PANEL_ROUTES = new Set([
   "/usuarios",
   "/plantillas"
 ]);
+const PANEL_ROUTE_CAPABILITY_MAP = Object.freeze({
+  "/dashboard": "dashboard",
+  "/resumen": "resumen",
+  "/registro/nuevo": "registroNuevo",
+  "/informes": "informes",
+  "/tendencias": "tendencias",
+  "/adjuntos": "adjuntos",
+  "/usuarios": "usuarios",
+  "/plantillas": "plantillas"
+});
 
 const ERROR_MESSAGES = {
   unauthorized: "Acceso no autorizado. Inicia sesion.",
@@ -195,10 +205,11 @@ const state = {
     pageSize: 20,
     totalPages: 1
   },
+  sessionCapabilities: null,
   eventPayloadById: {},
+  eventActionPermissions: {},
   selectedEventId: null,
-  selectedEventOwnerId: null,
-  eventOwners: {},
+  selectedEventPermissions: null,
   authView: "login",
   authPopup: false,
   pendingRefresh: null,
@@ -495,16 +506,52 @@ function setButtonBusy(button, isBusy, busyLabel) {
   }
 }
 
-function isAdminSession() {
-  return state.user?.role === "admin";
+function canAccessPanel(path = getCurrentPanelPath()) {
+  const capabilityKey = PANEL_ROUTE_CAPABILITY_MAP[path];
+  if (!capabilityKey) {
+    return false;
+  }
+  return Boolean(state.sessionCapabilities?.panels?.[capabilityKey]);
 }
 
 function canManageTemplates() {
-  return state.user?.role === "admin" || state.user?.role === "supervisor";
+  return Boolean(state.sessionCapabilities?.actions?.templates?.manage);
 }
 
 function canFilterByUser() {
-  return state.user?.role === "admin" || state.user?.role === "supervisor";
+  return Boolean(state.sessionCapabilities?.actions?.reports?.filterByUser);
+}
+
+function canManageUsers() {
+  return Boolean(state.sessionCapabilities?.actions?.users?.manage);
+}
+
+function canChangeOwnPassword() {
+  return Boolean(state.sessionCapabilities?.actions?.users?.changeOwnPassword);
+}
+
+function canCreateEvent() {
+  return Boolean(state.sessionCapabilities?.actions?.events?.create);
+}
+
+function canExportReports() {
+  return Boolean(state.sessionCapabilities?.actions?.reports?.export);
+}
+
+function getEventActionPermissions(eventId) {
+  return state.eventActionPermissions[String(eventId)] || null;
+}
+
+function canModifyEvent(eventId) {
+  return Boolean(getEventActionPermissions(eventId)?.canEdit);
+}
+
+function canDeleteEvent(eventId) {
+  return Boolean(getEventActionPermissions(eventId)?.canDelete);
+}
+
+function canUploadToSelectedEvent() {
+  return Boolean(state.selectedEventPermissions?.canUpload);
 }
 
 function setAuthView(view) {
@@ -618,29 +665,20 @@ function updateSidebarRoleLinks() {
 
     const required = button.dataset.requires;
     if (required === "admin") {
-      button.classList.toggle("hidden", !isAdminSession());
+      button.classList.toggle("hidden", !canAccessPanel("/usuarios"));
       return;
     }
 
     if (required === "templates") {
-      button.classList.toggle("hidden", !canManageTemplates());
+      button.classList.toggle("hidden", !canAccessPanel("/plantillas"));
     }
   });
-}
-
-function canUploadToEvent(eventOwnerId) {
-  if (!state.user || !eventOwnerId) {
-    return false;
-  }
-
-  return String(eventOwnerId) === String(state.user.id);
 }
 
 function refreshAttachmentUploadState() {
   const submitButton = attachmentForm.querySelector('button[type="submit"]');
   const hasSelection = Boolean(state.selectedEventId);
-  const ownerId = state.selectedEventOwnerId || state.eventOwners[String(state.selectedEventId)];
-  const canUpload = hasSelection && canUploadToEvent(ownerId);
+  const canUpload = hasSelection && canUploadToSelectedEvent();
 
   attachmentFileInput.disabled = !canUpload;
 
@@ -659,14 +697,16 @@ function refreshAttachmentUploadState() {
   }
 
   selectedEventLabel.textContent =
-    `Registro #${state.selectedEventId} en modo lectura. Solo el dueno puede subir adjuntos.`;
+    `Registro #${state.selectedEventId} en modo lectura. No tienes permisos para subir adjuntos.`;
 }
 
 function clearSession() {
   state.user = null;
+  state.sessionCapabilities = null;
   state.users = [];
   state.templates = [];
   state.eventPayloadById = {};
+  state.eventActionPermissions = {};
   state.setupToken = null;
   state.report = {
     page: 1,
@@ -674,8 +714,7 @@ function clearSession() {
     totalPages: 1
   };
   state.selectedEventId = null;
-  state.selectedEventOwnerId = null;
-  state.eventOwners = {};
+  state.selectedEventPermissions = null;
   state.authView = getRequestedAuthView();
   state.authPopup = getAuthPopupMode();
   state.sidebarOpen = true;
@@ -707,6 +746,33 @@ function clearSession() {
   closeRecoverModal();
   refreshAttachmentUploadState();
   syncSidebarActiveLink();
+}
+
+function applySessionUser(userPayload) {
+  if (!userPayload || typeof userPayload !== "object") {
+    state.user = null;
+    state.sessionCapabilities = null;
+    return false;
+  }
+
+  const userId = Number(userPayload.id);
+  if (!Number.isInteger(userId) || userId <= 0) {
+    state.user = null;
+    state.sessionCapabilities = null;
+    return false;
+  }
+
+  state.user = {
+    id: userId,
+    name: String(userPayload.name || ""),
+    email: String(userPayload.email || ""),
+    role: String(userPayload.role || "")
+  };
+  state.sessionCapabilities = userPayload.capabilities && typeof userPayload.capabilities === "object"
+    ? userPayload.capabilities
+    : null;
+
+  return Boolean(state.sessionCapabilities);
 }
 
 function setKpi(report) {
@@ -753,8 +819,8 @@ function renderPagination(pagination) {
 function renderReportRows(report) {
   clearElement(reportBody);
   const rows = Array.isArray(report.events) ? report.events : [];
-  state.eventOwners = {};
   state.eventPayloadById = {};
+  state.eventActionPermissions = {};
 
   if (rows.length === 0) {
     const row = document.createElement("tr");
@@ -767,6 +833,20 @@ function renderReportRows(report) {
   }
 
   rows.forEach((item) => {
+    const rowPermissions = item?.permissions || {};
+    const eventId = Number(item.id || 0);
+    const canEdit = Boolean(rowPermissions.canEdit);
+    const canDelete = Boolean(rowPermissions.canDelete);
+    const canViewAttachments = rowPermissions.canViewAttachments !== false;
+    const canUploadAttachments = Boolean(rowPermissions.canUploadAttachments);
+
+    state.eventActionPermissions[String(eventId)] = {
+      canEdit,
+      canDelete,
+      canUploadAttachments,
+      canViewAttachments
+    };
+
     const row = document.createElement("tr");
 
     const tdFecha = document.createElement("td");
@@ -795,17 +875,17 @@ function renderReportRows(report) {
     const attachmentButton = document.createElement("button");
     attachmentButton.type = "button";
     attachmentButton.className = "btn-link attachment-open";
-    attachmentButton.dataset.eventId = String(item.id);
-    attachmentButton.dataset.ownerId = String(item.encargadoId || "");
+    attachmentButton.dataset.eventId = String(eventId);
     attachmentButton.textContent = `Adjuntos (${item.attachmentsCount || 0})`;
+    attachmentButton.disabled = !canViewAttachments;
     tdAttachments.appendChild(attachmentButton);
 
     const tdActions = document.createElement("td");
     const actionWrap = document.createElement("div");
     actionWrap.className = "row-actions";
 
-    if (canModifyEvent()) {
-      state.eventPayloadById[item.id] = {
+    if (canEdit || canDelete) {
+      state.eventPayloadById[eventId] = {
         fecha: item.fecha,
         descripcionActividad: item.descripcionActividad || "",
         observacion: item.observacion || "",
@@ -813,20 +893,23 @@ function renderReportRows(report) {
         templateId: item.templateId ?? null
       };
 
-      const editButton = document.createElement("button");
-      editButton.type = "button";
-      editButton.className = "btn btn-ghost event-edit";
-      editButton.dataset.eventId = String(item.id);
-      editButton.textContent = "Editar";
+      if (canEdit) {
+        const editButton = document.createElement("button");
+        editButton.type = "button";
+        editButton.className = "btn btn-ghost event-edit";
+        editButton.dataset.eventId = String(eventId);
+        editButton.textContent = "Editar";
+        actionWrap.appendChild(editButton);
+      }
 
-      const deleteButton = document.createElement("button");
-      deleteButton.type = "button";
-      deleteButton.className = "btn btn-ghost event-delete";
-      deleteButton.dataset.eventId = String(item.id);
-      deleteButton.textContent = "Eliminar";
-
-      actionWrap.appendChild(editButton);
-      actionWrap.appendChild(deleteButton);
+      if (canDelete) {
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.className = "btn btn-ghost event-delete";
+        deleteButton.dataset.eventId = String(eventId);
+        deleteButton.textContent = "Eliminar";
+        actionWrap.appendChild(deleteButton);
+      }
     } else {
       const readOnlyTag = document.createElement("span");
       readOnlyTag.className = "help-text";
@@ -835,8 +918,6 @@ function renderReportRows(report) {
     }
 
     tdActions.appendChild(actionWrap);
-
-    state.eventOwners[String(item.id)] = Number(item.encargadoId || 0) || null;
 
     row.appendChild(tdFecha);
     row.appendChild(tdEncargado);
@@ -1263,12 +1344,7 @@ function applyRouteMode() {
   const showUsuarios = route === "/usuarios";
   const showPlantillas = route === "/plantillas";
 
-  if (showUsuarios && !isAdminSession()) {
-    window.location.href = "/dashboard";
-    return;
-  }
-
-  if (showPlantillas && !canManageTemplates()) {
+  if (isPanelRoute(route) && !canAccessPanel(route)) {
     window.location.href = "/dashboard";
     return;
   }
@@ -1281,7 +1357,7 @@ function applyRouteMode() {
   setElementVisible(attachmentsCard, showAdjuntos);
   setElementVisible(mainWorkspaceSection, showRegistro || showInformes || showAdjuntos);
   setElementVisible(secondaryWorkspaceSection, showTendencias || showAdjuntos || showResumen);
-  setElementVisible(adminTools, showUsuarios && isAdminSession());
+  setElementVisible(adminTools, showUsuarios && canManageUsers());
   setElementVisible(templateTools, showPlantillas && canManageTemplates());
 
   if (mainWorkspaceSection) {
@@ -1373,13 +1449,6 @@ function buildReportParams(includePagination = true) {
   }
 
   return params;
-}
-
-function canModifyEvent() {
-  if (!state.user) {
-    return false;
-  }
-  return isAdminSession();
 }
 
 function isSafeMfaQrDataUrl(value) {
@@ -1680,11 +1749,9 @@ async function loadTrends() {
   renderTrends(data);
 }
 
-async function loadAttachments(eventId, eventOwnerId = null) {
+async function loadAttachments(eventId) {
   state.selectedEventId = Number(eventId);
-  const ownerIdFromState = state.eventOwners[String(eventId)];
-  const parsedOwnerId = Number(eventOwnerId || ownerIdFromState || 0);
-  state.selectedEventOwnerId = Number.isFinite(parsedOwnerId) && parsedOwnerId > 0 ? parsedOwnerId : null;
+  state.selectedEventPermissions = null;
   attachmentEventId.value = String(eventId);
   refreshAttachmentUploadState();
 
@@ -1704,7 +1771,20 @@ async function loadAttachments(eventId, eventOwnerId = null) {
     return;
   }
 
-  renderAttachments(Array.isArray(data) ? data : []);
+  const items = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
+  const payloadPermissions = data && !Array.isArray(data) ? data.permissions : null;
+  const fallbackPermissions = getEventActionPermissions(eventId);
+
+  state.selectedEventPermissions = {
+    canUpload: payloadPermissions
+      ? Boolean(payloadPermissions.canUpload)
+      : Boolean(fallbackPermissions?.canUploadAttachments),
+    canView: payloadPermissions
+      ? payloadPermissions.canView !== false
+      : fallbackPermissions?.canViewAttachments !== false
+  };
+  refreshAttachmentUploadState();
+  renderAttachments(items);
 }
 
 async function loadCurrentSession() {
@@ -1723,8 +1803,7 @@ async function loadCurrentSession() {
     return false;
   }
 
-  state.user = data;
-  return true;
+  return applySessionUser(data);
 }
 
 async function loadDashboardData() {
@@ -1800,8 +1879,8 @@ async function handleLogin(event) {
   }
 
   if (response.ok) {
-    state.user = data?.user || null;
-    if (!state.user) {
+    const sessionApplied = applySessionUser(data?.user);
+    if (!sessionApplied) {
       const sessionLoaded = await loadCurrentSession();
       if (!sessionLoaded) {
         showToast("No se pudo recuperar la sesion.", "error");
@@ -1935,9 +2014,9 @@ async function handleMfaEnable(event) {
   state.setupToken = null;
   mfaSetupCard.classList.add("hidden");
   mfaEnableForm.reset();
-  state.user = data?.user || null;
+  const sessionApplied = applySessionUser(data?.user);
 
-  if (!state.user) {
+  if (!sessionApplied) {
     const sessionLoaded = await loadCurrentSession();
     if (!sessionLoaded) {
       showToast("No se pudo recuperar la sesion.", "error");
@@ -2003,8 +2082,8 @@ async function handleRegister(event) {
     return;
   }
 
-  state.user = data?.user || null;
-  if (state.user) {
+  const sessionApplied = applySessionUser(data?.user);
+  if (sessionApplied) {
     if (completeAuthPopupNavigation()) {
       return;
     }
@@ -2057,6 +2136,12 @@ async function handleCreateEvent(event) {
   event.preventDefault();
   const submitButton = event.submitter || eventForm.querySelector('button[type="submit"]');
   setButtonBusy(submitButton, true, "Guardando...");
+
+  if (!canCreateEvent()) {
+    setButtonBusy(submitButton, false);
+    showToast("No tienes permisos para crear registros.", "error");
+    return;
+  }
 
   const payload = {
     fecha: fechaInput.value,
@@ -2143,7 +2228,6 @@ async function handleAttachmentSubmit(event) {
 
   const eventId = Number(attachmentEventId.value);
   const file = attachmentFileInput.files?.[0];
-  const ownerId = state.selectedEventOwnerId || state.eventOwners[String(eventId)];
 
   if (!eventId) {
     setButtonBusy(submitButton, false);
@@ -2151,9 +2235,9 @@ async function handleAttachmentSubmit(event) {
     return;
   }
 
-  if (!canUploadToEvent(ownerId)) {
+  if (!canUploadToSelectedEvent()) {
     setButtonBusy(submitButton, false);
-    showToast("Solo el dueno del registro puede subir adjuntos.", "error");
+    showToast("No tienes permisos para subir adjuntos en este registro.", "error");
     return;
   }
 
@@ -2185,7 +2269,7 @@ async function handleAttachmentSubmit(event) {
 async function handleEventEdit(button) {
   const eventId = Number(button.dataset.eventId || 0);
 
-  if (!eventId || !canModifyEvent()) {
+  if (!eventId || !canModifyEvent(eventId)) {
     showToast("No tienes permisos para editar este registro.", "error");
     return;
   }
@@ -2264,7 +2348,7 @@ async function handleEventEdit(button) {
 async function handleEventDelete(button) {
   const eventId = Number(button.dataset.eventId || 0);
 
-  if (!eventId || !canModifyEvent()) {
+  if (!eventId || !canDeleteEvent(eventId)) {
     showToast("No tienes permisos para eliminar este registro.", "error");
     return;
   }
@@ -2293,7 +2377,7 @@ async function handleEventDelete(button) {
 
   if (String(state.selectedEventId) === String(eventId)) {
     state.selectedEventId = null;
-    state.selectedEventOwnerId = null;
+    state.selectedEventPermissions = null;
     clearElement(attachmentList);
     attachmentEventId.value = "";
     refreshAttachmentUploadState();
@@ -2318,7 +2402,7 @@ async function handleAdminRoleUpdate(event) {
   const submitButton = event.submitter || adminRoleForm.querySelector('button[type="submit"]');
   setButtonBusy(submitButton, true, "Actualizando...");
 
-  if (!isAdminSession()) {
+  if (!canManageUsers()) {
     setButtonBusy(submitButton, false);
     showToast("Operacion solo disponible para administradores.", "error");
     return;
@@ -2364,7 +2448,7 @@ async function handleAdminPasswordUpdate(event) {
     event.submitter || adminPasswordForm.querySelector('button[type="submit"]');
   setButtonBusy(submitButton, true, "Actualizando...");
 
-  if (!isAdminSession()) {
+  if (!canManageUsers()) {
     setButtonBusy(submitButton, false);
     showToast("Operacion solo disponible para administradores.", "error");
     return;
@@ -2406,7 +2490,7 @@ async function handleAdminPasswordUpdate(event) {
 }
 
 async function handleAdminUnlockUser() {
-  if (!isAdminSession()) {
+  if (!canManageUsers()) {
     showToast("Operacion solo disponible para administradores.", "error");
     return;
   }
@@ -2444,7 +2528,7 @@ async function handleAdminSelfPasswordUpdate(event) {
     event.submitter || adminSelfPasswordForm.querySelector('button[type="submit"]');
   setButtonBusy(submitButton, true, "Actualizando...");
 
-  if (!isAdminSession()) {
+  if (!canChangeOwnPassword()) {
     setButtonBusy(submitButton, false);
     showToast("Operacion solo disponible para administradores.", "error");
     return;
@@ -2491,7 +2575,7 @@ async function handleAdminSelfPasswordUpdate(event) {
 }
 
 async function handleAdminUserDelete() {
-  if (!isAdminSession()) {
+  if (!canManageUsers()) {
     showToast("Operacion solo disponible para administradores.", "error");
     return;
   }
@@ -2538,6 +2622,12 @@ async function handleTemplateCreate(event) {
   const submitButton = event.submitter || templateForm.querySelector('button[type="submit"]');
   setButtonBusy(submitButton, true, "Guardando...");
 
+  if (!canManageTemplates()) {
+    setButtonBusy(submitButton, false);
+    showToast("No tienes permisos para administrar plantillas.", "error");
+    return;
+  }
+
   const templateName = templateNameInput.value.trim();
   const templateGroup = templateGroupInput.value.trim();
   const scopedName = templateGroup ? `${templateGroup} :: ${templateName}` : templateName;
@@ -2579,6 +2669,11 @@ async function handleTemplateCreate(event) {
 async function handleTemplateToggle(event) {
   const target = event.target;
   if (!(target instanceof HTMLButtonElement) || !target.dataset.templateId) {
+    return;
+  }
+
+  if (!canManageTemplates()) {
+    showToast("No tienes permisos para administrar plantillas.", "error");
     return;
   }
 
@@ -2629,6 +2724,12 @@ async function handleExportClick(event) {
   const button = event.currentTarget;
   const format = button.dataset.format;
   setButtonBusy(button, true, "Exportando...");
+
+  if (!canExportReports()) {
+    setButtonBusy(button, false);
+    showToast("No tienes permisos para exportar reportes.", "error");
+    return;
+  }
 
   const params = buildReportParams(false);
   params.set("format", format);
@@ -2982,9 +3083,12 @@ async function handleReportTableClick(event) {
     return;
   }
 
-  const ownerId = Number(attachmentButton.dataset.ownerId || 0);
-  const normalizedOwnerId = Number.isFinite(ownerId) && ownerId > 0 ? ownerId : null;
-  await loadAttachments(Number(eventId), normalizedOwnerId);
+  if (!getEventActionPermissions(eventId)?.canViewAttachments) {
+    showToast("No tienes permisos para ver adjuntos de este registro.", "error");
+    return;
+  }
+
+  await loadAttachments(Number(eventId));
 }
 
 async function handlePrevPage() {
@@ -3316,7 +3420,7 @@ async function bootstrap() {
 
     window.addEventListener("load", () => {
       navigator.serviceWorker
-        .register("/sw.js?v=13")
+        .register("/sw.js?v=14")
         .then((registration) => registration.update())
         .catch(() => {
           // No interrumpir flujo principal si falla el service worker.

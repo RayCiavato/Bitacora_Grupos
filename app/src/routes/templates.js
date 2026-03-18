@@ -3,6 +3,7 @@ const { z } = require("zod");
 const { pool } = require("../db");
 const { authenticate, requireRole } = require("../middleware/auth");
 const { createAuditLog } = require("../services/audit");
+const { canUserManageTemplates } = require("../services/authorization");
 
 const router = express.Router();
 
@@ -23,13 +24,9 @@ const idSchema = z.object({
   id: z.coerce.number().int().positive()
 });
 
-function canManageTemplates(role) {
-  return role === "admin" || role === "supervisor";
-}
-
 router.get("/", authenticate, async (req, res, next) => {
   try {
-    const showAll = canManageTemplates(req.user.role);
+    const showAll = canUserManageTemplates(req.user);
     const result = await pool.query(
       `
         SELECT
