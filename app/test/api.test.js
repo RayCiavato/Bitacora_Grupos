@@ -63,6 +63,11 @@ test("GET /app.js legacy bloqueado devuelve 404", async () => {
   assert.equal(response.status, 404);
 });
 
+test("HEAD /app.js legacy bloqueado tambien devuelve 404", async () => {
+  const response = await request(app).head("/app.js").set("Accept", "*/*");
+  assert.equal(response.status, 404);
+});
+
 test("GET /security.js sin token de asset devuelve 404", async () => {
   const response = await request(app).get("/security.js").set("Accept", "*/*");
   assert.equal(response.status, 404);
@@ -106,6 +111,11 @@ test("GET /config.js devuelve 404 generico", async () => {
 
 test("GET /server.js devuelve 404 generico", async () => {
   const response = await request(app).get("/server.js");
+  assert.equal(response.status, 404);
+});
+
+test("GET /preview-dashboard.html devuelve 404 en entorno publico", async () => {
+  const response = await request(app).get("/preview-dashboard.html");
   assert.equal(response.status, 404);
 });
 

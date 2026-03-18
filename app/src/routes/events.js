@@ -8,6 +8,7 @@ const PDFDocument = require("pdfkit");
 const { z } = require("zod");
 const { pool } = require("../db");
 const { authenticate } = require("../middleware/auth");
+const { logger } = require("../logger");
 const { createAuditLog } = require("../services/audit");
 const { config } = require("../config");
 const {
@@ -107,6 +108,18 @@ const allowedExtensionsByMime = Object.freeze({
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
   "application/vnd.ms-excel": [".xls"]
 });
+const minimumMagicBytesByMime = Object.freeze({
+  "image/png": 8,
+  "image/jpeg": 3,
+  "image/webp": 12,
+  "image/gif": 6,
+  "application/pdf": 5,
+  "text/plain": 64,
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 4,
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 4,
+  "application/msword": 8,
+  "application/vnd.ms-excel": 8
+});
 
 function sanitizeOriginalFileName(originalName) {
   const withoutControlChars = Array.from(path.basename(String(originalName || "")).normalize("NFKC"))
@@ -139,6 +152,149 @@ function hasAllowedExtensionForMime(fileName, mimeType) {
   }
   const extension = path.extname(String(fileName || "")).toLowerCase();
   return allowedExtensions.includes(extension);
+}
+
+function startsWithBytes(buffer, signature) {
+  if (!Buffer.isBuffer(buffer) || !Buffer.isBuffer(signature)) {
+    return false;
+  }
+  if (buffer.length < signature.length) {
+    return false;
+  }
+  for (let index = 0; index < signature.length; index += 1) {
+    if (buffer[index] !== signature[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isZipHeader(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 4) {
+    return false;
+  }
+  return (
+    startsWithBytes(buffer, Buffer.from([0x50, 0x4b, 0x03, 0x04])) ||
+    startsWithBytes(buffer, Buffer.from([0x50, 0x4b, 0x05, 0x06])) ||
+    startsWithBytes(buffer, Buffer.from([0x50, 0x4b, 0x07, 0x08]))
+  );
+}
+
+function isLegacyOfficeOleHeader(buffer) {
+  return startsWithBytes(buffer, Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
+}
+
+function isLikelyPlainText(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+    return false;
+  }
+
+  let suspicious = 0;
+  for (const byte of buffer.values()) {
+    if (byte === 0x00) {
+      return false;
+    }
+
+    const isWhitespace = byte === 0x09 || byte === 0x0a || byte === 0x0d;
+    const isPrintable = byte >= 0x20 && byte <= 0x7e;
+    const isExtendedUtf8Lead = byte >= 0xc2;
+
+    if (!isWhitespace && !isPrintable && !isExtendedUtf8Lead) {
+      suspicious += 1;
+    }
+  }
+
+  return suspicious / buffer.length < 0.1;
+}
+
+async function validateUploadedFileMagic(filePath, mimeType) {
+  const requiredBytes = minimumMagicBytesByMime[mimeType];
+  if (!requiredBytes) {
+    return false;
+  }
+
+  const readBytes = Math.max(requiredBytes, 64);
+  let handle = null;
+  try {
+    handle = await fs.open(filePath, "r");
+    const header = Buffer.alloc(readBytes);
+    const { bytesRead } = await handle.read(header, 0, readBytes, 0);
+    const buffer = header.subarray(0, bytesRead);
+
+    if (buffer.length < requiredBytes) {
+      return false;
+    }
+
+    switch (mimeType) {
+      case "image/png":
+        return startsWithBytes(buffer, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+      case "image/jpeg":
+        return startsWithBytes(buffer, Buffer.from([0xff, 0xd8, 0xff]));
+      case "image/webp":
+        return startsWithBytes(buffer, Buffer.from("RIFF")) && buffer.subarray(8, 12).equals(Buffer.from("WEBP"));
+      case "image/gif":
+        return buffer.subarray(0, 6).equals(Buffer.from("GIF87a")) || buffer.subarray(0, 6).equals(Buffer.from("GIF89a"));
+      case "application/pdf":
+        return startsWithBytes(buffer, Buffer.from("%PDF-"));
+      case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+      case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+        return isZipHeader(buffer);
+      case "application/msword":
+      case "application/vnd.ms-excel":
+        return isLegacyOfficeOleHeader(buffer);
+      case "text/plain":
+        return isLikelyPlainText(buffer);
+      default:
+        return false;
+    }
+  } catch (error) {
+    logger.warn({ err: error, mimeType }, "No se pudo validar magic bytes de adjunto");
+    return false;
+  } finally {
+    if (handle) {
+      try {
+        await handle.close();
+      } catch (_error) {
+        // No-op
+      }
+    }
+  }
+}
+
+function resolveStoredAttachmentPath(storedName) {
+  const normalizedStoredName = path.basename(String(storedName || ""));
+  if (!normalizedStoredName || normalizedStoredName !== String(storedName || "")) {
+    return null;
+  }
+
+  const uploadsRoot = path.resolve(config.uploadDir);
+  const filePath = path.resolve(uploadsRoot, normalizedStoredName);
+  if (!filePath.startsWith(`${uploadsRoot}${path.sep}`)) {
+    return null;
+  }
+
+  return filePath;
+}
+
+async function removeStoredFiles(storedNames) {
+  const uniqueNames = Array.from(
+    new Set((Array.isArray(storedNames) ? storedNames : []).map((value) => String(value || "").trim()))
+  ).filter(Boolean);
+
+  for (const storedName of uniqueNames) {
+    const filePath = resolveStoredAttachmentPath(storedName);
+    if (!filePath) {
+      continue;
+    }
+
+    try {
+      await fs.unlink(filePath);
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        logger.warn({ err: error, storedName }, "No se pudo eliminar adjunto fisico");
+      }
+    }
+  }
 }
 
 function safeDownloadFileName(name, mimeType, attachmentId) {
@@ -201,6 +357,10 @@ function toISODate(date) {
 
 function isPastDate(dateValue) {
   return dateValue < toISODate(new Date());
+}
+
+function hasInvertedDateRange(from, to) {
+  return String(from || "") > String(to || "");
 }
 
 function buildReportFilters(query) {
@@ -560,6 +720,10 @@ router.post("/", authenticate, async (req, res, next) => {
 router.get("/report", authenticate, async (req, res, next) => {
   try {
     const query = reportQuerySchema.parse(req.query);
+    if (hasInvertedDateRange(query.from, query.to)) {
+      return res.status(400).json({ error: "validation_error" });
+    }
+
     const scopedQuery = {
       ...query,
       encargadoId: getScopedEncargadoId(req, query.encargadoId)
@@ -663,6 +827,10 @@ router.get("/report", authenticate, async (req, res, next) => {
 async function handleReportExport(req, res, next, source) {
   try {
     const payload = source === "body" ? exportBodySchema.parse(req.body) : exportQuerySchema.parse(req.query);
+    if (hasInvertedDateRange(payload.from, payload.to)) {
+      return res.status(400).json({ error: "validation_error" });
+    }
+
     const scopedPayload = {
       ...payload,
       encargadoId: getScopedEncargadoId(req, payload.encargadoId)
@@ -734,6 +902,9 @@ router.get("/trends", authenticate, async (req, res, next) => {
     const to = query.to || toISODate(new Date());
     const from =
       query.from || toISODate(new Date(Date.now() - 29 * 24 * 60 * 60 * 1000));
+    if (hasInvertedDateRange(from, to)) {
+      return res.status(400).json({ error: "validation_error" });
+    }
 
     const reportQuery = {
       from,
@@ -1012,6 +1183,8 @@ router.patch("/:id", authenticate, async (req, res, next) => {
 });
 
 router.delete("/:id", authenticate, async (req, res, next) => {
+  let client = null;
+  let txStarted = false;
   try {
     if (!ensureCanDeleteEventsOrForbidden(req, res)) {
       return;
@@ -1024,7 +1197,26 @@ router.delete("/:id", authenticate, async (req, res, next) => {
       return res.status(404).json({ error: "event_not_found" });
     }
 
-    await pool.query("DELETE FROM events WHERE id = $1", [params.id]);
+    client = await pool.connect();
+    await client.query("BEGIN");
+    txStarted = true;
+
+    const attachmentsResult = await client.query(
+      `
+        SELECT stored_name
+        FROM event_attachments
+        WHERE event_id = $1
+      `,
+      [params.id]
+    );
+
+    const storedNames = attachmentsResult.rows.map((row) => row.stored_name);
+
+    await client.query("DELETE FROM events WHERE id = $1", [params.id]);
+    await client.query("COMMIT");
+    txStarted = false;
+
+    await removeStoredFiles(storedNames);
 
     await createAuditLog({
       userId: req.user.sub,
@@ -1046,10 +1238,18 @@ router.delete("/:id", authenticate, async (req, res, next) => {
 
     return res.json({ message: "Registro eliminado correctamente" });
   } catch (error) {
+    if (client && txStarted) {
+      await client.query("ROLLBACK");
+    }
+
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: "validation_error" });
     }
     return next(error);
+  } finally {
+    if (client) {
+      client.release();
+    }
   }
 });
 
@@ -1070,6 +1270,12 @@ router.post("/:id/attachments", authenticate, async (req, res, next) => {
 
     if (!req.file) {
       return res.status(400).json({ error: "file_required" });
+    }
+
+    const magicValid = await validateUploadedFileMagic(req.file.path, req.file.mimetype);
+    if (!magicValid) {
+      await removeStoredFiles([req.file.filename]);
+      return res.status(400).json({ error: "invalid_file_type" });
     }
 
     const insertResult = await pool.query(
@@ -1104,6 +1310,10 @@ router.post("/:id/attachments", authenticate, async (req, res, next) => {
 
     return res.status(201).json(insertResult.rows[0]);
   } catch (error) {
+    if (req.file?.filename) {
+      await removeStoredFiles([req.file.filename]);
+    }
+
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: "validation_error" });
     }
@@ -1208,14 +1418,8 @@ router.get("/attachments/:attachmentId/download", authenticate, async (req, res,
     ) {
       return;
     }
-    const normalizedStoredName = path.basename(String(attachment.stored_name || ""));
-    if (!normalizedStoredName || normalizedStoredName !== attachment.stored_name) {
-      return res.status(404).json({ error: "attachment_not_found" });
-    }
-
-    const uploadsRoot = path.resolve(config.uploadDir);
-    const filePath = path.resolve(uploadsRoot, normalizedStoredName);
-    if (!filePath.startsWith(`${uploadsRoot}${path.sep}`)) {
+    const filePath = resolveStoredAttachmentPath(attachment.stored_name);
+    if (!filePath) {
       return res.status(404).json({ error: "attachment_not_found" });
     }
 

@@ -1,7 +1,11 @@
+const fs = require("fs/promises");
+const path = require("path");
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const { z } = require("zod");
 const { pool } = require("../db");
+const { config } = require("../config");
+const { logger } = require("../logger");
 const { authenticate, requireRole } = require("../middleware/auth");
 const { validatePasswordPolicy } = require("../services/passwordPolicy");
 const { validateFullName } = require("../services/namePolicy");
@@ -30,6 +34,42 @@ const selfPasswordSchema = z.object({
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
+}
+
+function resolveStoredAttachmentPath(storedName) {
+  const normalizedStoredName = path.basename(String(storedName || ""));
+  if (!normalizedStoredName || normalizedStoredName !== String(storedName || "")) {
+    return null;
+  }
+
+  const uploadsRoot = path.resolve(config.uploadDir);
+  const filePath = path.resolve(uploadsRoot, normalizedStoredName);
+  if (!filePath.startsWith(`${uploadsRoot}${path.sep}`)) {
+    return null;
+  }
+
+  return filePath;
+}
+
+async function removeStoredFiles(storedNames) {
+  const uniqueNames = Array.from(
+    new Set((Array.isArray(storedNames) ? storedNames : []).map((value) => String(value || "").trim()))
+  ).filter(Boolean);
+
+  for (const storedName of uniqueNames) {
+    const filePath = resolveStoredAttachmentPath(storedName);
+    if (!filePath) {
+      continue;
+    }
+
+    try {
+      await fs.unlink(filePath);
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        logger.warn({ err: error, storedName }, "No se pudo eliminar adjunto fisico");
+      }
+    }
+  }
 }
 
 router.post("/", authenticate, requireRole(["admin"]), async (req, res, next) => {
@@ -373,8 +413,10 @@ router.delete("/:id", authenticate, requireRole(["admin"]), async (req, res, nex
   }
 
   const client = await pool.connect();
+  let txStarted = false;
   try {
     await client.query("BEGIN");
+    txStarted = true;
 
     const targetResult = await client.query(
       `
@@ -388,6 +430,7 @@ router.delete("/:id", authenticate, requireRole(["admin"]), async (req, res, nex
 
     if (targetResult.rowCount === 0) {
       await client.query("ROLLBACK");
+      txStarted = false;
       return res.status(404).json({ error: "user_not_found" });
     }
 
@@ -399,9 +442,20 @@ router.delete("/:id", authenticate, requireRole(["admin"]), async (req, res, nex
       const adminTotal = Number(adminCountResult.rows[0]?.total || 0);
       if (adminTotal <= 1) {
         await client.query("ROLLBACK");
+        txStarted = false;
         return res.status(400).json({ error: "last_admin_not_allowed" });
       }
     }
+
+    const attachmentsResult = await client.query(
+      `
+        SELECT stored_name
+        FROM event_attachments
+        WHERE event_id IN (SELECT id FROM events WHERE encargado_id = $1)
+           OR uploaded_by = $1
+      `,
+      [userId]
+    );
 
     await client.query("DELETE FROM refresh_tokens WHERE user_id = $1", [userId]);
 
@@ -426,6 +480,9 @@ router.delete("/:id", authenticate, requireRole(["admin"]), async (req, res, nex
     );
 
     await client.query("COMMIT");
+    txStarted = false;
+
+    await removeStoredFiles(attachmentsResult.rows.map((row) => row.stored_name));
 
     await createAuditLog({
       userId: req.user.sub,
@@ -450,7 +507,9 @@ router.delete("/:id", authenticate, requireRole(["admin"]), async (req, res, nex
       }
     });
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (txStarted) {
+      await client.query("ROLLBACK");
+    }
     return next(error);
   } finally {
     client.release();

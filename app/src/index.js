@@ -96,10 +96,18 @@ function createApp() {
     next();
   });
 
+  // Evita exposicion accidental de vistas de preview no necesarias en produccion.
+  app.use((req, res, next) => {
+    if (req.path === "/preview-dashboard.html") {
+      return res.status(404).send("Not found");
+    }
+    return next();
+  });
+
   // Evita navegacion directa a bundles JS desde barra de direcciones.
   // Nota: esto no "oculta" codigo al navegador, solo reduce exposicion casual.
   app.use((req, res, next) => {
-    if (req.method !== "GET" || !/\.(js|map)$/i.test(req.path)) {
+    if (!["GET", "HEAD"].includes(req.method) || !/\.(js|map)$/i.test(req.path)) {
       return next();
     }
 
