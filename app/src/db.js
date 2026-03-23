@@ -48,7 +48,7 @@ async function ensureDatabaseSchema() {
         fecha DATE NOT NULL,
         descripcion_actividad TEXT NOT NULL,
         observacion TEXT NOT NULL,
-        prioridad VARCHAR(10) NOT NULL DEFAULT 'media'
+        prioridad VARCHAR(20) NOT NULL DEFAULT 'media'
           CHECK (prioridad IN ('baja', 'media', 'alta', 'observacion')),
         encargado_id BIGINT NOT NULL REFERENCES users(id),
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -86,7 +86,7 @@ async function ensureDatabaseSchema() {
         name VARCHAR(160) NOT NULL UNIQUE,
         descripcion_base TEXT NOT NULL,
         observacion_base TEXT NOT NULL,
-        prioridad_default VARCHAR(10) NOT NULL DEFAULT 'media'
+        prioridad_default VARCHAR(20) NOT NULL DEFAULT 'media'
           CHECK (prioridad_default IN ('baja', 'media', 'alta', 'observacion')),
         is_active BOOLEAN NOT NULL DEFAULT TRUE,
         created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
@@ -128,6 +128,14 @@ async function ensureDatabaseSchema() {
     `
       ALTER TABLE events
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    `,
+    `
+      ALTER TABLE events
+      ALTER COLUMN prioridad TYPE VARCHAR(20)
+    `,
+    `
+      ALTER TABLE event_templates
+      ALTER COLUMN prioridad_default TYPE VARCHAR(20)
     `,
     `
       DO $$

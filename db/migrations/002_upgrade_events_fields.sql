@@ -60,7 +60,10 @@ ALTER TABLE events
   ALTER COLUMN observacion SET NOT NULL;
 
 ALTER TABLE events
-  ADD COLUMN IF NOT EXISTS prioridad VARCHAR(10) NOT NULL DEFAULT 'media';
+  ADD COLUMN IF NOT EXISTS prioridad VARCHAR(20) NOT NULL DEFAULT 'media';
+
+ALTER TABLE events
+  ALTER COLUMN prioridad TYPE VARCHAR(20);
 
 DO $$
 BEGIN
@@ -70,7 +73,7 @@ BEGIN
     WHERE conname = 'events_prioridad_check'
   ) THEN
     ALTER TABLE events
-    ADD CONSTRAINT events_prioridad_check CHECK (prioridad IN ('baja', 'media', 'alta'));
+    ADD CONSTRAINT events_prioridad_check CHECK (prioridad IN ('baja', 'media', 'alta', 'observacion'));
   END IF;
 END $$;
 
@@ -96,4 +99,3 @@ CREATE TRIGGER events_prevent_encargado_change
 BEFORE UPDATE ON events
 FOR EACH ROW
 EXECUTE FUNCTION prevent_encargado_change();
-

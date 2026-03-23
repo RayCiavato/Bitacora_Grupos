@@ -28,12 +28,15 @@ CREATE TABLE IF NOT EXISTS event_templates (
   name VARCHAR(160) NOT NULL UNIQUE,
   descripcion_base TEXT NOT NULL,
   observacion_base TEXT NOT NULL,
-  prioridad_default VARCHAR(10) NOT NULL DEFAULT 'media' CHECK (prioridad_default IN ('baja', 'media', 'alta')),
+  prioridad_default VARCHAR(20) NOT NULL DEFAULT 'media' CHECK (prioridad_default IN ('baja', 'media', 'alta', 'observacion')),
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE event_templates
+  ALTER COLUMN prioridad_default TYPE VARCHAR(20);
 
 ALTER TABLE events
   ADD COLUMN IF NOT EXISTS template_id BIGINT REFERENCES event_templates(id) ON DELETE SET NULL;
