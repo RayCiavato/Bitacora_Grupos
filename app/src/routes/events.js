@@ -119,6 +119,19 @@ const minimumMagicBytesByMime = Object.freeze({
   "application/msword": 8,
   "application/vnd.ms-excel": 8
 });
+const uploadStorageErrorCodes = new Set([
+  "EACCES",
+  "EPERM",
+  "EROFS",
+  "ENOSPC",
+  "ENOENT",
+  "ENOTDIR",
+  "EISDIR",
+  "EMFILE",
+  "ENFILE"
+]);
+const uploadStorageMessagePattern =
+  /(no space left on device|read-only file system|permission denied|eacces|eperm|erofs|enospc|enoent|enotdir|eisdir|emfile|enfile)/i;
 
 function sanitizeOriginalFileName(originalName) {
   const withoutControlChars = Array.from(path.basename(String(originalName || "")).normalize("NFKC"))
@@ -572,14 +585,49 @@ function runUpload(req, res) {
   });
 }
 
-function isUploadStorageError(error) {
-  const code = String(error?.code || "").toUpperCase();
-  if (["EACCES", "EROFS", "ENOSPC", "ENOENT", "EPERM"].includes(code)) {
-    return true;
+function collectUploadErrorCodes(error) {
+  const pending = [error];
+  const visited = new Set();
+  const codes = new Set();
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current || typeof current !== "object" || visited.has(current)) {
+      continue;
+    }
+
+    visited.add(current);
+    const code = String(current.code || current.errno || "").trim().toUpperCase();
+    if (code) {
+      codes.add(code);
+    }
+
+    if (current.cause) {
+      pending.push(current.cause);
+    }
+    if (current.parent) {
+      pending.push(current.parent);
+    }
+    if (current.originalError) {
+      pending.push(current.originalError);
+    }
+    if (Array.isArray(current.storageErrors)) {
+      pending.push(...current.storageErrors);
+    }
   }
 
-  const nestedCode = String(error?.cause?.code || "").toUpperCase();
-  return ["EACCES", "EROFS", "ENOSPC", "ENOENT", "EPERM"].includes(nestedCode);
+  return codes;
+}
+
+function isUploadStorageError(error) {
+  const codes = collectUploadErrorCodes(error);
+  for (const code of codes.values()) {
+    if (uploadStorageErrorCodes.has(code)) {
+      return true;
+    }
+  }
+
+  return uploadStorageMessagePattern.test(String(error?.message || ""));
 }
 
 async function getEventById(eventId) {
@@ -1342,11 +1390,22 @@ router.post("/:id/attachments", authenticate, async (req, res, next) => {
       return res.status(400).json({ error: "invalid_file_extension" });
     }
 
+    if (error instanceof multer.MulterError) {
+      logger.warn({ err: error, code: error.code }, "Solicitud multipart invalida en subida de adjunto");
+      return res.status(400).json({ error: "validation_error" });
+    }
+
+    const loweredMessage = String(error?.message || "").toLowerCase();
+    if (loweredMessage.includes("unexpected field") || loweredMessage.includes("multipart")) {
+      return res.status(400).json({ error: "validation_error" });
+    }
+
     if (isUploadStorageError(error)) {
       logger.error({ err: error }, "Almacenamiento de adjuntos no disponible");
       return res.status(503).json({ error: "upload_storage_unavailable" });
     }
 
+    logger.error({ err: error }, "Error inesperado al cargar adjunto");
     return next(error);
   }
 });
