@@ -17,8 +17,7 @@ const {
   canUserDeleteAnyEvent,
   canUserUploadEventAttachment,
   canUserViewEventAttachments,
-  buildEventPermissions,
-  resolveActorId
+  buildEventPermissions
 } = require("../services/authorization");
 
 const router = express.Router();
@@ -395,10 +394,11 @@ function buildReportFilters(query) {
 }
 
 function getScopedEncargadoId(req, requestedEncargadoId) {
-  if (canUserFilterByUser(req.user)) {
-    return requestedEncargadoId || undefined;
+  if (!canUserFilterByUser(req.user)) {
+    return undefined;
   }
-  return resolveActorId(req.user) || undefined;
+
+  return requestedEncargadoId || undefined;
 }
 
 function escapeCsvValue(value) {
@@ -570,6 +570,16 @@ function runUpload(req, res) {
       resolve();
     });
   });
+}
+
+function isUploadStorageError(error) {
+  const code = String(error?.code || "").toUpperCase();
+  if (["EACCES", "EROFS", "ENOSPC", "ENOENT", "EPERM"].includes(code)) {
+    return true;
+  }
+
+  const nestedCode = String(error?.cause?.code || "").toUpperCase();
+  return ["EACCES", "EROFS", "ENOSPC", "ENOENT", "EPERM"].includes(nestedCode);
 }
 
 async function getEventById(eventId) {
@@ -1330,6 +1340,11 @@ router.post("/:id/attachments", authenticate, async (req, res, next) => {
     }
     if (error.message === "invalid_file_extension") {
       return res.status(400).json({ error: "invalid_file_extension" });
+    }
+
+    if (isUploadStorageError(error)) {
+      logger.error({ err: error }, "Almacenamiento de adjuntos no disponible");
+      return res.status(503).json({ error: "upload_storage_unavailable" });
     }
 
     return next(error);

@@ -81,7 +81,7 @@ const ROLE_CAPABILITIES = Object.freeze({
       attachments: Object.freeze({
         uploadAny: false,
         uploadOwn: true,
-        viewAny: false,
+        viewAny: true,
         viewOwn: true
       })
     })
@@ -112,7 +112,7 @@ const ROLE_CAPABILITIES = Object.freeze({
       attachments: Object.freeze({
         uploadAny: false,
         uploadOwn: true,
-        viewAny: false,
+        viewAny: true,
         viewOwn: true
       })
     })

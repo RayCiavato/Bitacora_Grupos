@@ -22,6 +22,14 @@ services:
       - bitacora_net
     restart: unless-stopped
 
+  uploads-init:
+    image: alpine:3.20
+    container_name: bitacora-uploads-init
+    command: ["sh", "-c", "mkdir -p /uploads && chown -R 1000:1000 /uploads"]
+    volumes:
+      - uploads_data:/uploads
+    restart: "no"
+
   app:
     build:
       context: ./app
@@ -66,6 +74,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      uploads-init:
+        condition: service_completed_successfully
     volumes:
       - uploads_data:/usr/src/app/uploads
     read_only: true
