@@ -35,6 +35,8 @@ const reportPageInfo = document.getElementById("reportPageInfo");
 const mainWorkspaceSection = document.getElementById("mainWorkspaceSection");
 const secondaryWorkspaceSection = document.getElementById("secondaryWorkspaceSection");
 const registroSection = document.getElementById("registroSection");
+const registroTitle = document.getElementById("registroTitle");
+const registroModeHint = document.getElementById("registroModeHint");
 const informeSection = document.getElementById("informeSection");
 const tendenciasSection = document.getElementById("tendenciasSection");
 const attachmentsCard = document.getElementById("attachmentsCard");
@@ -71,6 +73,8 @@ const pdfCompanyLogoInput = document.getElementById("pdfCompanyLogo");
 const loginForm = document.getElementById("loginForm");
 const mfaEnableForm = document.getElementById("mfaEnableForm");
 const eventForm = document.getElementById("eventForm");
+const eventSubmitBtn = document.getElementById("eventSubmitBtn");
+const eventCancelBtn = document.getElementById("eventCancelBtn");
 const filterForm = document.getElementById("filterForm");
 const logoutBtn = document.getElementById("logoutBtn");
 const registerForm = document.getElementById("registerForm");
@@ -178,6 +182,7 @@ const COMMON_WEAK_PASSWORDS = new Set([
 const ERROR_MESSAGES = {
   unauthorized: "Acceso no autorizado. Inicia sesion.",
   invalid_token: "Sesion invalida. Inicia sesion nuevamente.",
+  invalid_csrf_token: "La sesion de seguridad vencio. Intenta nuevamente.",
   session_revoked: "La sesion fue revocada. Inicia sesion otra vez.",
   invalid_credentials: "No se pudo completar la autenticacion.",
   auth_failed: "No se pudo completar la autenticacion.",
@@ -235,6 +240,7 @@ const state = {
   sessionCapabilities: null,
   eventPayloadById: {},
   eventActionPermissions: {},
+  editingEventId: null,
   selectedEventId: null,
   selectedEventPermissions: null,
   authView: "login",
@@ -283,14 +289,38 @@ function syncDateConstraints() {
   }
 }
 
+function normalizeDateInputValue(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "";
+  }
+
+  const isoMatch = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoMatch?.[1]) {
+    return isoMatch[1];
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+
+  return parsed.toISOString().slice(0, 10);
+}
+
 function formatDate(dateValue) {
   if (!dateValue) {
     return "-";
   }
 
-  const date = new Date(`${dateValue}T00:00:00`);
+  const normalized = normalizeDateInputValue(dateValue);
+  if (!normalized) {
+    return String(dateValue);
+  }
+
+  const date = new Date(`${normalized}T00:00:00`);
   if (Number.isNaN(date.getTime())) {
-    return dateValue;
+    return String(dateValue);
   }
 
   return date.toLocaleDateString("es-ES", {
@@ -778,6 +808,43 @@ function updateSidebarRoleLinks() {
   });
 }
 
+function setEventEditorMode(nextMode = "create", options = {}) {
+  const requestedEditId = Number(options.eventId || 0);
+  const isEditMode = nextMode === "edit" && Number.isInteger(requestedEditId) && requestedEditId > 0;
+  state.editingEventId = isEditMode ? requestedEditId : null;
+
+  if (registroSection) {
+    registroSection.classList.toggle("registro-editing", isEditMode);
+  }
+
+  if (registroTitle) {
+    registroTitle.textContent = isEditMode ? `Editar bitacora #${requestedEditId}` : "Nuevo registro";
+  }
+
+  if (registroModeHint) {
+    if (isEditMode) {
+      registroModeHint.textContent =
+        "Actualiza los campos necesarios y guarda cambios sobre el mismo registro.";
+      registroModeHint.classList.remove("hidden");
+    } else {
+      registroModeHint.textContent = "";
+      registroModeHint.classList.add("hidden");
+    }
+  }
+
+  if (eventSubmitBtn) {
+    eventSubmitBtn.textContent = isEditMode ? "Guardar cambios" : "Guardar en bitacora";
+  }
+
+  if (eventCancelBtn) {
+    eventCancelBtn.classList.toggle("hidden", !isEditMode);
+  }
+
+  if (!isEditMode && state.user?.name && encargadoInput) {
+    encargadoInput.value = state.user.name;
+  }
+}
+
 function refreshAttachmentUploadState() {
   const submitButton = attachmentForm.querySelector('button[type="submit"]');
   const hasSelection = Boolean(state.selectedEventId);
@@ -816,6 +883,7 @@ function clearSession() {
     pageSize: Number(pageSizeInput.value || 20),
     totalPages: 1
   };
+  state.editingEventId = null;
   state.selectedEventId = null;
   state.selectedEventPermissions = null;
   state.authView = getRequestedAuthView();
@@ -836,6 +904,7 @@ function clearSession() {
   registerForm.reset();
   mfaEnableForm.reset();
   eventForm.reset();
+  setEventEditorMode("create");
   if (eventFilesInput) {
     eventFilesInput.value = "";
   }
@@ -989,11 +1058,15 @@ function renderReportRows(report) {
 
     if (canEdit || canDelete) {
       state.eventPayloadById[eventId] = {
-        fecha: item.fecha,
+        fecha: normalizeDateInputValue(item.fecha),
         descripcionActividad: item.descripcionActividad || "",
         observacion: item.observacion || "",
         prioridad: normalizePriority(item.prioridad),
-        templateId: item.templateId ?? null
+        templateId:
+          item.templateId === null || item.templateId === undefined
+            ? null
+            : Number(item.templateId),
+        encargado: item.encargado || "-"
       };
 
       if (canEdit) {
@@ -1438,11 +1511,13 @@ function renderAttachments(items) {
 
 function applyRouteMode() {
   const route = getCurrentPanelPath();
+  const isEditingRecord =
+    Number.isInteger(state.editingEventId) && Number(state.editingEventId) > 0;
   const showDashboard = route === "/dashboard";
   const showResumen = route === "/resumen";
-  const showRegistro = route === "/registro/nuevo";
-  const showInformes = route === "/informes";
-  const showTendencias = route === "/tendencias";
+  const showRegistro = route === "/registro/nuevo" || isEditingRecord;
+  const showInformes = route === "/informes" && !isEditingRecord;
+  const showTendencias = route === "/tendencias" && !isEditingRecord;
   const showAdjuntos = route === "/adjuntos";
   const showUsuarios = route === "/usuarios";
   const showPlantillas = route === "/plantillas";
@@ -1509,6 +1584,7 @@ function renderDashboardView() {
   }
   dashboardSection.classList.remove("hidden");
   eventForm.reset();
+  setEventEditorMode("create");
   setDateDefaults();
 
   const roleLabel = formatRoleLabel(state.user.role);
@@ -2217,33 +2293,42 @@ async function handleRegister(event) {
 }
 
 async function uploadEventAttachmentByFile(eventId, file) {
-  const formData = new FormData();
-  formData.append("file", file);
-  const csrfToken = getCsrfToken();
+  const sendUpload = (csrfToken) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return fetch(`/events/${eventId}/attachments`, {
+      method: "POST",
+      body: formData,
+      credentials: "same-origin",
+      headers: csrfToken ? { "x-csrf-token": csrfToken } : {}
+    });
+  };
 
-  let uploadResponse = await fetch(`/events/${eventId}/attachments`, {
-    method: "POST",
-    body: formData,
-    credentials: "same-origin",
-    headers: csrfToken ? { "x-csrf-token": csrfToken } : {}
-  });
+  const readJsonIfPossible = async (response) => {
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      return null;
+    }
+    try {
+      return await response.json();
+    } catch (_error) {
+      return null;
+    }
+  };
 
-  if (uploadResponse.status === 401) {
+  let uploadResponse = await sendUpload(getCsrfToken());
+  let data = await readJsonIfPossible(uploadResponse);
+
+  const shouldRetryWithRefresh =
+    uploadResponse.status === 401 ||
+    (uploadResponse.status === 403 && data?.error === "invalid_csrf_token");
+
+  if (shouldRetryWithRefresh) {
     const refreshed = await refreshSession();
     if (refreshed) {
-      uploadResponse = await fetch(`/events/${eventId}/attachments`, {
-        method: "POST",
-        body: formData,
-        credentials: "same-origin",
-        headers: csrfToken ? { "x-csrf-token": csrfToken } : {}
-      });
+      uploadResponse = await sendUpload(getCsrfToken());
+      data = await readJsonIfPossible(uploadResponse);
     }
-  }
-
-  let data = null;
-  const contentType = uploadResponse.headers.get("content-type") || "";
-  if (contentType.includes("application/json")) {
-    data = await uploadResponse.json();
   }
 
   return {
@@ -2258,22 +2343,34 @@ async function handleCreateEvent(event) {
   const submitButton = event.submitter || eventForm.querySelector('button[type="submit"]');
   setButtonBusy(submitButton, true, "Guardando...");
 
-  if (!canCreateEvent()) {
+  const isEditMode =
+    Number.isInteger(state.editingEventId) && Number(state.editingEventId) > 0;
+
+  if (!isEditMode && !canCreateEvent()) {
     setButtonBusy(submitButton, false);
     showToast("No tienes permisos para crear registros.", "error");
     return;
   }
 
+  if (isEditMode && !canModifyEvent(state.editingEventId)) {
+    setButtonBusy(submitButton, false);
+    showToast("No tienes permisos para editar este registro.", "error");
+    return;
+  }
+
+  const selectedTemplateId = eventTemplateSelect.value ? Number(eventTemplateSelect.value) : null;
   const payload = {
-    fecha: fechaInput.value,
+    fecha: normalizeDateInputValue(fechaInput.value),
     descripcionActividad: document.getElementById("descripcionActividad").value.trim(),
     observacion: document.getElementById("observacion").value.trim(),
     prioridad: document.getElementById("prioridad").value,
-    templateId: eventTemplateSelect.value ? Number(eventTemplateSelect.value) : undefined
+    templateId: isEditMode ? selectedTemplateId : selectedTemplateId || undefined
   };
 
-  const { response, data, networkError } = await apiAuth("/events", {
-    method: "POST",
+  const endpoint = isEditMode ? `/events/${state.editingEventId}` : "/events";
+  const method = isEditMode ? "PATCH" : "POST";
+  const { response, data, networkError } = await apiAuth(endpoint, {
+    method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
@@ -2281,7 +2378,10 @@ async function handleCreateEvent(event) {
   setButtonBusy(submitButton, false);
 
   if (networkError) {
-    showToast("No hay conexion para guardar el registro.", "error");
+    showToast(
+      isEditMode ? "No hay conexion para guardar cambios del registro." : "No hay conexion para guardar el registro.",
+      "error"
+    );
     return;
   }
 
@@ -2294,15 +2394,15 @@ async function handleCreateEvent(event) {
     return;
   }
 
-  const createdEventId = Number(data?.id || 0);
+  const targetEventId = isEditMode ? Number(state.editingEventId) : Number(data?.id || 0);
   const selectedFiles = eventFilesInput?.files ? Array.from(eventFilesInput.files) : [];
   let uploadedFiles = 0;
   let failedUploads = 0;
 
-  if (createdEventId && selectedFiles.length > 0) {
+  if (targetEventId && selectedFiles.length > 0) {
     for (const file of selectedFiles) {
       // eslint-disable-next-line no-await-in-loop
-      const uploadResult = await uploadEventAttachmentByFile(createdEventId, file);
+      const uploadResult = await uploadEventAttachmentByFile(targetEventId, file);
       if (uploadResult.ok) {
         uploadedFiles += 1;
       } else {
@@ -2317,25 +2417,46 @@ async function handleCreateEvent(event) {
   if (eventFilesInput) {
     eventFilesInput.value = "";
   }
+
   if (!fromDateInput.value || payload.fecha < fromDateInput.value) {
     fromDateInput.value = payload.fecha;
   }
   if (!toDateInput.value || payload.fecha > toDateInput.value) {
     toDateInput.value = payload.fecha;
   }
-  syncDateConstraints();
+
+  if (isEditMode) {
+    setEventEditorMode("create");
+    eventForm.reset();
+    setDateDefaults();
+    applyRouteMode();
+  } else {
+    syncDateConstraints();
+  }
 
   if (uploadedFiles > 0 && failedUploads === 0) {
-    showToast(`Registro guardado y ${uploadedFiles} archivo(s) adjuntado(s).`, "success");
+    showToast(
+      isEditMode
+        ? `Registro actualizado y ${uploadedFiles} archivo(s) adjuntado(s).`
+        : `Registro guardado y ${uploadedFiles} archivo(s) adjuntado(s).`,
+      "success"
+    );
   } else if (uploadedFiles > 0 && failedUploads > 0) {
     showToast(
-      `Registro guardado. ${uploadedFiles} adjunto(s) cargados y ${failedUploads} con error.`,
+      isEditMode
+        ? `Registro actualizado. ${uploadedFiles} adjunto(s) cargados y ${failedUploads} con error.`
+        : `Registro guardado. ${uploadedFiles} adjunto(s) cargados y ${failedUploads} con error.`,
       "info"
     );
   } else if (failedUploads > 0) {
-    showToast("Registro guardado, pero los adjuntos fallaron. Intenta subirlos desde Adjuntos.", "error");
+    showToast(
+      isEditMode
+        ? "Cambios guardados, pero los adjuntos fallaron. Intenta subirlos desde Adjuntos."
+        : "Registro guardado, pero los adjuntos fallaron. Intenta subirlos desde Adjuntos.",
+      "error"
+    );
   } else {
-    showToast("Registro guardado en bitacora.", "success");
+    showToast(isEditMode ? "Registro actualizado correctamente." : "Registro guardado en bitacora.", "success");
   }
 
   await loadReport();
@@ -2402,68 +2523,43 @@ async function handleEventEdit(button) {
     return;
   }
 
-  const fecha = window.prompt("Fecha (YYYY-MM-DD)", current.fecha || toLocalISODate());
-  if (fecha === null) {
+  if (state.templates.length === 0) {
+    await loadTemplates();
+  }
+
+  const normalizedDate = normalizeDateInputValue(current.fecha) || toLocalISODate();
+  fechaInput.value = normalizedDate;
+  document.getElementById("descripcionActividad").value = current.descripcionActividad || "";
+  document.getElementById("observacion").value = current.observacion || "";
+  document.getElementById("prioridad").value = normalizePriority(current.prioridad);
+  eventTemplateSelect.value = current.templateId ? String(current.templateId) : "";
+  if (eventFilesInput) {
+    eventFilesInput.value = "";
+  }
+
+  if (encargadoInput) {
+    encargadoInput.value = current.encargado || state.user?.name || "-";
+  }
+
+  setEventEditorMode("edit", { eventId });
+  applyRouteMode();
+  if (registroSection) {
+    registroSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  showToast("Modo edicion habilitado en pantalla completa.", "info");
+}
+
+function handleCancelEventEdit() {
+  if (!state.editingEventId) {
     return;
   }
 
-  const descripcionActividad = window.prompt(
-    "Descripcion de actividad",
-    current.descripcionActividad || ""
-  );
-  if (descripcionActividad === null) {
-    return;
-  }
-
-  const observacion = window.prompt("Observacion", current.observacion || "");
-  if (observacion === null) {
-    return;
-  }
-
-  const prioridadRaw = window.prompt(
-    "Prioridad (baja, media, alta, observacion)",
-    String(current.prioridad || "media")
-  );
-  if (prioridadRaw === null) {
-    return;
-  }
-
-  const prioridad = prioridadRaw.trim().toLowerCase();
-  if (!PRIORITY_VALUES.includes(prioridad)) {
-    showToast("Prioridad invalida. Usa baja, media, alta u observacion.", "error");
-    return;
-  }
-
-  const payload = {
-    fecha: fecha.trim(),
-    descripcionActividad: descripcionActividad.trim(),
-    observacion: observacion.trim(),
-    prioridad
-  };
-
-  const { response, data, networkError } = await apiAuth(`/events/${eventId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-
-  if (networkError) {
-    showToast("No hay conexion para editar el registro.", "error");
-    return;
-  }
-
-  if (!response.ok) {
-    if (response.status === 401) {
-      handleUnauthorized();
-      return;
-    }
-    showToast(resolveErrorMessage(data?.error, data?.details), "error");
-    return;
-  }
-
-  showToast("Registro actualizado correctamente.", "success");
-  await loadReport();
-  await loadTrends();
+  setEventEditorMode("create");
+  eventForm.reset();
+  setDateDefaults();
+  applyRouteMode();
+  showToast("Edicion cancelada.", "info");
 }
 
 async function handleEventDelete(button) {
@@ -2502,6 +2598,13 @@ async function handleEventDelete(button) {
     clearElement(attachmentList);
     attachmentEventId.value = "";
     refreshAttachmentUploadState();
+  }
+
+  if (String(state.editingEventId) === String(eventId)) {
+    setEventEditorMode("create");
+    eventForm.reset();
+    setDateDefaults();
+    applyRouteMode();
   }
 
   showToast("Registro eliminado correctamente.", "success");
@@ -3013,6 +3116,7 @@ async function handleLogout() {
   registerForm.reset();
   mfaEnableForm.reset();
   eventForm.reset();
+  setEventEditorMode("create");
   window.location.href = "/";
 }
 
@@ -3505,6 +3609,9 @@ async function bootstrap() {
 
   mfaEnableForm.addEventListener("submit", handleMfaEnable);
   eventForm.addEventListener("submit", handleCreateEvent);
+  if (eventCancelBtn) {
+    eventCancelBtn.addEventListener("click", handleCancelEventEdit);
+  }
   attachmentForm.addEventListener("submit", handleAttachmentSubmit);
   filterForm.addEventListener("submit", handleFilterSubmit);
   openReportBtn.addEventListener("click", handleOpenReportClick);

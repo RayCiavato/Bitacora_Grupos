@@ -571,6 +571,12 @@ body.auth-popup-mode #authSection {
   gap: 0.45rem;
 }
 
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
 .pdf-branding-grid {
   grid-column: 1 / -1;
   display: grid;
@@ -900,6 +906,12 @@ textarea {
 
 .grid-main.registro-focus > article {
   width: 100%;
+}
+
+#registroSection.registro-editing {
+  box-shadow:
+    0 18px 34px rgba(11, 53, 89, 0.18),
+    0 0 0 1px rgba(18, 84, 122, 0.18);
 }
 
 /* Fallback: if one card in main workspace is hidden, force remaining card to fill width. */

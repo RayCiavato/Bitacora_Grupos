@@ -340,7 +340,8 @@
 
               <section id="mainWorkspaceSection" class="grid-main">
                 <article id="registroSection" class="card">
-                  <h3>Nuevo registro</h3>
+                  <h3 id="registroTitle">Nuevo registro</h3>
+                  <p id="registroModeHint" class="help-text hidden"></p>
                   <form id="eventForm" class="form">
                     <label>
                       Encargado
@@ -385,7 +386,14 @@
                     <p class="help-text">
                       Puedes subir imagenes o archivos justo despues de guardar el registro.
                     </p>
-                    <button type="submit" class="btn btn-primary">Guardar en bitacora</button>
+                    <div class="form-actions">
+                      <button id="eventSubmitBtn" type="submit" class="btn btn-primary">
+                        Guardar en bitacora
+                      </button>
+                      <button id="eventCancelBtn" type="button" class="btn btn-ghost hidden">
+                        Cancelar / Volver
+                      </button>
+                    </div>
                   </form>
                 </article>
 
