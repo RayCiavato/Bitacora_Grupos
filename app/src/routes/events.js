@@ -14,6 +14,7 @@ const { config } = require("../config");
 const {
   canUserFilterByUser,
   canUserEditAnyEvent,
+  canUserEditEvent,
   canUserDeleteAnyEvent,
   canUserUploadEventAttachment,
   canUserViewEventAttachments,
@@ -668,8 +669,8 @@ async function getEventWithOwner(eventId) {
   };
 }
 
-function ensureCanEditEventsOrForbidden(req, res) {
-  if (!canUserEditAnyEvent(req.user)) {
+function ensureCanEditEventsOrForbidden(req, res, eventOwnerId) {
+  if (!canUserEditEvent(req.user, eventOwnerId)) {
     res.status(403).json({ error: "forbidden" });
     return false;
   }
@@ -1133,16 +1134,16 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
 
 router.patch("/:id", authenticate, async (req, res, next) => {
   try {
-    if (!ensureCanEditEventsOrForbidden(req, res)) {
-      return;
-    }
-
     const params = eventParamsSchema.parse(req.params);
     const payload = updateEventSchema.parse(req.body);
     const event = await getEventById(params.id);
 
     if (!event) {
       return res.status(404).json({ error: "event_not_found" });
+    }
+
+    if (!ensureCanEditEventsOrForbidden(req, res, event.encargadoId)) {
+      return;
     }
 
     if (payload.fecha && isPastDate(payload.fecha)) {

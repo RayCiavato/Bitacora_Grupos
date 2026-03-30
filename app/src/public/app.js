@@ -3293,7 +3293,7 @@ function setupCardPointerMotion() {
   });
 }
 
-function startMatrixRain(options = {}) {
+function _startMatrixRain(options = {}) {
   const lowPower = Boolean(options.lowPower);
   const canvas = document.getElementById("matrixCanvas");
   if (!(canvas instanceof HTMLCanvasElement)) {
@@ -3560,7 +3560,10 @@ async function bootstrap() {
   if (!state.authPopup && !state.performanceLite) {
     setupCardPointerMotion();
   }
-  startMatrixRain({ lowPower: state.authPopup });
+  const matrixCanvas = document.getElementById("matrixCanvas");
+  if (matrixCanvas instanceof HTMLCanvasElement) {
+    matrixCanvas.style.display = "none";
+  }
 
   if ("serviceWorker" in navigator) {
     let swRefreshing = false;

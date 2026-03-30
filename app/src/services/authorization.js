@@ -194,6 +194,20 @@ function canUserEditAnyEvent(user) {
   return Boolean(capabilities.actions.events.editAny);
 }
 
+function canUserEditEvent(user, ownerId) {
+  if (canUserEditAnyEvent(user)) {
+    return true;
+  }
+
+  const actorId = resolveActorId(user);
+  const normalizedOwnerId = Number(ownerId);
+  if (!Number.isInteger(actorId) || !Number.isInteger(normalizedOwnerId) || normalizedOwnerId <= 0) {
+    return false;
+  }
+
+  return actorId === normalizedOwnerId;
+}
+
 function canUserDeleteAnyEvent(user) {
   const capabilities = getSessionCapabilities(user?.role);
   return Boolean(capabilities.actions.events.deleteAny);
@@ -246,7 +260,7 @@ function buildSessionUser(user) {
 
 function buildEventPermissions(user, eventOwnerId) {
   return {
-    canEdit: canUserEditAnyEvent(user),
+    canEdit: canUserEditEvent(user, eventOwnerId),
     canDelete: canUserDeleteAnyEvent(user),
     canUploadAttachments: canUserUploadEventAttachment(user, eventOwnerId),
     canViewAttachments: canUserViewEventAttachments(user, eventOwnerId)
@@ -263,6 +277,7 @@ module.exports = {
   canUserViewUsers,
   canUserManageUsers,
   canUserEditAnyEvent,
+  canUserEditEvent,
   canUserDeleteAnyEvent,
   canUserUploadEventAttachment,
   canUserViewEventAttachments,

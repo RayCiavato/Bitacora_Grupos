@@ -8,6 +8,7 @@ const { validateFullName } = require("../src/services/namePolicy");
 const { validatePasswordPolicy } = require("../src/services/passwordPolicy");
 
 const app = createApp();
+const { canUserEditEvent, canUserUploadEventAttachment } = require("../src/services/authorization");
 
 test("GET /health responde estado ok", async () => {
   const response = await request(app).get("/health");
@@ -161,4 +162,31 @@ test("Politica de password acepta contrasena robusta", () => {
     name: "Administrador"
   });
   assert.equal(strong.valid, true);
+});
+
+test("Permisos: usuario normal puede editar su propio registro", () => {
+  const canEditOwn = canUserEditEvent({ sub: 10, role: "funcionario" }, 10);
+  assert.equal(canEditOwn, true);
+});
+
+test("Permisos: usuario normal no puede editar registros ajenos", () => {
+  const canEditOther = canUserEditEvent({ sub: 10, role: "funcionario" }, 11);
+  assert.equal(canEditOther, false);
+});
+
+test("Permisos: administrador puede editar cualquier registro", () => {
+  const canEditAny = canUserEditEvent({ sub: 1, role: "admin" }, 9999);
+  assert.equal(canEditAny, true);
+});
+
+test("Permisos adjuntos: administrador puede subir adjuntos a cualquier registro", () => {
+  const canUploadAny = canUserUploadEventAttachment({ sub: 1, role: "admin" }, 9999);
+  assert.equal(canUploadAny, true);
+});
+
+test("Permisos adjuntos: usuario normal puede subir adjuntos solo a sus registros", () => {
+  const canUploadOwn = canUserUploadEventAttachment({ sub: 10, role: "funcionario" }, 10);
+  const canUploadOther = canUserUploadEventAttachment({ sub: 10, role: "funcionario" }, 11);
+  assert.equal(canUploadOwn, true);
+  assert.equal(canUploadOther, false);
 });

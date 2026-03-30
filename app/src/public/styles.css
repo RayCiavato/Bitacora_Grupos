@@ -55,6 +55,7 @@ body.performance-lite .card.mouse-reactive {
 }
 
 .matrix-canvas {
+  display: none;
   position: fixed;
   inset: 0;
   width: 100%;
