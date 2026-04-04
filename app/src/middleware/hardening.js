@@ -1,7 +1,7 @@
 const path = require("path");
 const { logger } = require("../logger");
 
-const API_PREFIXES = ["/auth", "/users", "/events", "/templates", "/audit", "/metrics"];
+const API_PREFIXES = ["/auth", "/users", "/events", "/tasks", "/templates", "/audit", "/metrics"];
 const SENSITIVE_PREFIXES = [
   "/.env",
   "/.git",

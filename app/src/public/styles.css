@@ -1104,6 +1104,118 @@ th {
   text-decoration: underline;
 }
 
+#tasksSection {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.tasks-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.95fr) minmax(540px, 1.6fr);
+  gap: 0.75rem;
+}
+
+.tasks-panel {
+  border: 1px solid rgba(48, 82, 118, 0.2);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 0.7rem;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.tasks-panel h4 {
+  margin: 0;
+}
+
+.task-detail {
+  border: 1px solid rgba(48, 82, 118, 0.18);
+  border-radius: 10px;
+  background: rgba(250, 253, 255, 0.86);
+  padding: 0.55rem 0.6rem;
+}
+
+.task-detail h4,
+.task-detail p {
+  margin: 0;
+}
+
+.task-status-pill,
+.task-priority-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid transparent;
+  font-size: 0.74rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.task-status-sin_realizar {
+  color: #48627d;
+  background: rgba(153, 171, 189, 0.2);
+  border-color: rgba(129, 151, 173, 0.32);
+}
+
+.task-status-en_proceso {
+  color: #0f5b89;
+  background: rgba(80, 171, 234, 0.18);
+  border-color: rgba(78, 150, 208, 0.34);
+}
+
+.task-status-pendiente_revision {
+  color: #7b5417;
+  background: rgba(236, 185, 91, 0.2);
+  border-color: rgba(214, 158, 53, 0.36);
+}
+
+.task-status-completada {
+  color: #116846;
+  background: rgba(115, 230, 169, 0.2);
+  border-color: rgba(77, 182, 127, 0.34);
+}
+
+.task-status-cancelada {
+  color: #8a2334;
+  background: rgba(236, 130, 148, 0.2);
+  border-color: rgba(211, 93, 114, 0.35);
+}
+
+.task-priority-baja {
+  color: #12634a;
+  background: rgba(111, 226, 160, 0.18);
+  border-color: rgba(71, 175, 115, 0.3);
+}
+
+.task-priority-media {
+  color: #7d5b16;
+  background: rgba(241, 208, 125, 0.22);
+  border-color: rgba(208, 166, 70, 0.36);
+}
+
+.task-priority-alta {
+  color: #8a2638;
+  background: rgba(241, 137, 154, 0.22);
+  border-color: rgba(219, 98, 119, 0.38);
+}
+
+.task-actions-inline {
+  display: grid;
+  gap: 0.38rem;
+}
+
+.task-actions-inline .task-status-control {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.task-actions-inline .btn {
+  min-width: 92px;
+}
+
 #adminTools,
 #templateTools {
   display: grid;
@@ -1640,6 +1752,10 @@ th {
   .hero {
     position: static;
   }
+
+  .tasks-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 980px) {
@@ -1684,6 +1800,10 @@ th {
   .topbar {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .task-actions-inline .btn {
+    min-width: 84px;
   }
 }
 
@@ -1743,6 +1863,10 @@ th {
   .filter-row,
   #adminTools .filter-row {
     grid-template-columns: 1fr;
+  }
+
+  .task-actions-inline .task-status-control {
+    flex-direction: column;
   }
 
   .pagination {

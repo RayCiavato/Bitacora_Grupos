@@ -24,6 +24,12 @@ test("GET /events/report sin autenticacion devuelve 401", async () => {
   assert.equal(response.body.error, "unauthorized");
 });
 
+test("GET /tasks sin autenticacion devuelve 401", async () => {
+  const response = await request(app).get("/tasks?page=1&pageSize=20");
+  assert.equal(response.status, 401);
+  assert.equal(response.body.error, "unauthorized");
+});
+
 test("POST /auth/refresh sin refresh token devuelve 401", async () => {
   const response = await request(app).post("/auth/refresh");
   assert.equal(response.status, 401);
@@ -190,3 +196,5 @@ test("Permisos adjuntos: usuario normal puede subir adjuntos solo a sus registro
   assert.equal(canUploadOwn, true);
   assert.equal(canUploadOther, false);
 });
+
+require("./tasks.module.test");

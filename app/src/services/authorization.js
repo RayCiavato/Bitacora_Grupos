@@ -5,6 +5,7 @@ const PANEL_KEYS = Object.freeze([
   "informes",
   "tendencias",
   "adjuntos",
+  "tareas",
   "usuarios",
   "plantillas"
 ]);
@@ -16,6 +17,7 @@ const BASE_PANELS = Object.freeze({
   informes: true,
   tendencias: true,
   adjuntos: true,
+  tareas: true,
   usuarios: false,
   plantillas: false
 });
@@ -51,6 +53,19 @@ const ROLE_CAPABILITIES = Object.freeze({
         uploadOwn: true,
         viewAny: true,
         viewOwn: true
+      }),
+      tasks: Object.freeze({
+        viewAny: true,
+        viewOwnCreated: true,
+        viewAssigned: true,
+        create: true,
+        assignAny: true,
+        editAny: true,
+        editOwnCreated: true,
+        editAssigned: true,
+        deleteAny: true,
+        deleteOwnCreated: true,
+        export: true
       })
     })
   }),
@@ -83,6 +98,19 @@ const ROLE_CAPABILITIES = Object.freeze({
         uploadOwn: true,
         viewAny: true,
         viewOwn: true
+      }),
+      tasks: Object.freeze({
+        viewAny: true,
+        viewOwnCreated: true,
+        viewAssigned: true,
+        create: true,
+        assignAny: true,
+        editAny: true,
+        editOwnCreated: true,
+        editAssigned: true,
+        deleteAny: false,
+        deleteOwnCreated: true,
+        export: true
       })
     })
   }),
@@ -114,6 +142,19 @@ const ROLE_CAPABILITIES = Object.freeze({
         uploadOwn: true,
         viewAny: true,
         viewOwn: true
+      }),
+      tasks: Object.freeze({
+        viewAny: false,
+        viewOwnCreated: true,
+        viewAssigned: true,
+        create: true,
+        assignAny: false,
+        editAny: false,
+        editOwnCreated: true,
+        editAssigned: true,
+        deleteAny: false,
+        deleteOwnCreated: true,
+        export: true
       })
     })
   })
@@ -147,6 +188,9 @@ function cloneCapabilities(capabilities) {
       },
       attachments: {
         ...capabilities.actions.attachments
+      },
+      tasks: {
+        ...capabilities.actions.tasks
       }
     }
   };
@@ -243,6 +287,112 @@ function canUserViewEventAttachments(user, ownerId) {
   return capabilities.actions.attachments.viewOwn && actorId === normalizedOwnerId;
 }
 
+function resolveTaskUserIds(task) {
+  if (!task || typeof task !== "object") {
+    return {
+      createdById: null,
+      assignedToId: null
+    };
+  }
+
+  const createdByCandidate =
+    task.createdById ?? task.created_by ?? task.createdBy ?? task.ownerId ?? task.userId;
+  const assignedToCandidate = task.assignedToId ?? task.assigned_to ?? task.assignedTo ?? null;
+
+  const createdById = Number(createdByCandidate);
+  const assignedToId = Number(assignedToCandidate);
+
+  return {
+    createdById:
+      Number.isInteger(createdById) && createdById > 0 ? createdById : null,
+    assignedToId:
+      Number.isInteger(assignedToId) && assignedToId > 0 ? assignedToId : null
+  };
+}
+
+function canUserCreateTask(user) {
+  const capabilities = getSessionCapabilities(user?.role);
+  return Boolean(capabilities.actions.tasks.create);
+}
+
+function canUserViewAnyTasks(user) {
+  const capabilities = getSessionCapabilities(user?.role);
+  return Boolean(capabilities.actions.tasks.viewAny);
+}
+
+function canUserAssignTasks(user) {
+  const capabilities = getSessionCapabilities(user?.role);
+  return Boolean(capabilities.actions.tasks.assignAny);
+}
+
+function canUserExportTasks(user) {
+  const capabilities = getSessionCapabilities(user?.role);
+  return Boolean(capabilities.actions.tasks.export);
+}
+
+function canUserEditAnyTask(user) {
+  const capabilities = getSessionCapabilities(user?.role);
+  return Boolean(capabilities.actions.tasks.editAny);
+}
+
+function canUserDeleteAnyTask(user) {
+  const capabilities = getSessionCapabilities(user?.role);
+  return Boolean(capabilities.actions.tasks.deleteAny);
+}
+
+function canUserViewTask(user, task) {
+  const capabilities = getSessionCapabilities(user?.role);
+  if (capabilities.actions.tasks.viewAny) {
+    return true;
+  }
+
+  const actorId = resolveActorId(user);
+  if (!Number.isInteger(actorId) || actorId <= 0) {
+    return false;
+  }
+
+  const { createdById, assignedToId } = resolveTaskUserIds(task);
+  if (capabilities.actions.tasks.viewOwnCreated && actorId === createdById) {
+    return true;
+  }
+
+  return capabilities.actions.tasks.viewAssigned && actorId === assignedToId;
+}
+
+function canUserEditTask(user, task) {
+  const capabilities = getSessionCapabilities(user?.role);
+  if (capabilities.actions.tasks.editAny) {
+    return true;
+  }
+
+  const actorId = resolveActorId(user);
+  if (!Number.isInteger(actorId) || actorId <= 0) {
+    return false;
+  }
+
+  const { createdById, assignedToId } = resolveTaskUserIds(task);
+  if (capabilities.actions.tasks.editOwnCreated && actorId === createdById) {
+    return true;
+  }
+
+  return capabilities.actions.tasks.editAssigned && actorId === assignedToId;
+}
+
+function canUserDeleteTask(user, task) {
+  const capabilities = getSessionCapabilities(user?.role);
+  if (capabilities.actions.tasks.deleteAny) {
+    return true;
+  }
+
+  const actorId = resolveActorId(user);
+  if (!Number.isInteger(actorId) || actorId <= 0) {
+    return false;
+  }
+
+  const { createdById } = resolveTaskUserIds(task);
+  return capabilities.actions.tasks.deleteOwnCreated && actorId === createdById;
+}
+
 function buildSessionUser(user) {
   if (!user) {
     return null;
@@ -267,6 +417,17 @@ function buildEventPermissions(user, eventOwnerId) {
   };
 }
 
+function buildTaskPermissions(user, task) {
+  return {
+    canView: canUserViewTask(user, task),
+    canEdit: canUserEditTask(user, task),
+    canDelete: canUserDeleteTask(user, task),
+    canChangeStatus: canUserEditTask(user, task),
+    canAssign: canUserAssignTasks(user),
+    canExport: canUserExportTasks(user)
+  };
+}
+
 module.exports = {
   PANEL_KEYS,
   normalizeRole,
@@ -281,6 +442,16 @@ module.exports = {
   canUserDeleteAnyEvent,
   canUserUploadEventAttachment,
   canUserViewEventAttachments,
+  canUserCreateTask,
+  canUserViewAnyTasks,
+  canUserAssignTasks,
+  canUserExportTasks,
+  canUserEditAnyTask,
+  canUserDeleteAnyTask,
+  canUserViewTask,
+  canUserEditTask,
+  canUserDeleteTask,
   buildSessionUser,
-  buildEventPermissions
+  buildEventPermissions,
+  buildTaskPermissions
 };

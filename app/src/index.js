@@ -11,6 +11,7 @@ const { metricsMiddleware, metricsHandler } = require("./metrics");
 const { authRouter } = require("./routes/auth");
 const { usersRouter } = require("./routes/users");
 const { eventsRouter } = require("./routes/events");
+const { tasksRouter } = require("./routes/tasks");
 const { templatesRouter } = require("./routes/templates");
 const { auditRouter } = require("./routes/audit");
 const { healthRouter } = require("./routes/health");
@@ -88,6 +89,7 @@ function createApp() {
       req.path.startsWith("/auth") ||
       req.path.startsWith("/users") ||
       req.path.startsWith("/events") ||
+      req.path.startsWith("/tasks") ||
       req.path.startsWith("/templates") ||
       req.path.startsWith("/audit")
     ) {
@@ -117,6 +119,7 @@ function createApp() {
 
     const allowedPublicJs = new Set([
       "/assets/app.min.js",
+      "/tasks.js",
       "/report-view.js",
       "/security.js",
       "/sw.js",
@@ -128,6 +131,7 @@ function createApp() {
 
     const protectedAssetTokens = {
       "/assets/app.min.js": "web",
+      "/tasks.js": "tasks",
       "/report-view.js": "report",
       "/security.js": "sec"
     };
@@ -244,6 +248,11 @@ function createApp() {
     90,
     "Demasiadas operaciones de adjuntos."
   );
+  const tasksExportLimiter = buildLimiter(
+    15 * 60 * 1000,
+    40,
+    "Demasiadas exportaciones de tareas."
+  );
 
   app.use("/", healthRouter);
   app.get("/metrics", metricsHandler);
@@ -252,6 +261,7 @@ function createApp() {
   app.use("/auth/refresh", refreshLimiter);
   app.use("/auth/password/recover", recoverLimiter);
   app.use("/events/report/export", reportExportLimiter);
+  app.use("/tasks/export", tasksExportLimiter);
   app.use("/events/:id/attachments", attachmentsLimiter);
   app.use("/events/attachments/:attachmentId/download", attachmentsLimiter);
   app.use("/auth", authRouter);
@@ -259,6 +269,7 @@ function createApp() {
   app.use("/audit", auditRouter);
   app.use("/templates", templatesRouter);
   app.use("/events", eventsRouter);
+  app.use("/tasks", tasksRouter);
   app.get("/", (_req, res) => {
     res.sendFile(path.join(__dirname, "public", "index.html"));
   });
@@ -284,6 +295,7 @@ function createApp() {
     "/informes",
     "/tendencias",
     "/adjuntos",
+    "/tareas",
     "/usuarios",
     "/plantillas"
   ];

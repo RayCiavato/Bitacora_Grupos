@@ -244,6 +244,9 @@
                 <a href="/adjuntos" class="btn btn-ghost sidebar-link">
                   Adjuntos
                 </a>
+                <a href="/tareas" class="btn btn-ghost sidebar-link">
+                  Tareas
+                </a>
                 <a
                   href="/usuarios"
                   class="btn btn-ghost sidebar-link hidden"
@@ -528,6 +531,182 @@
                 </article>
               </section>
 
+              <section id="tasksSection" class="card hidden">
+                <h3>Gestion de tareas</h3>
+                <p id="tasksSummary" class="help-text">Consulta, crea y administra tareas del equipo.</p>
+                <div class="tasks-layout">
+                  <article class="tasks-panel">
+                    <h4 id="taskFormTitle">Nueva tarea</h4>
+                    <form id="taskForm" class="form">
+                      <label>
+                        Titulo
+                        <input id="taskTitle" type="text" minlength="3" maxlength="180" required />
+                      </label>
+                      <label>
+                        Descripcion
+                        <textarea id="taskDescription" rows="4" minlength="3" maxlength="4000" required></textarea>
+                      </label>
+                      <label>
+                        Estado
+                        <select id="taskStatus" required>
+                          <option value="sin_realizar">Sin realizar</option>
+                          <option value="en_proceso">En proceso</option>
+                          <option value="pendiente_revision">Pendiente de revision</option>
+                          <option value="completada">Completada</option>
+                          <option value="cancelada">Cancelada</option>
+                        </select>
+                      </label>
+                      <label>
+                        Prioridad
+                        <select id="taskPriority" required>
+                          <option value="baja">Baja</option>
+                          <option value="media" selected>Media</option>
+                          <option value="alta">Alta</option>
+                        </select>
+                      </label>
+                      <label>
+                        Fecha de inicio
+                        <input id="taskStartDate" type="date" />
+                      </label>
+                      <label>
+                        Fecha limite
+                        <input id="taskDueDate" type="date" />
+                      </label>
+                      <label>
+                        Asignado a
+                        <select id="taskAssignedTo">
+                          <option value="">Sin asignar</option>
+                        </select>
+                      </label>
+                      <div class="form-actions">
+                        <button type="submit" id="taskSaveBtn" class="btn btn-primary">Guardar tarea</button>
+                        <button type="button" id="taskCancelBtn" class="btn btn-ghost hidden">Cancelar edicion</button>
+                      </div>
+                    </form>
+                    <article id="taskDetail" class="task-detail hidden" aria-live="polite">
+                      <h4 id="taskDetailTitle"></h4>
+                      <p id="taskDetailMeta" class="help-text"></p>
+                      <p id="taskDetailBody"></p>
+                    </article>
+                  </article>
+
+                  <article class="tasks-panel">
+                    <form id="tasksFilterForm" class="report-filters">
+                      <label>
+                        Buscar
+                        <input id="tasksFilterSearch" type="text" maxlength="200" placeholder="Titulo o descripcion" />
+                      </label>
+                      <label>
+                        Estado
+                        <select id="tasksFilterStatus">
+                          <option value="">Todos</option>
+                          <option value="sin_realizar">Sin realizar</option>
+                          <option value="en_proceso">En proceso</option>
+                          <option value="pendiente_revision">Pendiente de revision</option>
+                          <option value="completada">Completada</option>
+                          <option value="cancelada">Cancelada</option>
+                        </select>
+                      </label>
+                      <label>
+                        Prioridad
+                        <select id="tasksFilterPriority">
+                          <option value="">Todas</option>
+                          <option value="baja">Baja</option>
+                          <option value="media">Media</option>
+                          <option value="alta">Alta</option>
+                        </select>
+                      </label>
+                      <label>
+                        Creador
+                        <select id="tasksFilterCreatedBy">
+                          <option value="">Todos</option>
+                        </select>
+                      </label>
+                      <label>
+                        Asignado
+                        <select id="tasksFilterAssignedTo">
+                          <option value="">Todos</option>
+                        </select>
+                      </label>
+                      <label>
+                        Inicio desde
+                        <input id="tasksFilterStartFrom" type="date" />
+                      </label>
+                      <label>
+                        Inicio hasta
+                        <input id="tasksFilterStartTo" type="date" />
+                      </label>
+                      <label>
+                        Vence desde
+                        <input id="tasksFilterDueFrom" type="date" />
+                      </label>
+                      <label>
+                        Vence hasta
+                        <input id="tasksFilterDueTo" type="date" />
+                      </label>
+                      <label>
+                        Ordenar por
+                        <select id="tasksFilterSortBy">
+                          <option value="updatedAt">Actualizacion</option>
+                          <option value="createdAt">Creacion</option>
+                          <option value="dueDate">Fecha limite</option>
+                          <option value="startDate">Fecha inicio</option>
+                          <option value="status">Estado</option>
+                          <option value="priority">Prioridad</option>
+                          <option value="title">Titulo</option>
+                        </select>
+                      </label>
+                      <label>
+                        Orden
+                        <select id="tasksFilterSortOrder">
+                          <option value="desc">Descendente</option>
+                          <option value="asc">Ascendente</option>
+                        </select>
+                      </label>
+                      <label>
+                        Filas por pagina
+                        <select id="tasksPageSize">
+                          <option value="10">10</option>
+                          <option value="20" selected>20</option>
+                          <option value="50">50</option>
+                          <option value="100">100</option>
+                        </select>
+                      </label>
+                      <div class="report-actions">
+                        <button type="submit" class="btn btn-secondary">Aplicar filtros</button>
+                        <button type="button" id="tasksExportXlsx" class="btn btn-ghost">Excel</button>
+                        <button type="button" id="tasksExportPdf" class="btn btn-ghost">PDF</button>
+                      </div>
+                    </form>
+
+                    <div class="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>ID</th>
+                            <th>Titulo</th>
+                            <th>Estado</th>
+                            <th>Prioridad</th>
+                            <th>Creador</th>
+                            <th>Asignado</th>
+                            <th>Inicio</th>
+                            <th>Vence</th>
+                            <th>Actualizado</th>
+                            <th>Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody id="tasksTableBody"></tbody>
+                      </table>
+                    </div>
+                    <div class="pagination">
+                      <button type="button" id="tasksPrev" class="btn btn-ghost">Anterior</button>
+                      <p id="tasksPageInfo">Pagina 1 de 1</p>
+                      <button type="button" id="tasksNext" class="btn btn-ghost">Siguiente</button>
+                    </div>
+                  </article>
+                </div>
+              </section>
+
               <section id="adminTools" class="card hidden">
                 <h3>Administracion de usuarios</h3>
                 <form id="adminPasswordForm" class="filter-row">
@@ -727,5 +906,6 @@
     <div id="toast" class="toast hidden" aria-live="polite"></div>
     <script src="/security.js?asset=sec" defer></script>
     <script src="/assets/app.min.js?asset=web" defer></script>
+    <script src="/tasks.js?asset=tasks" defer></script>
   </body>
 </html>

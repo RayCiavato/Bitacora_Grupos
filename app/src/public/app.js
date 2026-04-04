@@ -40,6 +40,7 @@ const registroModeHint = document.getElementById("registroModeHint");
 const informeSection = document.getElementById("informeSection");
 const tendenciasSection = document.getElementById("tendenciasSection");
 const attachmentsCard = document.getElementById("attachmentsCard");
+const tasksSection = document.getElementById("tasksSection");
 const socDashboardSection = document.getElementById("socDashboardSection");
 const socTotalRegistros = document.getElementById("socTotalRegistros");
 const socRegistrosHoy = document.getElementById("socRegistrosHoy");
@@ -148,6 +149,7 @@ const PANEL_ROUTES = new Set([
   "/informes",
   "/tendencias",
   "/adjuntos",
+  "/tareas",
   "/usuarios",
   "/plantillas"
 ]);
@@ -158,6 +160,7 @@ const PANEL_ROUTE_CAPABILITY_MAP = Object.freeze({
   "/informes": "informes",
   "/tendencias": "tendencias",
   "/adjuntos": "adjuntos",
+  "/tareas": "tareas",
   "/usuarios": "usuarios",
   "/plantillas": "plantillas"
 });
@@ -1519,6 +1522,7 @@ function applyRouteMode() {
   const showInformes = route === "/informes" && !isEditingRecord;
   const showTendencias = route === "/tendencias" && !isEditingRecord;
   const showAdjuntos = route === "/adjuntos";
+  const showTareas = route === "/tareas";
   const showUsuarios = route === "/usuarios";
   const showPlantillas = route === "/plantillas";
 
@@ -1533,6 +1537,7 @@ function applyRouteMode() {
   setElementVisible(informeSection, showInformes || showAdjuntos);
   setElementVisible(tendenciasSection, showTendencias || showResumen);
   setElementVisible(attachmentsCard, showAdjuntos);
+  setElementVisible(tasksSection, showTareas);
   setElementVisible(mainWorkspaceSection, showRegistro || showInformes || showAdjuntos);
   setElementVisible(secondaryWorkspaceSection, showTendencias || showAdjuntos || showResumen);
   setElementVisible(adminTools, showUsuarios && canManageUsers());
@@ -2015,6 +2020,10 @@ async function loadDashboardData() {
 
   if (route === "/adjuntos") {
     await Promise.all([loadUsers(), loadReport()]);
+    return;
+  }
+
+  if (route === "/tareas") {
     return;
   }
 
