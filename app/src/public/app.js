@@ -1887,19 +1887,32 @@ function getCsrfToken() {
   return readCookie("bitacora_csrf");
 }
 
-function addCsrfHeaderIfNeeded(headers = {}, method = "GET") {
-  const normalizedMethod = String(method || "GET").toUpperCase();
-  if (normalizedMethod === "GET" || normalizedMethod === "HEAD" || normalizedMethod === "OPTIONS") {
-    return headers;
-  }
-
-  const csrfToken = getCsrfToken();
-  if (!csrfToken) {
+function addClientTimezoneHeader(headers = {}) {
+  const tzOffsetMinutes = Number(new Date().getTimezoneOffset());
+  if (!Number.isInteger(tzOffsetMinutes) || tzOffsetMinutes < -840 || tzOffsetMinutes > 840) {
     return headers;
   }
 
   return {
     ...headers,
+    "x-client-timezone-offset": String(tzOffsetMinutes)
+  };
+}
+
+function addCsrfHeaderIfNeeded(headers = {}, method = "GET") {
+  const baseHeaders = addClientTimezoneHeader(headers);
+  const normalizedMethod = String(method || "GET").toUpperCase();
+  if (normalizedMethod === "GET" || normalizedMethod === "HEAD" || normalizedMethod === "OPTIONS") {
+    return baseHeaders;
+  }
+
+  const csrfToken = getCsrfToken();
+  if (!csrfToken) {
+    return baseHeaders;
+  }
+
+  return {
+    ...baseHeaders,
     "x-csrf-token": csrfToken
   };
 }

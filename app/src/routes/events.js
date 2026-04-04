@@ -368,8 +368,36 @@ function toISODate(date) {
   return new Date(date.getTime() - tzOffsetMs).toISOString().slice(0, 10);
 }
 
-function isPastDate(dateValue) {
-  return dateValue < toISODate(new Date());
+function resolveClientTimezoneOffsetMinutes(req) {
+  const rawOffset = req?.get("x-client-timezone-offset");
+  if (rawOffset === undefined || rawOffset === null || rawOffset === "") {
+    return null;
+  }
+
+  const parsed = Number(rawOffset);
+  if (!Number.isInteger(parsed) || parsed < -840 || parsed > 840) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function toISODateWithTimezoneOffset(date, timezoneOffsetMinutes) {
+  const tzOffsetMs = Number(timezoneOffsetMinutes) * 60000;
+  return new Date(date.getTime() - tzOffsetMs).toISOString().slice(0, 10);
+}
+
+function resolveCurrentISODate(req) {
+  const clientOffset = resolveClientTimezoneOffsetMinutes(req);
+  if (clientOffset !== null) {
+    return toISODateWithTimezoneOffset(new Date(), clientOffset);
+  }
+  return toISODate(new Date());
+}
+
+function isPastDate(dateValue, currentDateIso = toISODate(new Date())) {
+  const normalized = String(dateValue || "").slice(0, 10);
+  return normalized < currentDateIso;
 }
 
 function hasInvertedDateRange(from, to) {
@@ -711,7 +739,8 @@ function ensureEventAttachmentPermissionOrNotFound(
 router.post("/", authenticate, async (req, res, next) => {
   try {
     const payload = createEventSchema.parse(req.body);
-    if (isPastDate(payload.fecha)) {
+    const currentDateIso = resolveCurrentISODate(req);
+    if (isPastDate(payload.fecha, currentDateIso)) {
       return res.status(400).json({ error: "past_date_not_allowed" });
     }
 
@@ -1146,7 +1175,8 @@ router.patch("/:id", authenticate, async (req, res, next) => {
       return;
     }
 
-    if (payload.fecha && isPastDate(payload.fecha)) {
+    const currentDateIso = resolveCurrentISODate(req);
+    if (payload.fecha && isPastDate(payload.fecha, currentDateIso)) {
       return res.status(400).json({ error: "past_date_not_allowed" });
     }
 
