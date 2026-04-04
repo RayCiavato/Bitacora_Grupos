@@ -39,6 +39,43 @@ const taskIdSchema = z.object({
   id: z.coerce.number().int().positive()
 });
 
+function resolveClientTimezoneOffsetMinutes(req) {
+  const rawOffset = req?.get("x-client-timezone-offset");
+  if (rawOffset === undefined || rawOffset === null || rawOffset === "") {
+    return null;
+  }
+
+  const parsed = Number(rawOffset);
+  if (!Number.isInteger(parsed) || parsed < -840 || parsed > 840) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function toISODateWithTimezoneOffset(date, timezoneOffsetMinutes) {
+  const tzOffsetMs = Number(timezoneOffsetMinutes) * 60000;
+  return new Date(date.getTime() - tzOffsetMs).toISOString().slice(0, 10);
+}
+
+function resolveCurrentISODate(req) {
+  const clientOffset = resolveClientTimezoneOffsetMinutes(req);
+  if (clientOffset !== null) {
+    return toISODateWithTimezoneOffset(new Date(), clientOffset);
+  }
+  return toISODateWithTimezoneOffset(new Date(), new Date().getTimezoneOffset());
+}
+
+function hasPastTaskDates(payload, currentDateIso) {
+  if (!payload || typeof payload !== "object") {
+    return false;
+  }
+
+  const startDate = String(payload.startDate || "").slice(0, 10);
+  const dueDate = String(payload.dueDate || "").slice(0, 10);
+  return (startDate && startDate < currentDateIso) || (dueDate && dueDate < currentDateIso);
+}
+
 const listQuerySchema = z.object({
   q: z.string().trim().max(200).optional(),
   status: taskStatusEnum.optional(),
@@ -339,6 +376,11 @@ router.post("/", authenticate, async (req, res, next) => {
     }
 
     const payload = createTaskSchema.parse(req.body);
+    const currentDateIso = resolveCurrentISODate(req);
+    if (hasPastTaskDates(payload, currentDateIso)) {
+      return res.status(400).json({ error: "past_date_not_allowed" });
+    }
+
     if (payload.assignedTo && !canUserAssignTasks(req.user)) {
       return res.status(403).json({ error: "forbidden" });
     }
@@ -395,6 +437,10 @@ router.patch("/:id", authenticate, async (req, res, next) => {
   try {
     const { id } = taskIdSchema.parse(req.params);
     const payload = updateTaskSchema.parse(req.body);
+    const currentDateIso = resolveCurrentISODate(req);
+    if (hasPastTaskDates(payload, currentDateIso)) {
+      return res.status(400).json({ error: "past_date_not_allowed" });
+    }
 
     if (
       Object.prototype.hasOwnProperty.call(payload, "assignedTo") &&

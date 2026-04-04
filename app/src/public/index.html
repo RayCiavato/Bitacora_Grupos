@@ -634,88 +634,97 @@
                   </article>
 
                   <article class="tasks-panel">
-                    <form id="tasksFilterForm" class="report-filters">
-                      <label>
-                        Buscar
-                        <input id="tasksFilterSearch" type="text" maxlength="200" placeholder="Titulo o descripcion" />
-                      </label>
-                      <label>
-                        Estado
-                        <select id="tasksFilterStatus">
-                          <option value="">Todos</option>
-                          <option value="sin_realizar">Sin realizar</option>
-                          <option value="en_proceso">En proceso</option>
-                          <option value="pendiente_revision">Pendiente de revision</option>
-                          <option value="completada">Completada</option>
-                          <option value="cancelada">Cancelada</option>
-                        </select>
-                      </label>
-                      <label>
-                        Prioridad
-                        <select id="tasksFilterPriority">
-                          <option value="">Todas</option>
-                          <option value="baja">Baja</option>
-                          <option value="media">Media</option>
-                          <option value="alta">Alta</option>
-                        </select>
-                      </label>
-                      <label>
-                        Creador
-                        <select id="tasksFilterCreatedBy">
-                          <option value="">Todos</option>
-                        </select>
-                      </label>
-                      <label>
-                        Asignado
-                        <select id="tasksFilterAssignedTo">
-                          <option value="">Todos</option>
-                        </select>
-                      </label>
-                      <label>
-                        Inicio desde
-                        <input id="tasksFilterStartFrom" type="date" />
-                      </label>
-                      <label>
-                        Inicio hasta
-                        <input id="tasksFilterStartTo" type="date" />
-                      </label>
-                      <label>
-                        Vence desde
-                        <input id="tasksFilterDueFrom" type="date" />
-                      </label>
-                      <label>
-                        Vence hasta
-                        <input id="tasksFilterDueTo" type="date" />
-                      </label>
-                      <label>
-                        Ordenar por
-                        <select id="tasksFilterSortBy">
-                          <option value="updatedAt">Actualizacion</option>
-                          <option value="createdAt">Creacion</option>
-                          <option value="dueDate">Fecha limite</option>
-                          <option value="startDate">Fecha inicio</option>
-                          <option value="status">Estado</option>
-                          <option value="priority">Prioridad</option>
-                          <option value="title">Titulo</option>
-                        </select>
-                      </label>
-                      <label>
-                        Orden
-                        <select id="tasksFilterSortOrder">
-                          <option value="desc">Descendente</option>
-                          <option value="asc">Ascendente</option>
-                        </select>
-                      </label>
-                      <label>
-                        Filas por pagina
-                        <select id="tasksPageSize">
-                          <option value="10">10</option>
-                          <option value="20" selected>20</option>
-                          <option value="50">50</option>
-                          <option value="100">100</option>
-                        </select>
-                      </label>
-                      <div class="report-actions">
+                    <form id="tasksFilterForm" class="report-filters tasks-filter-form">
+                      <div class="tasks-filter-primary">
+                        <label>
+                          Buscar
+                          <input id="tasksFilterSearch" type="text" maxlength="200" placeholder="Titulo o descripcion" />
+                        </label>
+                        <label>
+                          Estado
+                          <select id="tasksFilterStatus">
+                            <option value="">Todos</option>
+                            <option value="sin_realizar">Sin realizar</option>
+                            <option value="en_proceso">En proceso</option>
+                            <option value="pendiente_revision">Pendiente de revision</option>
+                            <option value="completada">Completada</option>
+                            <option value="cancelada">Cancelada</option>
+                          </select>
+                        </label>
+                        <label>
+                          Prioridad
+                          <select id="tasksFilterPriority">
+                            <option value="">Todas</option>
+                            <option value="baja">Baja</option>
+                            <option value="media">Media</option>
+                            <option value="alta">Alta</option>
+                          </select>
+                        </label>
+                        <label>
+                          Filas por pagina
+                          <select id="tasksPageSize">
+                            <option value="10">10</option>
+                            <option value="20" selected>20</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                          </select>
+                        </label>
+                      </div>
+
+                      <details id="tasksAdvancedFilters" class="tasks-advanced-filters">
+                        <summary>Filtros avanzados y orden</summary>
+                        <div class="tasks-filter-advanced-grid">
+                          <label>
+                            Creador
+                            <select id="tasksFilterCreatedBy">
+                              <option value="">Todos</option>
+                            </select>
+                          </label>
+                          <label>
+                            Asignado
+                            <select id="tasksFilterAssignedTo">
+                              <option value="">Todos</option>
+                            </select>
+                          </label>
+                          <label>
+                            Ordenar por
+                            <select id="tasksFilterSortBy">
+                              <option value="updatedAt">Actualizacion</option>
+                              <option value="createdAt">Creacion</option>
+                              <option value="dueDate">Fecha limite</option>
+                              <option value="startDate">Fecha inicio</option>
+                              <option value="status">Estado</option>
+                              <option value="priority">Prioridad</option>
+                              <option value="title">Titulo</option>
+                            </select>
+                          </label>
+                          <label>
+                            Inicio desde
+                            <input id="tasksFilterStartFrom" type="date" />
+                          </label>
+                          <label>
+                            Inicio hasta
+                            <input id="tasksFilterStartTo" type="date" />
+                          </label>
+                          <label>
+                            Orden
+                            <select id="tasksFilterSortOrder">
+                              <option value="desc">Descendente</option>
+                              <option value="asc">Ascendente</option>
+                            </select>
+                          </label>
+                          <label>
+                            Vence desde
+                            <input id="tasksFilterDueFrom" type="date" />
+                          </label>
+                          <label>
+                            Vence hasta
+                            <input id="tasksFilterDueTo" type="date" />
+                          </label>
+                        </div>
+                      </details>
+
+                      <div class="report-actions tasks-filter-actions">
                         <button type="submit" class="btn btn-secondary">Aplicar filtros</button>
                         <button type="button" id="tasksExportXlsx" class="btn btn-ghost">Excel</button>
                         <button type="button" id="tasksExportPdf" class="btn btn-ghost">PDF</button>

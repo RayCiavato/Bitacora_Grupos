@@ -773,6 +773,7 @@ test("TASKS module: QA, AppSec y hardening", async (t) => {
   await t.test("valida negocio y rechaza payload invalido, overposting y enums invalidos", async () => {
     fakeDb.reset();
     const app = createApp();
+    const yesterdayUtc = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
     const badDateRange = await attachSession(request(app).post("/tasks"), admin).send({
       title: "Rango invalido",
@@ -781,6 +782,24 @@ test("TASKS module: QA, AppSec y hardening", async (t) => {
       dueDate: "2026-05-01"
     });
     assert.equal(badDateRange.status, 400);
+
+    const pastDate = await attachSession(request(app).post("/tasks"), admin)
+      .set("x-client-timezone-offset", "0")
+      .send({
+        title: "Fecha pasada",
+        description: "No debe permitir tareas con fechas anteriores",
+        dueDate: yesterdayUtc
+      });
+    assert.equal(pastDate.status, 400);
+    assert.equal(pastDate.body.error, "past_date_not_allowed");
+
+    const patchPastDate = await attachSession(request(app).patch("/tasks/101"), admin)
+      .set("x-client-timezone-offset", "0")
+      .send({
+        startDate: yesterdayUtc
+      });
+    assert.equal(patchPastDate.status, 400);
+    assert.equal(patchPastDate.body.error, "past_date_not_allowed");
 
     const invalidStatus = await attachSession(request(app).patch("/tasks/101/status"), admin).send({
       status: "hacked"

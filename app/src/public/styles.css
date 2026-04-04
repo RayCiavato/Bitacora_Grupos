@@ -1257,10 +1257,94 @@ th {
   gap: 0.7rem;
 }
 
+#tasksSummary.tasks-summary-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.1rem 0 0.25rem;
+}
+
+.tasks-summary-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.22rem 0.58rem;
+  border: 1px solid rgba(117, 156, 220, 0.32);
+  background: rgba(11, 24, 53, 0.78);
+  color: #bdd3f0;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.tasks-summary-chip.is-primary {
+  border-color: rgba(77, 192, 245, 0.42);
+  color: #bfe8ff;
+}
+
+.tasks-summary-chip.is-page {
+  border-color: rgba(153, 174, 208, 0.36);
+  color: #d5e7ff;
+}
+
 .tasks-layout {
   display: grid;
   grid-template-columns: minmax(300px, 0.95fr) minmax(540px, 1.6fr);
   gap: 0.75rem;
+}
+
+.tasks-filter-form {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.tasks-filter-primary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.tasks-advanced-filters {
+  border: 1px solid rgba(123, 161, 226, 0.24);
+  border-radius: 12px;
+  background: rgba(8, 20, 45, 0.54);
+  padding: 0.45rem 0.55rem 0.55rem;
+}
+
+.tasks-advanced-filters summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #b8d4fb;
+  user-select: none;
+}
+
+.tasks-advanced-filters summary::-webkit-details-marker {
+  display: none;
+}
+
+.tasks-advanced-filters summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 0.35rem;
+  color: #5ed1ff;
+  transition: transform 0.2s ease;
+}
+
+.tasks-advanced-filters[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.tasks-filter-advanced-grid {
+  margin-top: 0.5rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.tasks-filter-actions {
+  margin-top: 0.1rem;
 }
 
 .tasks-panel {
@@ -1934,6 +2018,14 @@ th {
   }
 
   .tasks-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .tasks-filter-primary {
+    grid-template-columns: 1fr;
+  }
+
+  .tasks-filter-advanced-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -48,6 +48,7 @@
   const tasksFilterSortBy = document.getElementById("tasksFilterSortBy");
   const tasksFilterSortOrder = document.getElementById("tasksFilterSortOrder");
   const tasksPageSize = document.getElementById("tasksPageSize");
+  const tasksAdvancedFilters = document.getElementById("tasksAdvancedFilters");
   const tasksFilterSubmitBtn = tasksFilterForm?.querySelector('button[type="submit"]');
 
   const tasksTableBody = document.getElementById("tasksTableBody");
@@ -79,6 +80,7 @@
     invalid_csrf_token: "La sesion de seguridad vencio. Recarga la pagina e intenta de nuevo.",
     forbidden: "No tienes permisos para realizar esta accion.",
     validation_error: "No se pudo validar la solicitud.",
+    past_date_not_allowed: "No se permite crear o editar tareas con fechas anteriores.",
     task_not_found: "La tarea solicitada no existe o no esta disponible.",
     user_not_found: "El usuario seleccionado no existe.",
     too_many_requests: "Demasiadas solicitudes. Intenta de nuevo en unos minutos."
@@ -158,17 +160,29 @@
     return readCookie("bitacora_csrf");
   }
 
-  function addCsrfHeaderIfNeeded(headers = {}, method = "GET") {
-    const normalizedMethod = String(method || "GET").toUpperCase();
-    if (normalizedMethod === "GET" || normalizedMethod === "HEAD" || normalizedMethod === "OPTIONS") {
-      return headers;
-    }
-    const csrfToken = getCsrfToken();
-    if (!csrfToken) {
+  function addClientTimezoneHeader(headers = {}) {
+    const tzOffsetMinutes = Number(new Date().getTimezoneOffset());
+    if (!Number.isInteger(tzOffsetMinutes) || tzOffsetMinutes < -840 || tzOffsetMinutes > 840) {
       return headers;
     }
     return {
       ...headers,
+      "x-client-timezone-offset": String(tzOffsetMinutes)
+    };
+  }
+
+  function addCsrfHeaderIfNeeded(headers = {}, method = "GET") {
+    const baseHeaders = addClientTimezoneHeader(headers);
+    const normalizedMethod = String(method || "GET").toUpperCase();
+    if (normalizedMethod === "GET" || normalizedMethod === "HEAD" || normalizedMethod === "OPTIONS") {
+      return baseHeaders;
+    }
+    const csrfToken = getCsrfToken();
+    if (!csrfToken) {
+      return baseHeaders;
+    }
+    return {
+      ...baseHeaders,
       "x-csrf-token": csrfToken
     };
   }
@@ -292,6 +306,44 @@
     node.replaceChildren();
   }
 
+  function toLocalISODate(date = new Date()) {
+    const tzOffsetMs = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - tzOffsetMs).toISOString().slice(0, 10);
+  }
+
+  function syncTaskDateConstraints() {
+    const today = toLocalISODate();
+    if (taskStartDate) {
+      taskStartDate.min = today;
+    }
+    if (taskDueDate) {
+      taskDueDate.min = taskStartDate?.value || today;
+    }
+  }
+
+  function hasAdvancedFiltersEnabled() {
+    const hasScopeFilters =
+      canViewAnyTasks() &&
+      (Boolean(tasksFilterCreatedBy?.value) || Boolean(tasksFilterAssignedTo?.value));
+
+    return (
+      hasScopeFilters ||
+      Boolean(tasksFilterStartFrom?.value) ||
+      Boolean(tasksFilterStartTo?.value) ||
+      Boolean(tasksFilterDueFrom?.value) ||
+      Boolean(tasksFilterDueTo?.value) ||
+      String(tasksFilterSortBy?.value || "updatedAt") !== "updatedAt" ||
+      String(tasksFilterSortOrder?.value || "desc") !== "desc"
+    );
+  }
+
+  function syncAdvancedFiltersState() {
+    if (!tasksAdvancedFilters) {
+      return;
+    }
+    tasksAdvancedFilters.open = hasAdvancedFiltersEnabled();
+  }
+
   function resetTaskForm() {
     state.editingTaskId = null;
     if (taskFormTitle) {
@@ -310,6 +362,7 @@
     if (taskStatus) {
       taskStatus.value = "sin_realizar";
     }
+    syncTaskDateConstraints();
   }
 
   function renderTaskDetail(task) {
@@ -611,15 +664,35 @@
     const byStatus = stats?.byStatus || {};
     const page = Number(pagination?.page || state.page || 1);
     const totalPages = Number(pagination?.totalPages || state.totalPages || 1);
+    if (!tasksSummary) {
+      return;
+    }
 
-    tasksSummary.textContent =
-      `Total: ${total} | ` +
-      `Sin realizar: ${Number(byStatus.sin_realizar || 0)} | ` +
-      `En proceso: ${Number(byStatus.en_proceso || 0)} | ` +
-      `Pendiente revision: ${Number(byStatus.pendiente_revision || 0)} | ` +
-      `Completadas: ${Number(byStatus.completada || 0)} | ` +
-      `Canceladas: ${Number(byStatus.cancelada || 0)} | ` +
-      `Pagina ${page}/${totalPages}`;
+    tasksSummary.classList.add("tasks-summary-metrics");
+    clearNode(tasksSummary);
+
+    const metrics = [
+      `Total ${total}`,
+      `Sin realizar ${Number(byStatus.sin_realizar || 0)}`,
+      `En proceso ${Number(byStatus.en_proceso || 0)}`,
+      `Pendiente revision ${Number(byStatus.pendiente_revision || 0)}`,
+      `Completadas ${Number(byStatus.completada || 0)}`,
+      `Canceladas ${Number(byStatus.cancelada || 0)}`,
+      `Pagina ${page}/${totalPages}`
+    ];
+
+    metrics.forEach((label, index) => {
+      const chip = document.createElement("span");
+      chip.className = "tasks-summary-chip";
+      if (index === 0) {
+        chip.classList.add("is-primary");
+      }
+      if (index === metrics.length - 1) {
+        chip.classList.add("is-page");
+      }
+      chip.textContent = label;
+      tasksSummary.appendChild(chip);
+    });
   }
 
   async function loadSession() {
@@ -773,6 +846,7 @@
     taskStartDate.value = task.startDate || "";
     taskDueDate.value = task.dueDate || "";
     taskAssignedTo.value = task.assignedTo?.id ? String(task.assignedTo.id) : "";
+    syncTaskDateConstraints();
     renderTaskDetail(task);
   }
 
@@ -791,6 +865,13 @@
     if (payload.startDate && payload.dueDate && payload.startDate > payload.dueDate) {
       setButtonBusy(submitButton, false);
       showToast("La fecha de inicio no puede ser mayor que la fecha limite.", "error");
+      return;
+    }
+
+    const today = toLocalISODate();
+    if ((payload.startDate && payload.startDate < today) || (payload.dueDate && payload.dueDate < today)) {
+      setButtonBusy(submitButton, false);
+      showToast("No se permite registrar tareas con fechas anteriores.", "error");
       return;
     }
 
@@ -1015,6 +1096,7 @@
     event.preventDefault();
     state.page = 1;
     state.pageSize = Number(tasksPageSize.value || 20);
+    syncAdvancedFiltersState();
     await loadTasks();
   }
 
@@ -1033,10 +1115,13 @@
 
     await loadUsers();
     resetTaskForm();
+    syncAdvancedFiltersState();
     await loadTasks();
   }
 
   taskForm.addEventListener("submit", handleTaskSubmit);
+  taskStartDate?.addEventListener("change", syncTaskDateConstraints);
+  taskDueDate?.addEventListener("change", syncTaskDateConstraints);
   taskCancelBtn.addEventListener("click", () => {
     resetTaskForm();
     renderTaskDetail(null);
@@ -1048,6 +1133,21 @@
     state.pageSize = Number(tasksPageSize.value || 20);
     await loadTasks();
   });
+
+  [
+    tasksFilterCreatedBy,
+    tasksFilterAssignedTo,
+    tasksFilterStartFrom,
+    tasksFilterStartTo,
+    tasksFilterDueFrom,
+    tasksFilterDueTo,
+    tasksFilterSortBy,
+    tasksFilterSortOrder
+  ]
+    .filter(Boolean)
+    .forEach((element) => {
+      element.addEventListener("change", syncAdvancedFiltersState);
+    });
 
   tasksPrev.addEventListener("click", handlePaginationPrev);
   tasksNext.addEventListener("click", handlePaginationNext);
@@ -1063,4 +1163,6 @@
   init().catch(() => {
     showToast("No se pudo iniciar el modulo de tareas.", "error");
   });
+
+  syncTaskDateConstraints();
 })();
