@@ -570,6 +570,101 @@ async function getTaskStats({ user, query }) {
   };
 }
 
+function toDashboardTaskItem(task) {
+  if (!task) {
+    return null;
+  }
+
+  return {
+    id: task.id,
+    title: task.title,
+    status: task.status,
+    priority: task.priority,
+    dueDate: task.dueDate,
+    updatedAt: task.updatedAt,
+    createdBy: task.createdBy ? { id: task.createdBy.id, name: task.createdBy.name } : null,
+    assignedTo: task.assignedTo ? { id: task.assignedTo.id, name: task.assignedTo.name } : null,
+    permissions: task.permissions
+  };
+}
+
+async function getTaskDashboardSummary({ user, dueSoonDays = 7, recentLimit = 5 }) {
+  const safeDueSoonDays = Math.max(1, Math.min(Number(dueSoonDays || 7), 30));
+  const safeRecentLimit = Math.max(1, Math.min(Number(recentLimit || 5), 12));
+  const actorId = resolveActorId(user);
+  const scopedActorId = Number.isInteger(actorId) && actorId > 0 ? actorId : -1;
+
+  const { whereSql, params } = buildTaskFilters({}, user);
+  const summaryParams = [...params];
+  const dueSoonIndex = summaryParams.push(safeDueSoonDays);
+  const actorIndex = summaryParams.push(scopedActorId);
+
+  const summaryResult = await pool.query(
+    `
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE t.status = 'sin_realizar')::int AS sin_realizar,
+        COUNT(*) FILTER (WHERE t.status = 'en_proceso')::int AS en_proceso,
+        COUNT(*) FILTER (WHERE t.status = 'pendiente_revision')::int AS pendiente_revision,
+        COUNT(*) FILTER (WHERE t.status = 'completada')::int AS completada,
+        COUNT(*) FILTER (WHERE t.status = 'cancelada')::int AS cancelada,
+        COUNT(*) FILTER (
+          WHERE t.due_date IS NOT NULL
+            AND t.due_date < CURRENT_DATE
+            AND t.status NOT IN ('completada', 'cancelada')
+        )::int AS vencidas,
+        COUNT(*) FILTER (
+          WHERE t.due_date IS NOT NULL
+            AND t.due_date >= CURRENT_DATE
+            AND t.due_date <= CURRENT_DATE + $${dueSoonIndex}::int
+            AND t.status NOT IN ('completada', 'cancelada')
+        )::int AS proximas_vencer,
+        COUNT(*) FILTER (WHERE t.assigned_to = $${actorIndex})::int AS asignadas_a_mi,
+        COUNT(*) FILTER (WHERE t.created_by = $${actorIndex})::int AS creadas_por_mi
+      FROM tasks t
+      WHERE ${whereSql}
+    `,
+    summaryParams
+  );
+
+  const recentParams = [...params];
+  const limitIndex = recentParams.push(safeRecentLimit);
+  const recentResult = await pool.query(
+    `
+      ${taskRowSelectSql()}
+      WHERE ${whereSql}
+      ORDER BY t.updated_at DESC, t.id DESC
+      LIMIT $${limitIndex}
+    `,
+    recentParams
+  );
+
+  const summaryRow = summaryResult.rows[0] || {};
+  const recentTasks = recentResult.rows
+    .map((row) => mapTaskRow(row, user))
+    .map((task) => toDashboardTaskItem(task))
+    .filter(Boolean);
+
+  return {
+    range: {
+      dueSoonDays: safeDueSoonDays
+    },
+    totals: {
+      total: Number(summaryRow.total || 0),
+      sinRealizar: Number(summaryRow.sin_realizar || 0),
+      enProceso: Number(summaryRow.en_proceso || 0),
+      pendienteRevision: Number(summaryRow.pendiente_revision || 0),
+      completada: Number(summaryRow.completada || 0),
+      cancelada: Number(summaryRow.cancelada || 0),
+      vencidas: Number(summaryRow.vencidas || 0),
+      proximasVencer: Number(summaryRow.proximas_vencer || 0),
+      asignadasAMi: Number(summaryRow.asignadas_a_mi || 0),
+      creadasPorMi: Number(summaryRow.creadas_por_mi || 0)
+    },
+    recent: recentTasks
+  };
+}
+
 module.exports = {
   TASK_STATUSES,
   TASK_PRIORITIES,
@@ -582,5 +677,6 @@ module.exports = {
   patchTask,
   patchTaskStatus,
   softDeleteTask,
-  getTaskStats
+  getTaskStats,
+  getTaskDashboardSummary
 };

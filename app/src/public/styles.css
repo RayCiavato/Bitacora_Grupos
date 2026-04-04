@@ -827,6 +827,154 @@ textarea {
   gap: 0.75rem;
 }
 
+.dashboard-tasks-summary {
+  border: 1px solid rgba(120, 161, 226, 0.26);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.24);
+  display: grid;
+  gap: 0.7rem;
+}
+
+.dashboard-tasks-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.dashboard-tasks-head h3 {
+  margin: 0;
+}
+
+.dashboard-tasks-head .help-text {
+  margin: 0.2rem 0 0;
+}
+
+.dashboard-tasks-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.dashboard-task-kpi {
+  border: 1px solid rgba(117, 157, 225, 0.24);
+  border-radius: 12px;
+  background: rgba(9, 21, 48, 0.8);
+  padding: 0.62rem 0.7rem;
+}
+
+.dashboard-task-kpi p {
+  margin: 0;
+  color: #9eb7db;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.dashboard-task-kpi h4 {
+  margin: 0.22rem 0 0;
+  font-size: 1.2rem;
+  color: #d5e8ff;
+}
+
+.dashboard-task-kpi.metric-alert h4 {
+  color: #ff9da9;
+}
+
+.dashboard-tasks-recent-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.dashboard-task-item {
+  border: 1px solid rgba(116, 156, 220, 0.22);
+  border-radius: 10px;
+  background: rgba(7, 18, 40, 0.68);
+  padding: 0.55rem 0.62rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.dashboard-task-item-title {
+  margin: 0;
+  color: #e5f1ff;
+  font-weight: 700;
+}
+
+.dashboard-task-item-meta {
+  margin: 0;
+  color: #a7bddf;
+  font-size: 0.82rem;
+}
+
+.dashboard-task-item-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.34rem;
+}
+
+.dashboard-task-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.18rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.dashboard-task-chip.status-sin_realizar {
+  background: rgba(110, 147, 200, 0.2);
+  border-color: rgba(110, 147, 200, 0.45);
+  color: #c9dcf5;
+}
+
+.dashboard-task-chip.status-en_proceso {
+  background: rgba(255, 208, 98, 0.2);
+  border-color: rgba(255, 208, 98, 0.48);
+  color: #ffe49d;
+}
+
+.dashboard-task-chip.status-pendiente_revision {
+  background: rgba(255, 177, 93, 0.2);
+  border-color: rgba(255, 177, 93, 0.46);
+  color: #ffd7a6;
+}
+
+.dashboard-task-chip.status-completada {
+  background: rgba(99, 247, 171, 0.18);
+  border-color: rgba(99, 247, 171, 0.45);
+  color: #a5ffd0;
+}
+
+.dashboard-task-chip.status-cancelada {
+  background: rgba(255, 133, 149, 0.2);
+  border-color: rgba(255, 133, 149, 0.5);
+  color: #ffb3bd;
+}
+
+.dashboard-task-chip.priority-baja {
+  background: rgba(84, 172, 255, 0.2);
+  border-color: rgba(84, 172, 255, 0.45);
+  color: #b9deff;
+}
+
+.dashboard-task-chip.priority-media {
+  background: rgba(255, 179, 93, 0.2);
+  border-color: rgba(255, 179, 93, 0.46);
+  color: #ffd6a4;
+}
+
+.dashboard-task-chip.priority-alta {
+  background: rgba(255, 99, 124, 0.22);
+  border-color: rgba(255, 99, 124, 0.5);
+  color: #ffc2cf;
+}
+
 .sidebar-link.is-active {
   border-color: rgba(59, 120, 188, 0.4);
   background: rgba(214, 234, 253, 0.8);
@@ -1812,6 +1960,10 @@ th {
     grid-template-columns: 1fr;
   }
 
+  .dashboard-tasks-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .grid-main,
   .grid-secondary {
     grid-template-columns: 1fr;
@@ -1887,6 +2039,15 @@ th {
   }
 
   .soc-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-tasks-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .dashboard-tasks-metrics {
     grid-template-columns: 1fr;
   }
 

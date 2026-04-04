@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const request = require("supertest");
 
 require("./_env");
@@ -96,6 +98,24 @@ test("GET /assets/tasks.min.js como asset controlado devuelve 200", async () => 
     .set("Referer", "http://bitacora.local/")
     .set("Accept", "*/*");
   assert.equal(response.status, 200);
+});
+
+test("GET /tareas sirve index con referencias a assets minificados", async () => {
+  const response = await request(app).get("/tareas");
+  assert.equal(response.status, 200);
+  assert.match(String(response.text || ""), /\/assets\/app\.min\.js\?asset=web/);
+  assert.match(String(response.text || ""), /\/assets\/tasks\.min\.js\?asset=tasks/);
+  assert.match(String(response.text || ""), /\/assets\/security\.min\.js\?asset=sec/);
+  assert.doesNotMatch(String(response.text || ""), /\/tasks\.js\?asset=tasks/);
+});
+
+test("app.min.js esta minimizado y sin source map publico", () => {
+  const appMinPath = path.join(__dirname, "..", "src", "public", "assets", "app.min.js");
+  const appMinSource = fs.readFileSync(appMinPath, "utf8");
+  const nonEmptyLines = appMinSource.split(/\r?\n/).filter((line) => line.trim().length > 0);
+
+  assert.ok(nonEmptyLines.length <= 3);
+  assert.equal(appMinSource.includes("sourceMappingURL"), false);
 });
 
 test("GET *.map en produccion devuelve 404", async () => {

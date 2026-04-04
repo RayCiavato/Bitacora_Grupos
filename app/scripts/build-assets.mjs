@@ -9,6 +9,10 @@ const projectRoot = path.resolve(__dirname, "..");
 
 const targets = [
   {
+    input: path.join(projectRoot, "src", "public", "app.js"),
+    output: path.join(projectRoot, "src", "public", "assets", "app.min.js")
+  },
+  {
     input: path.join(projectRoot, "src", "public", "tasks.js"),
     output: path.join(projectRoot, "src", "public", "assets", "tasks.min.js")
   },

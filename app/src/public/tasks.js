@@ -376,7 +376,18 @@
     }
   }
 
-  function buildTaskQueryParams(includePagination = true) {
+  function buildTaskQueryParams(options = {}) {
+    const normalizedOptions =
+      typeof options === "boolean"
+        ? {
+            includePagination: options,
+            includeSorting: true
+          }
+        : {
+            includePagination: options?.includePagination !== false,
+            includeSorting: options?.includeSorting !== false
+          };
+
     const params = new URLSearchParams();
 
     const q = String(tasksFilterSearch?.value || "").trim();
@@ -413,14 +424,16 @@
       params.set("dueTo", tasksFilterDueTo.value);
     }
 
-    if (tasksFilterSortBy?.value) {
-      params.set("sortBy", tasksFilterSortBy.value);
-    }
-    if (tasksFilterSortOrder?.value) {
-      params.set("sortOrder", tasksFilterSortOrder.value);
+    if (normalizedOptions.includeSorting) {
+      if (tasksFilterSortBy?.value) {
+        params.set("sortBy", tasksFilterSortBy.value);
+      }
+      if (tasksFilterSortOrder?.value) {
+        params.set("sortOrder", tasksFilterSortOrder.value);
+      }
     }
 
-    if (includePagination) {
+    if (normalizedOptions.includePagination) {
       params.set("page", String(state.page));
       params.set("pageSize", String(state.pageSize));
     }
@@ -655,7 +668,10 @@
   }
 
   async function loadTaskStats() {
-    const params = buildTaskQueryParams(false);
+    const params = buildTaskQueryParams({
+      includePagination: false,
+      includeSorting: false
+    });
     const { response, data, networkError } = await apiAuth(`/tasks/stats?${params.toString()}`);
     if (networkError) {
       showToast("No hay conexion para cargar estadisticas de tareas.", "error");
@@ -675,7 +691,10 @@
   async function loadTasks() {
     setTasksLoading(true);
     try {
-      const params = buildTaskQueryParams(true);
+      const params = buildTaskQueryParams({
+        includePagination: true,
+        includeSorting: true
+      });
       const { response, data, networkError } = await apiAuth(`/tasks?${params.toString()}`);
       if (networkError) {
         showToast("No hay conexion para cargar tareas.", "error");
@@ -873,7 +892,10 @@
     setButtonBusy(exportButton, true, format === "pdf" ? "Generando PDF..." : "Generando Excel...");
 
     try {
-      const params = buildTaskQueryParams(false);
+      const params = buildTaskQueryParams({
+        includePagination: false,
+        includeSorting: true
+      });
       const endpoint = format === "pdf" ? "/tasks/export/pdf" : "/tasks/export/xlsx";
       const initialResponse = await fetch(`${endpoint}?${params.toString()}`, {
         method: "GET",

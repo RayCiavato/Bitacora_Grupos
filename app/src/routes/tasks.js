@@ -21,7 +21,8 @@ const {
   patchTask,
   patchTaskStatus,
   softDeleteTask,
-  getTaskStats
+  getTaskStats,
+  getTaskDashboardSummary
 } = require("../services/tasks");
 const {
   buildTaskExportFileName,
@@ -64,6 +65,13 @@ const statsQuerySchema = listQuerySchema
     sortOrder: true
   })
   .extend({});
+
+const dashboardSummaryQuerySchema = z
+  .object({
+    days: z.coerce.number().int().min(1).max(30).default(7),
+    recentLimit: z.coerce.number().int().min(1).max(12).default(5)
+  })
+  .strict();
 
 const exportQuerySchema = listQuerySchema
   .omit({
@@ -179,6 +187,23 @@ router.get("/stats", authenticate, async (req, res, next) => {
     });
 
     return res.json(stats);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error" });
+    }
+    return next(error);
+  }
+});
+
+router.get("/dashboard-summary", authenticate, async (req, res, next) => {
+  try {
+    const query = dashboardSummaryQuerySchema.parse(req.query);
+    const summary = await getTaskDashboardSummary({
+      user: req.user,
+      dueSoonDays: query.days,
+      recentLimit: query.recentLimit
+    });
+    return res.json(summary);
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: "validation_error" });

@@ -447,6 +447,62 @@ function createFakeTasksDb() {
       return { rowCount: 1, rows: [] };
     }
 
+    if (lower.includes("as sin_realizar") && lower.includes("from tasks t where")) {
+      const filtered = applyTaskWhere(lower, params);
+      const dueSoonDaysRaw = Number(params[Math.max(0, params.length - 2)] || 7);
+      const dueSoonDays = Number.isInteger(dueSoonDaysRaw) ? Math.max(1, dueSoonDaysRaw) : 7;
+      const actorId = Number(params[Math.max(0, params.length - 1)] || -1);
+      const today = new Date().toISOString().slice(0, 10);
+      const dueSoonDate = new Date(Date.now() + dueSoonDays * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
+      const isOpenStatus = (status) => !["completada", "cancelada"].includes(String(status || ""));
+
+      const totals = {
+        total: filtered.length,
+        sin_realizar: 0,
+        en_proceso: 0,
+        pendiente_revision: 0,
+        completada: 0,
+        cancelada: 0,
+        vencidas: 0,
+        proximas_vencer: 0,
+        asignadas_a_mi: 0,
+        creadas_por_mi: 0
+      };
+
+      filtered.forEach((task) => {
+        const statusKey = String(task.status || "");
+        if (Object.prototype.hasOwnProperty.call(totals, statusKey)) {
+          totals[statusKey] += 1;
+        }
+
+        if (Number(task.assigned_to) === actorId) {
+          totals.asignadas_a_mi += 1;
+        }
+        if (Number(task.created_by) === actorId) {
+          totals.creadas_por_mi += 1;
+        }
+
+        const dueDate = String(task.due_date || "");
+        if (!dueDate || !isOpenStatus(statusKey)) {
+          return;
+        }
+        if (dueDate < today) {
+          totals.vencidas += 1;
+          return;
+        }
+        if (dueDate >= today && dueDate <= dueSoonDate) {
+          totals.proximas_vencer += 1;
+        }
+      });
+
+      return {
+        rowCount: 1,
+        rows: [totals]
+      };
+    }
+
     if (lower.startsWith("select count(*)::int as total from tasks t where")) {
       const filtered = applyTaskWhere(lower, params);
       return {
@@ -796,6 +852,32 @@ test("TASKS module: QA, AppSec y hardening", async (t) => {
     });
     assert.equal(stats.status, 200);
     assert.equal(stats.body.total, 4);
+  });
+
+  await t.test("dashboard summary de tareas respeta scope y limite de recientes", async () => {
+    fakeDb.reset();
+    const app = createApp();
+
+    const adminSummary = await attachSession(
+      request(app).get("/tasks/dashboard-summary?days=7&recentLimit=3"),
+      admin,
+      { includeCsrfHeader: false }
+    );
+    assert.equal(adminSummary.status, 200);
+    assert.equal(adminSummary.body.totals.total, 4);
+    assert.equal(adminSummary.body.totals.creadasPorMi, 1);
+    assert.ok(Array.isArray(adminSummary.body.recent));
+    assert.ok(adminSummary.body.recent.length <= 3);
+
+    const funcionarioSummary = await attachSession(
+      request(app).get("/tasks/dashboard-summary?days=7&recentLimit=5"),
+      funcionario,
+      { includeCsrfHeader: false }
+    );
+    assert.equal(funcionarioSummary.status, 200);
+    assert.equal(funcionarioSummary.body.totals.total, 2);
+    assert.ok(Array.isArray(funcionarioSummary.body.recent));
+    assert.ok(funcionarioSummary.body.recent.every((item) => [101, 102].includes(Number(item.id))));
   });
 
   await t.test("export XLSX/PDF respeta permisos, scope y soft delete", async () => {

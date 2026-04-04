@@ -300,6 +300,49 @@
                   </div>
                 </article>
 
+                <article id="dashboardTasksSummaryCard" class="card dashboard-tasks-summary hidden">
+                  <div class="dashboard-tasks-head">
+                    <div>
+                      <h3>Resumen de tareas</h3>
+                      <p id="dashboardTasksRange" class="help-text">Ultimos 7 dias operativos</p>
+                    </div>
+                    <a href="/tareas" class="btn btn-ghost">Abrir Tasks</a>
+                  </div>
+
+                  <div class="dashboard-tasks-metrics">
+                    <article class="dashboard-task-kpi">
+                      <p>Total</p>
+                      <h4 id="dashboardTasksTotal">0</h4>
+                    </article>
+                    <article class="dashboard-task-kpi">
+                      <p>Sin realizar</p>
+                      <h4 id="dashboardTasksPending">0</h4>
+                    </article>
+                    <article class="dashboard-task-kpi">
+                      <p>En proceso</p>
+                      <h4 id="dashboardTasksInProgress">0</h4>
+                    </article>
+                    <article class="dashboard-task-kpi">
+                      <p>Completadas</p>
+                      <h4 id="dashboardTasksCompleted">0</h4>
+                    </article>
+                    <article class="dashboard-task-kpi metric-alert">
+                      <p>Vencidas</p>
+                      <h4 id="dashboardTasksOverdue">0</h4>
+                    </article>
+                    <article class="dashboard-task-kpi">
+                      <p>Asignadas a mi</p>
+                      <h4 id="dashboardTasksAssignedToMe">0</h4>
+                    </article>
+                  </div>
+
+                  <p id="dashboardTasksLoading" class="help-text">Cargando resumen de tareas...</p>
+                  <ul id="dashboardTasksRecentList" class="dashboard-tasks-recent-list"></ul>
+                  <p id="dashboardTasksEmptyState" class="help-text hidden">
+                    No hay tareas recientes para mostrar.
+                  </p>
+                </article>
+
                 <article class="card soc-chart-card">
                   <div class="soc-chart-head">
                     <h3>Registros por usuario</h3>

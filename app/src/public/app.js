@@ -51,6 +51,17 @@ const socRangeInfo = document.getElementById("socRangeInfo");
 const socUsersChartCanvas = document.getElementById("socUsersChart");
 const socCriticalityChartCanvas = document.getElementById("socCriticalityChart");
 const socTimelineChartCanvas = document.getElementById("socTimelineChart");
+const dashboardTasksSummaryCard = document.getElementById("dashboardTasksSummaryCard");
+const dashboardTasksRange = document.getElementById("dashboardTasksRange");
+const dashboardTasksTotal = document.getElementById("dashboardTasksTotal");
+const dashboardTasksPending = document.getElementById("dashboardTasksPending");
+const dashboardTasksInProgress = document.getElementById("dashboardTasksInProgress");
+const dashboardTasksCompleted = document.getElementById("dashboardTasksCompleted");
+const dashboardTasksOverdue = document.getElementById("dashboardTasksOverdue");
+const dashboardTasksAssignedToMe = document.getElementById("dashboardTasksAssignedToMe");
+const dashboardTasksLoading = document.getElementById("dashboardTasksLoading");
+const dashboardTasksRecentList = document.getElementById("dashboardTasksRecentList");
+const dashboardTasksEmptyState = document.getElementById("dashboardTasksEmptyState");
 
 const trendByDate = document.getElementById("trendByDate");
 const trendPriority = document.getElementById("trendPriority");
@@ -142,6 +153,18 @@ const PRIORITY_LABELS = {
   alta: "Alta",
   observacion: "Observacion informativa"
 };
+const TASK_STATUS_LABELS = Object.freeze({
+  sin_realizar: "Sin realizar",
+  en_proceso: "En proceso",
+  pendiente_revision: "Pendiente revision",
+  completada: "Completada",
+  cancelada: "Cancelada"
+});
+const TASK_PRIORITY_LABELS = Object.freeze({
+  baja: "Baja",
+  media: "Media",
+  alta: "Alta"
+});
 const PANEL_ROUTES = new Set([
   "/dashboard",
   "/resumen",
@@ -1364,6 +1387,133 @@ async function loadSocDashboard() {
   renderSocDashboardCharts(data);
 }
 
+function formatDashboardTaskDate(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return "-";
+  }
+  const parsed = new Date(`${normalized}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return normalized;
+  }
+  return parsed.toLocaleDateString("es-ES", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+}
+
+function renderDashboardTaskChip(content, extraClassName = "") {
+  const chip = document.createElement("span");
+  chip.className = `dashboard-task-chip ${extraClassName}`.trim();
+  security.setSafeText(chip, content);
+  return chip;
+}
+
+function setDashboardTasksSummaryLoading(isLoading, message = "Cargando resumen de tareas...") {
+  if (dashboardTasksLoading) {
+    dashboardTasksLoading.classList.toggle("hidden", !isLoading);
+    security.setSafeText(dashboardTasksLoading, message);
+  }
+}
+
+function renderDashboardTasksSummary(summary) {
+  if (!dashboardTasksSummaryCard) {
+    return;
+  }
+
+  const totals = summary?.totals || {};
+  const recent = Array.isArray(summary?.recent) ? summary.recent : [];
+  const dueSoonDays = Number(summary?.range?.dueSoonDays || 7);
+
+  security.setSafeText(dashboardTasksRange, `Vencimiento proximo en ${dueSoonDays} dia(s)`);
+  security.setSafeText(dashboardTasksTotal, Number(totals.total || 0));
+  security.setSafeText(dashboardTasksPending, Number(totals.sinRealizar || 0));
+  security.setSafeText(dashboardTasksInProgress, Number(totals.enProceso || 0));
+  security.setSafeText(dashboardTasksCompleted, Number(totals.completada || 0));
+  security.setSafeText(dashboardTasksOverdue, Number(totals.vencidas || 0));
+  security.setSafeText(dashboardTasksAssignedToMe, Number(totals.asignadasAMi || 0));
+
+  clearElement(dashboardTasksRecentList);
+  setDashboardTasksSummaryLoading(false);
+
+  if (!recent.length) {
+    if (dashboardTasksEmptyState) {
+      dashboardTasksEmptyState.classList.remove("hidden");
+    }
+    return;
+  }
+
+  if (dashboardTasksEmptyState) {
+    dashboardTasksEmptyState.classList.add("hidden");
+  }
+
+  recent.forEach((task) => {
+    const item = document.createElement("li");
+    item.className = "dashboard-task-item";
+
+    const title = document.createElement("p");
+    title.className = "dashboard-task-item-title";
+    security.setSafeText(title, `#${task.id} ${task.title || "Tarea"}`);
+
+    const meta = document.createElement("p");
+    meta.className = "dashboard-task-item-meta";
+    const assignedTo = task.assignedTo?.name || "Sin asignar";
+    security.setSafeText(
+      meta,
+      `Asignado: ${assignedTo} | Vence: ${formatDashboardTaskDate(task.dueDate)}`
+    );
+
+    const badges = document.createElement("div");
+    badges.className = "dashboard-task-item-badges";
+    badges.appendChild(
+      renderDashboardTaskChip(
+        TASK_STATUS_LABELS[task.status] || task.status || "Sin estado",
+        `status-${String(task.status || "").toLowerCase()}`
+      )
+    );
+    badges.appendChild(
+      renderDashboardTaskChip(
+        TASK_PRIORITY_LABELS[task.priority] || task.priority || "Sin prioridad",
+        `priority-${String(task.priority || "").toLowerCase()}`
+      )
+    );
+
+    item.appendChild(title);
+    item.appendChild(meta);
+    item.appendChild(badges);
+    dashboardTasksRecentList.appendChild(item);
+  });
+}
+
+async function loadDashboardTasksSummary() {
+  if (!dashboardTasksSummaryCard || !canAccessPanel("/tareas")) {
+    return;
+  }
+
+  setDashboardTasksSummaryLoading(true);
+  if (dashboardTasksEmptyState) {
+    dashboardTasksEmptyState.classList.add("hidden");
+  }
+
+  const { response, data, networkError } = await apiAuth("/tasks/dashboard-summary?days=7&recentLimit=5");
+  if (networkError) {
+    setDashboardTasksSummaryLoading(false, "No hay conexion para resumen de tareas.");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    setDashboardTasksSummaryLoading(false, resolveErrorMessage(data?.error, data?.details));
+    return;
+  }
+
+  renderDashboardTasksSummary(data);
+}
+
 function renderUsersOptions() {
   clearElement(adminUserSelect);
   if (adminRoleUserSelect) {
@@ -1532,6 +1682,7 @@ function applyRouteMode() {
   }
 
   setElementVisible(socDashboardSection, showDashboard);
+  setElementVisible(dashboardTasksSummaryCard, showDashboard && canAccessPanel("/tareas"));
   setElementVisible(kpiSection, showResumen);
   setElementVisible(registroSection, showRegistro);
   setElementVisible(informeSection, showInformes || showAdjuntos);
@@ -1994,7 +2145,7 @@ async function loadDashboardData() {
   const route = getCurrentPanelPath();
 
   if (route === "/dashboard") {
-    await loadSocDashboard();
+    await Promise.all([loadSocDashboard(), loadDashboardTasksSummary()]);
     return;
   }
 
@@ -3693,7 +3844,7 @@ async function bootstrap() {
 
     window.addEventListener("load", () => {
       navigator.serviceWorker
-        .register("/sw.js?v=16")
+        .register("/sw.js?v=21")
         .then((registration) => registration.update())
         .catch(() => {
           // No interrumpir flujo principal si falla el service worker.
