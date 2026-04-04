@@ -124,6 +124,9 @@ test("Rutas internas sensibles devuelven 404 Not found en GET/HEAD/POST", async 
     "/config",
     "/logs",
     "/backups",
+    "/uploads/",
+    "/uploads/archivo.js",
+    "/public/",
     "/package.json",
     "/docker-compose.yml",
     "/.git"
