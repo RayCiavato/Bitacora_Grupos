@@ -119,9 +119,9 @@ function createApp() {
 
     const allowedPublicJs = new Set([
       "/assets/app.min.js",
-      "/tasks.js",
-      "/report-view.js",
-      "/security.js",
+      "/assets/tasks.min.js",
+      "/assets/report-view.min.js",
+      "/assets/security.min.js",
       "/sw.js",
       "/vendor/chart.js"
     ]);
@@ -131,9 +131,9 @@ function createApp() {
 
     const protectedAssetTokens = {
       "/assets/app.min.js": "web",
-      "/tasks.js": "tasks",
-      "/report-view.js": "report",
-      "/security.js": "sec"
+      "/assets/tasks.min.js": "tasks",
+      "/assets/report-view.min.js": "report",
+      "/assets/security.min.js": "sec"
     };
     const expectedAssetToken = protectedAssetTokens[req.path];
     const requestAssetToken = String(req.query?.asset || "");
@@ -304,6 +304,46 @@ function createApp() {
     app.get(routePath, (_req, res) => {
       res.sendFile(path.join(__dirname, "public", "index.html"));
     });
+  });
+
+  const allowedStaticPublicFiles = new Set([
+    "/index.html",
+    "/styles.css",
+    "/report-view.html",
+    "/report-view.css",
+    "/manifest.webmanifest",
+    "/offline.html",
+    "/icons/icon.svg",
+    "/icons/icon-maskable.svg",
+    "/assets/app.min.js",
+    "/assets/tasks.min.js",
+    "/assets/report-view.min.js",
+    "/assets/security.min.js"
+  ]);
+
+  app.use((req, res, next) => {
+    if (!["GET", "HEAD"].includes(req.method)) {
+      return next();
+    }
+
+    const pathname = String(req.path || "/");
+    if (pathname === "/" || panelRoutes.includes(pathname)) {
+      return next();
+    }
+
+    if (allowedStaticPublicFiles.has(pathname)) {
+      return next();
+    }
+
+    if (/^\/(?:assets|icons)\//.test(pathname)) {
+      return res.status(404).type("text/plain").send("Not found");
+    }
+
+    if (path.extname(pathname)) {
+      return res.status(404).type("text/plain").send("Not found");
+    }
+
+    return next();
   });
 
   app.use(

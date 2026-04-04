@@ -1,14 +1,14 @@
-const CACHE_NAME = "bitacora-v19";
+const CACHE_NAME = "bitacora-v20";
 const PRECACHE = [
   "/",
   "/index.html",
   "/report-view.html",
   "/report-view.css",
-  "/report-view.js?asset=report",
+  "/assets/report-view.min.js?asset=report",
   "/styles.css",
   "/assets/app.min.js?asset=web",
-  "/tasks.js?asset=tasks",
-  "/security.js?asset=sec",
+  "/assets/tasks.min.js?asset=tasks",
+  "/assets/security.min.js?asset=sec",
   "/manifest.webmanifest",
   "/offline.html",
   "/icons/icon.svg",

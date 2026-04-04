@@ -1116,10 +1116,12 @@ th {
 }
 
 .tasks-panel {
-  border: 1px solid rgba(48, 82, 118, 0.2);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.7);
-  padding: 0.7rem;
+  border: 1px solid rgba(125, 165, 236, 0.26);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.24);
+  padding: 0.8rem;
   display: grid;
   gap: 0.6rem;
 }
@@ -1129,9 +1131,9 @@ th {
 }
 
 .task-detail {
-  border: 1px solid rgba(48, 82, 118, 0.18);
-  border-radius: 10px;
-  background: rgba(250, 253, 255, 0.86);
+  border: 1px solid rgba(120, 159, 226, 0.24);
+  border-radius: 12px;
+  background: rgba(10, 24, 54, 0.74);
   padding: 0.55rem 0.6rem;
 }
 
@@ -1214,6 +1216,36 @@ th {
 
 .task-actions-inline .btn {
   min-width: 92px;
+}
+
+#tasksSection input,
+#tasksSection textarea,
+#tasksSection select {
+  background: rgba(9, 22, 49, 0.9);
+  border-color: rgba(116, 156, 220, 0.36);
+}
+
+#tasksSection input:focus,
+#tasksSection textarea:focus,
+#tasksSection select:focus {
+  border-color: #43c4ff;
+  box-shadow: 0 0 0 3px rgba(67, 196, 255, 0.18);
+}
+
+#tasksSection .table-wrap {
+  border-color: rgba(122, 158, 219, 0.28);
+  background: rgba(8, 19, 43, 0.72);
+}
+
+#tasksSection table tbody tr:hover {
+  background: rgba(67, 196, 255, 0.08);
+}
+
+.tasks-empty-row td,
+.tasks-loading-row td {
+  text-align: center;
+  color: #a8bddf;
+  padding: 1rem 0.8rem;
 }
 
 #adminTools,

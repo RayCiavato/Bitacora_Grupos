@@ -48,6 +48,7 @@
   const tasksFilterSortBy = document.getElementById("tasksFilterSortBy");
   const tasksFilterSortOrder = document.getElementById("tasksFilterSortOrder");
   const tasksPageSize = document.getElementById("tasksPageSize");
+  const tasksFilterSubmitBtn = tasksFilterForm?.querySelector('button[type="submit"]');
 
   const tasksTableBody = document.getElementById("tasksTableBody");
   const tasksPrev = document.getElementById("tasksPrev");
@@ -442,12 +443,35 @@
     return state.activeRows.find((row) => Number(row.id) === normalizedId) || null;
   }
 
+  function setTasksLoading(isLoading, message = "Cargando tareas...") {
+    section.setAttribute("aria-busy", isLoading ? "true" : "false");
+
+    if (isLoading) {
+      clearNode(tasksTableBody);
+      const row = document.createElement("tr");
+      row.className = "tasks-loading-row";
+      const cell = document.createElement("td");
+      cell.colSpan = 10;
+      cell.textContent = message;
+      row.appendChild(cell);
+      tasksTableBody.appendChild(row);
+    }
+
+    tasksPrev.disabled = isLoading || state.page <= 1;
+    tasksNext.disabled = isLoading || state.page >= state.totalPages;
+
+    if (tasksFilterSubmitBtn) {
+      setButtonBusy(tasksFilterSubmitBtn, isLoading, "Aplicando...");
+    }
+  }
+
   function renderTasksRows(items) {
     state.activeRows = Array.isArray(items) ? items : [];
     clearNode(tasksTableBody);
 
     if (!state.activeRows.length) {
       const row = document.createElement("tr");
+      row.className = "tasks-empty-row";
       const cell = document.createElement("td");
       cell.colSpan = 10;
       cell.textContent = "No hay tareas para los filtros seleccionados.";
@@ -502,6 +526,7 @@
       viewButton.className = "btn btn-ghost task-view";
       viewButton.dataset.taskId = String(task.id);
       viewButton.textContent = "Ver";
+      viewButton.title = "Ver detalle de la tarea";
       actionWrap.appendChild(viewButton);
 
       if (permissions.canEdit) {
@@ -510,6 +535,7 @@
         editButton.className = "btn btn-ghost task-edit";
         editButton.dataset.taskId = String(task.id);
         editButton.textContent = "Editar";
+        editButton.title = "Editar tarea";
         actionWrap.appendChild(editButton);
       }
 
@@ -519,6 +545,7 @@
         deleteButton.className = "btn btn-ghost task-delete";
         deleteButton.dataset.taskId = String(task.id);
         deleteButton.textContent = "Eliminar";
+        deleteButton.title = "Eliminar tarea";
         actionWrap.appendChild(deleteButton);
       }
 
@@ -529,6 +556,7 @@
         const statusSelect = document.createElement("select");
         statusSelect.className = "task-status-select";
         statusSelect.dataset.taskId = String(task.id);
+        statusSelect.title = "Seleccionar nuevo estado";
 
         Object.keys(STATUS_LABELS).forEach((statusKey) => {
           const option = createOption(statusKey, statusLabel(statusKey));
@@ -543,6 +571,7 @@
         applyStatusButton.className = "btn btn-ghost task-status-apply";
         applyStatusButton.dataset.taskId = String(task.id);
         applyStatusButton.textContent = "Estado";
+        applyStatusButton.title = "Aplicar cambio de estado";
 
         statusControl.appendChild(statusSelect);
         statusControl.appendChild(applyStatusButton);
@@ -644,26 +673,31 @@
   }
 
   async function loadTasks() {
-    const params = buildTaskQueryParams(true);
-    const { response, data, networkError } = await apiAuth(`/tasks?${params.toString()}`);
-    if (networkError) {
-      showToast("No hay conexion para cargar tareas.", "error");
-      return;
-    }
-    if (!response.ok) {
-      if (response.status === 401) {
-        handleUnauthorized();
+    setTasksLoading(true);
+    try {
+      const params = buildTaskQueryParams(true);
+      const { response, data, networkError } = await apiAuth(`/tasks?${params.toString()}`);
+      if (networkError) {
+        showToast("No hay conexion para cargar tareas.", "error");
         return;
       }
-      showToast(resolveErrorMessage(data?.error), "error");
-      return;
-    }
+      if (!response.ok) {
+        if (response.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+        showToast(resolveErrorMessage(data?.error), "error");
+        return;
+      }
 
-    renderTasksRows(data?.items || []);
-    renderPagination(data?.pagination || {});
-    const stats = await loadTaskStats();
-    if (stats) {
-      renderSummary(stats, data?.pagination || {});
+      renderTasksRows(data?.items || []);
+      renderPagination(data?.pagination || {});
+      const stats = await loadTaskStats();
+      if (stats) {
+        renderSummary(stats, data?.pagination || {});
+      }
+    } finally {
+      setTasksLoading(false);
     }
   }
 
@@ -778,7 +812,7 @@
   }
 
   async function handleTaskDelete(taskId) {
-    if (!window.confirm("¿Eliminar esta tarea? Esta accion la retirara del listado activo.")) {
+    if (!window.confirm("Â¿Eliminar esta tarea? Esta accion la retirara del listado activo.")) {
       return;
     }
 
@@ -835,48 +869,57 @@
       return;
     }
 
-    const params = buildTaskQueryParams(false);
-    const endpoint = format === "pdf" ? "/tasks/export/pdf" : "/tasks/export/xlsx";
-    const initialResponse = await fetch(`${endpoint}?${params.toString()}`, {
-      method: "GET",
-      credentials: "same-origin"
-    });
-    let response = initialResponse;
+    const exportButton = format === "pdf" ? tasksExportPdf : tasksExportXlsx;
+    setButtonBusy(exportButton, true, format === "pdf" ? "Generando PDF..." : "Generando Excel...");
 
-    if (response.status === 401) {
-      const refreshed = await refreshSession();
-      if (refreshed) {
-        response = await fetch(`${endpoint}?${params.toString()}`, {
-          method: "GET",
-          credentials: "same-origin"
-        });
+    try {
+      const params = buildTaskQueryParams(false);
+      const endpoint = format === "pdf" ? "/tasks/export/pdf" : "/tasks/export/xlsx";
+      const initialResponse = await fetch(`${endpoint}?${params.toString()}`, {
+        method: "GET",
+        credentials: "same-origin"
+      });
+      let response = initialResponse;
+
+      if (response.status === 401) {
+        const refreshed = await refreshSession();
+        if (refreshed) {
+          response = await fetch(`${endpoint}?${params.toString()}`, {
+            method: "GET",
+            credentials: "same-origin"
+          });
+        }
       }
-    }
 
-    if (!response.ok) {
-      let body = null;
-      try {
-        body = await response.json();
-      } catch (_error) {
-        body = null;
+      if (!response.ok) {
+        let body = null;
+        try {
+          body = await response.json();
+        } catch (_error) {
+          body = null;
+        }
+        showToast(resolveErrorMessage(body?.error), "error");
+        return;
       }
-      showToast(resolveErrorMessage(body?.error), "error");
-      return;
-    }
 
-    const blob = await response.blob();
-    const defaultName = format === "pdf" ? "tasks.pdf" : "tasks.xlsx";
-    const suggestedName =
-      parseContentDispositionFileName(response.headers.get("content-disposition")) || defaultName;
-    const objectUrl = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = objectUrl;
-    anchor.download = suggestedName;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(objectUrl);
-    showToast("Exportacion completada.", "success");
+      const blob = await response.blob();
+      const defaultName = format === "pdf" ? "tasks.pdf" : "tasks.xlsx";
+      const suggestedName =
+        parseContentDispositionFileName(response.headers.get("content-disposition")) || defaultName;
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = suggestedName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+      showToast("Exportacion completada.", "success");
+    } catch (_error) {
+      showToast("No hay conexion para exportar tareas.", "error");
+    } finally {
+      setButtonBusy(exportButton, false);
+    }
   }
 
   async function handleTableClick(event) {

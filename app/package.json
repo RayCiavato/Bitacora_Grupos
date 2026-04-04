@@ -6,6 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node src/index.js",
+    "build:assets": "node scripts/build-assets.mjs",
     "lint": "eslint \"src/**/*.js\" \"test/**/*.js\"",
     "test": "node --test test/api.test.js",
     "test:e2e:tasks-pg": "node --test test/tasks.e2e.pg.test.js"
@@ -35,7 +36,8 @@
   "devDependencies": {
     "eslint": "^8.57.1",
     "prettier": "^3.6.2",
-    "supertest": "^7.1.4"
+    "supertest": "^7.1.4",
+    "terser": "^5.44.0"
   },
   "overrides": {
     "flatted": "^3.4.0"

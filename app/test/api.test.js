@@ -75,14 +75,23 @@ test("HEAD /app.js legacy bloqueado tambien devuelve 404", async () => {
   assert.equal(response.status, 404);
 });
 
-test("GET /security.js sin token de asset devuelve 404", async () => {
-  const response = await request(app).get("/security.js").set("Accept", "*/*");
+test("GET /assets/security.min.js sin token de asset devuelve 404", async () => {
+  const response = await request(app).get("/assets/security.min.js").set("Accept", "*/*");
   assert.equal(response.status, 404);
 });
 
-test("GET /security.js como asset controlado devuelve 200", async () => {
+test("GET /assets/security.min.js como asset controlado devuelve 200", async () => {
   const response = await request(app)
-    .get("/security.js?asset=sec")
+    .get("/assets/security.min.js?asset=sec")
+    .set("Host", "bitacora.local")
+    .set("Referer", "http://bitacora.local/")
+    .set("Accept", "*/*");
+  assert.equal(response.status, 200);
+});
+
+test("GET /assets/tasks.min.js como asset controlado devuelve 200", async () => {
+  const response = await request(app)
+    .get("/assets/tasks.min.js?asset=tasks")
     .set("Host", "bitacora.local")
     .set("Referer", "http://bitacora.local/")
     .set("Accept", "*/*");
@@ -103,6 +112,35 @@ test("GET /.env devuelve 404 generico", async () => {
 test("GET /src/index.js devuelve 404 generico", async () => {
   const response = await request(app).get("/src/index.js");
   assert.equal(response.status, 404);
+});
+
+test("Rutas internas sensibles devuelven 404 Not found en GET/HEAD/POST", async () => {
+  const sensitivePaths = [
+    "/.env",
+    "/src",
+    "/routes",
+    "/controllers",
+    "/services",
+    "/config",
+    "/logs",
+    "/backups",
+    "/package.json",
+    "/docker-compose.yml",
+    "/.git"
+  ];
+
+  for (const routePath of sensitivePaths) {
+    const getResponse = await request(app).get(routePath);
+    assert.equal(getResponse.status, 404);
+    assert.equal(String(getResponse.text || "").trim(), "Not found");
+
+    const headResponse = await request(app).head(routePath);
+    assert.equal(headResponse.status, 404);
+
+    const postResponse = await request(app).post(routePath).send({ probe: true });
+    assert.equal(postResponse.status, 404);
+    assert.equal(String(postResponse.text || "").trim(), "Not found");
+  }
 });
 
 test("GET /package.json devuelve 404 generico", async () => {
