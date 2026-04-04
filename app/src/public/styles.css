@@ -452,6 +452,7 @@ body.session-active .shell {
 
 .hero-grid {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.7rem;
 }
 
@@ -1295,16 +1296,21 @@ th {
 
 .tasks-filter-form {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
   gap: 0.65rem;
 }
 
 .tasks-filter-primary {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-column: 1 / -1;
   gap: 0.55rem;
 }
 
 .tasks-advanced-filters {
+  grid-column: 1 / -1;
+  width: 100%;
   border: 1px solid rgba(123, 161, 226, 0.24);
   border-radius: 12px;
   background: rgba(8, 20, 45, 0.54);
@@ -1325,7 +1331,7 @@ th {
 }
 
 .tasks-advanced-filters summary::before {
-  content: "▸";
+  content: ">";
   display: inline-block;
   margin-right: 0.35rem;
   color: #5ed1ff;
@@ -1339,11 +1345,17 @@ th {
 .tasks-filter-advanced-grid {
   margin-top: 0.5rem;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.55rem;
 }
 
 .tasks-filter-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 0.45rem;
   margin-top: 0.1rem;
 }
 
@@ -2022,11 +2034,11 @@ th {
   }
 
   .tasks-filter-primary {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .tasks-filter-advanced-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -2087,6 +2099,10 @@ th {
   .shell {
     width: min(1400px, 96vw);
     margin: 1rem auto;
+  }
+
+  .hero-grid {
+    grid-template-columns: 1fr;
   }
 
   body.auth-popup-mode .auth-panel {
@@ -2191,3 +2207,4 @@ th {
     transition: none !important;
   }
 }
+
