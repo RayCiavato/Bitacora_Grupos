@@ -1253,6 +1253,13 @@ th {
   text-decoration: underline;
 }
 
+.attachment-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
 #tasksSection {
   display: grid;
   gap: 0.7rem;
@@ -1372,6 +1379,20 @@ th {
 
 .tasks-panel h4 {
   margin: 0;
+}
+
+.task-shared-edit-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.86rem;
+  color: #c2d8f7;
+}
+
+.task-shared-edit-toggle input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: #4bc9ff;
 }
 
 .task-detail {

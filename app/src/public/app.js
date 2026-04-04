@@ -1655,9 +1655,33 @@ function renderAttachments(items) {
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     link.textContent = "Descargar";
+    link.dataset.attachmentId = String(file.id);
+
+    const actions = document.createElement("div");
+    actions.className = "attachment-actions";
+    actions.appendChild(link);
+
+    if (file?.permissions?.canEdit) {
+      const renameBtn = document.createElement("button");
+      renameBtn.type = "button";
+      renameBtn.className = "btn btn-ghost attachment-rename";
+      renameBtn.dataset.attachmentId = String(file.id);
+      renameBtn.dataset.attachmentName = String(file.originalName || "");
+      renameBtn.textContent = "Renombrar";
+      actions.appendChild(renameBtn);
+    }
+
+    if (file?.permissions?.canDelete) {
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "btn btn-ghost attachment-delete";
+      deleteBtn.dataset.attachmentId = String(file.id);
+      deleteBtn.textContent = "Eliminar";
+      actions.appendChild(deleteBtn);
+    }
 
     item.appendChild(meta);
-    item.appendChild(link);
+    item.appendChild(actions);
     attachmentList.appendChild(item);
   });
 }
@@ -2679,6 +2703,100 @@ async function handleAttachmentSubmit(event) {
   showToast("Adjunto cargado correctamente.", "success");
   await loadAttachments(eventId);
   await loadReport();
+}
+
+async function handleAttachmentRename(attachmentId, currentName) {
+  const safeCurrent = String(currentName || "").trim();
+  const nextNameRaw = window.prompt("Nuevo nombre del archivo", safeCurrent);
+  if (nextNameRaw === null) {
+    return;
+  }
+  const nextName = String(nextNameRaw || "").trim();
+  if (!nextName || nextName === safeCurrent) {
+    return;
+  }
+
+  const { response, data, networkError } = await apiAuth(`/events/attachments/${attachmentId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      originalName: nextName
+    })
+  });
+
+  if (networkError) {
+    showToast("No hay conexion para actualizar adjunto.", "error");
+    return;
+  }
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  showToast("Nombre del adjunto actualizado.", "success");
+  if (state.selectedEventId) {
+    await loadAttachments(state.selectedEventId);
+  }
+  await loadReport();
+}
+
+async function handleAttachmentDelete(attachmentId) {
+  if (!window.confirm("¿Eliminar este adjunto? Esta acción no se puede deshacer.")) {
+    return;
+  }
+
+  const { response, data, networkError } = await apiAuth(`/events/attachments/${attachmentId}`, {
+    method: "DELETE"
+  });
+
+  if (networkError) {
+    showToast("No hay conexion para eliminar adjunto.", "error");
+    return;
+  }
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  showToast("Adjunto eliminado correctamente.", "success");
+  if (state.selectedEventId) {
+    await loadAttachments(state.selectedEventId);
+  }
+  await loadReport();
+}
+
+async function handleAttachmentListClick(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  const renameButton = target.closest(".attachment-rename");
+  if (renameButton instanceof HTMLButtonElement) {
+    const attachmentId = Number(renameButton.dataset.attachmentId || 0);
+    if (attachmentId > 0) {
+      await handleAttachmentRename(attachmentId, renameButton.dataset.attachmentName || "");
+    }
+    return;
+  }
+
+  const deleteButton = target.closest(".attachment-delete");
+  if (deleteButton instanceof HTMLButtonElement) {
+    const attachmentId = Number(deleteButton.dataset.attachmentId || 0);
+    if (attachmentId > 0) {
+      await handleAttachmentDelete(attachmentId);
+    }
+  }
 }
 
 async function handleEventEdit(button) {
@@ -3786,6 +3904,7 @@ async function bootstrap() {
     eventCancelBtn.addEventListener("click", handleCancelEventEdit);
   }
   attachmentForm.addEventListener("submit", handleAttachmentSubmit);
+  attachmentList.addEventListener("click", handleAttachmentListClick);
   filterForm.addEventListener("submit", handleFilterSubmit);
   openReportBtn.addEventListener("click", handleOpenReportClick);
   reportBody.addEventListener("click", handleReportTableClick);

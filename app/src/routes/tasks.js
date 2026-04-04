@@ -13,7 +13,7 @@ const {
   TASK_STATUSES,
   TASK_PRIORITIES,
   ensureTaskDateRange,
-  getUserLiteById,
+  getUsersLiteByIds,
   listTasks,
   listTasksForExport,
   getTaskByIdForUser,
@@ -125,6 +125,8 @@ const createTaskBaseSchema = z.object({
   startDate: z.string().date().optional(),
   dueDate: z.string().date().optional(),
   assignedTo: z.coerce.number().int().positive().optional(),
+  assigneeIds: z.array(z.coerce.number().int().positive()).max(25).optional(),
+  allowAssigneesEdit: z.boolean().default(false),
   metadata: z.record(z.unknown()).optional()
 }).strict();
 
@@ -137,12 +139,22 @@ const createTaskSchema = createTaskBaseSchema
         message: "invalid_date_range"
       });
     }
+    const assigneeIds = normalizeAssigneeIds(payload);
+    if (payload.allowAssigneesEdit && assigneeIds.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["allowAssigneesEdit"],
+        message: "shared_edit_requires_assignees"
+      });
+    }
   });
 
 const updateTaskSchema = createTaskBaseSchema
   .partial()
   .extend({
     assignedTo: z.union([z.coerce.number().int().positive(), z.null()]).optional(),
+    assigneeIds: z.union([z.array(z.coerce.number().int().positive()).max(25), z.null()]).optional(),
+    allowAssigneesEdit: z.boolean().optional(),
     metadata: z.record(z.unknown()).optional()
   })
   .strict()
@@ -180,15 +192,73 @@ function sanitizeTaskForAudit(task) {
     dueDate: task.dueDate,
     createdBy: task.createdBy?.id || null,
     assignedTo: task.assignedTo?.id || null,
+    assignedUserIds: Array.isArray(task.assignedUserIds) ? task.assignedUserIds : [],
+    allowAssigneesEdit: Boolean(task.allowAssigneesEdit),
     updatedAt: task.updatedAt
   };
 }
 
-async function validateAssigneeOrFail(assigneeId) {
-  if (!assigneeId) {
-    return null;
+function normalizeAssigneeIds(payload) {
+  const raw = [];
+  if (Array.isArray(payload?.assigneeIds)) {
+    raw.push(...payload.assigneeIds);
   }
-  return getUserLiteById(assigneeId);
+  if (payload?.assignedTo !== undefined && payload.assignedTo !== null && payload.assignedTo !== "") {
+    raw.unshift(payload.assignedTo);
+  }
+
+  const normalized = raw
+    .map((candidate) => Number(candidate))
+    .filter((candidate) => Number.isInteger(candidate) && candidate > 0);
+  return Array.from(new Set(normalized)).slice(0, 25);
+}
+
+function buildPayloadWithAssignees(payload, options = {}) {
+  const keepAssigneesWhenMissing = Boolean(options.keepAssigneesWhenMissing);
+  const hasAssigneeMutation =
+    Object.prototype.hasOwnProperty.call(payload, "assignedTo") ||
+    Object.prototype.hasOwnProperty.call(payload, "assigneeIds");
+  const normalized = normalizeAssigneeIds(payload);
+  const nextPayload = { ...payload };
+  if (keepAssigneesWhenMissing || hasAssigneeMutation) {
+    nextPayload.assigneeIds = normalized;
+  }
+  if (Object.prototype.hasOwnProperty.call(nextPayload, "assignedTo")) {
+    delete nextPayload.assignedTo;
+  }
+  return nextPayload;
+}
+
+async function validateAssigneesOrFail(assigneeIds) {
+  if (!Array.isArray(assigneeIds) || assigneeIds.length === 0) {
+    return {
+      users: [],
+      missingIds: []
+    };
+  }
+
+  const users = await getUsersLiteByIds(assigneeIds);
+  const foundIds = new Set(users.map((user) => Number(user.id)));
+  const missingIds = assigneeIds.filter((id) => !foundIds.has(Number(id)));
+  return {
+    users,
+    missingIds
+  };
+}
+
+async function auditTaskAccessDenied(req, details = {}) {
+  await createAuditLog({
+    userId: req.user?.sub || null,
+    action: "task.access_denied",
+    entity: "task",
+    entityId: details.taskId || null,
+    metadata: {
+      reason: details.reason || "forbidden",
+      route: req.originalUrl,
+      method: req.method
+    },
+    req
+  });
 }
 
 router.get("/", authenticate, async (req, res, next) => {
@@ -252,6 +322,7 @@ router.get("/dashboard-summary", authenticate, async (req, res, next) => {
 router.get("/export/xlsx", authenticate, async (req, res, next) => {
   try {
     if (!canUserExportTasks(req.user)) {
+      await auditTaskAccessDenied(req, { reason: "export_forbidden" });
       return res.status(403).json({ error: "forbidden" });
     }
 
@@ -297,6 +368,7 @@ router.get("/export/xlsx", authenticate, async (req, res, next) => {
 router.get("/export/pdf", authenticate, async (req, res, next) => {
   try {
     if (!canUserExportTasks(req.user)) {
+      await auditTaskAccessDenied(req, { reason: "export_forbidden" });
       return res.status(403).json({ error: "forbidden" });
     }
 
@@ -372,24 +444,25 @@ router.get("/:id", authenticate, async (req, res, next) => {
 router.post("/", authenticate, async (req, res, next) => {
   try {
     if (!canUserCreateTask(req.user)) {
+      await auditTaskAccessDenied(req, { reason: "create_forbidden" });
       return res.status(403).json({ error: "forbidden" });
     }
 
-    const payload = createTaskSchema.parse(req.body);
+    const rawPayload = createTaskSchema.parse(req.body);
+    const payload = buildPayloadWithAssignees(rawPayload, { keepAssigneesWhenMissing: true });
     const currentDateIso = resolveCurrentISODate(req);
     if (hasPastTaskDates(payload, currentDateIso)) {
       return res.status(400).json({ error: "past_date_not_allowed" });
     }
 
-    if (payload.assignedTo && !canUserAssignTasks(req.user)) {
+    if (payload.assigneeIds.length > 0 && !canUserAssignTasks(req.user)) {
+      await auditTaskAccessDenied(req, { reason: "assign_forbidden" });
       return res.status(403).json({ error: "forbidden" });
     }
 
-    if (payload.assignedTo) {
-      const assignee = await validateAssigneeOrFail(payload.assignedTo);
-      if (!assignee) {
-        return res.status(404).json({ error: "user_not_found" });
-      }
+    const assigneeValidation = await validateAssigneesOrFail(payload.assigneeIds);
+    if (assigneeValidation.missingIds.length > 0) {
+      return res.status(404).json({ error: "user_not_found" });
     }
 
     const created = await createTask({
@@ -421,6 +494,19 @@ router.post("/", authenticate, async (req, res, next) => {
       });
     }
 
+    if (created.allowAssigneesEdit) {
+      await createAuditLog({
+        userId: req.user.sub,
+        action: "task.shared_edit_toggled",
+        entity: "task",
+        entityId: created.id,
+        metadata: {
+          enabled: true
+        },
+        req
+      });
+    }
+
     return res.status(201).json(created);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -436,23 +522,33 @@ router.post("/", authenticate, async (req, res, next) => {
 router.patch("/:id", authenticate, async (req, res, next) => {
   try {
     const { id } = taskIdSchema.parse(req.params);
-    const payload = updateTaskSchema.parse(req.body);
+    const rawPayload = updateTaskSchema.parse(req.body);
+    const payload = buildPayloadWithAssignees(rawPayload);
     const currentDateIso = resolveCurrentISODate(req);
     if (hasPastTaskDates(payload, currentDateIso)) {
       return res.status(400).json({ error: "past_date_not_allowed" });
     }
 
     if (
-      Object.prototype.hasOwnProperty.call(payload, "assignedTo") &&
-      payload.assignedTo !== undefined &&
+      (Object.prototype.hasOwnProperty.call(rawPayload, "assignedTo") ||
+        Object.prototype.hasOwnProperty.call(rawPayload, "assigneeIds")) &&
       !canUserAssignTasks(req.user)
     ) {
+      await auditTaskAccessDenied(req, { taskId: id, reason: "assign_forbidden" });
       return res.status(403).json({ error: "forbidden" });
     }
 
-    if (payload.assignedTo) {
-      const assignee = await validateAssigneeOrFail(payload.assignedTo);
-      if (!assignee) {
+    if (Object.prototype.hasOwnProperty.call(rawPayload, "assigneeIds")) {
+      const assigneeValidation = await validateAssigneesOrFail(payload.assigneeIds);
+      if (assigneeValidation.missingIds.length > 0) {
+        return res.status(404).json({ error: "user_not_found" });
+      }
+    } else if (
+      Object.prototype.hasOwnProperty.call(rawPayload, "assignedTo") &&
+      payload.assigneeIds.length > 0
+    ) {
+      const assigneeValidation = await validateAssigneesOrFail(payload.assigneeIds);
+      if (assigneeValidation.missingIds.length > 0) {
         return res.status(404).json({ error: "user_not_found" });
       }
     }
@@ -467,7 +563,15 @@ router.patch("/:id", authenticate, async (req, res, next) => {
       return res.status(404).json({ error: "task_not_found" });
     }
     if (result.error === "forbidden") {
+      await auditTaskAccessDenied(req, { taskId: id, reason: "edit_forbidden" });
       return res.status(403).json({ error: "forbidden" });
+    }
+    if (result.error === "shared_edit_forbidden") {
+      await auditTaskAccessDenied(req, { taskId: id, reason: "shared_edit_forbidden" });
+      return res.status(403).json({ error: "forbidden" });
+    }
+    if (result.error === "invalid_shared_edit_state") {
+      return res.status(400).json({ error: "validation_error" });
     }
     if (result.error === "no_changes") {
       return res.status(400).json({ error: "validation_error" });
@@ -513,6 +617,19 @@ router.patch("/:id", authenticate, async (req, res, next) => {
       });
     }
 
+    if (result.sharedEditChanged) {
+      await createAuditLog({
+        userId: req.user.sub,
+        action: "task.shared_edit_toggled",
+        entity: "task",
+        entityId: id,
+        metadata: {
+          enabled: Boolean(result.after?.allowAssigneesEdit)
+        },
+        req
+      });
+    }
+
     return res.json(result.after);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -540,6 +657,7 @@ router.patch("/:id/status", authenticate, async (req, res, next) => {
       return res.status(404).json({ error: "task_not_found" });
     }
     if (result.error === "forbidden") {
+      await auditTaskAccessDenied(req, { taskId: id, reason: "status_forbidden" });
       return res.status(403).json({ error: "forbidden" });
     }
 
@@ -580,6 +698,7 @@ router.delete("/:id", authenticate, async (req, res, next) => {
       return res.status(404).json({ error: "task_not_found" });
     }
     if (result.error === "forbidden") {
+      await auditTaskAccessDenied(req, { taskId: id, reason: "delete_forbidden" });
       return res.status(403).json({ error: "forbidden" });
     }
 

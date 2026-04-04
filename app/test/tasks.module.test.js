@@ -53,6 +53,8 @@ const TASKS_FIXTURE = Object.freeze([
     due_date: "2026-04-10",
     created_by: 3,
     assigned_to: null,
+    assignee_ids: [],
+    allow_assignees_edit: false,
     metadata: {},
     created_at: "2026-04-01T10:00:00.000Z",
     updated_at: "2026-04-01T10:00:00.000Z",
@@ -68,6 +70,8 @@ const TASKS_FIXTURE = Object.freeze([
     due_date: "2026-04-12",
     created_by: 2,
     assigned_to: 3,
+    assignee_ids: [3, 4],
+    allow_assignees_edit: false,
     metadata: {},
     created_at: "2026-04-02T10:00:00.000Z",
     updated_at: "2026-04-02T10:00:00.000Z",
@@ -83,6 +87,8 @@ const TASKS_FIXTURE = Object.freeze([
     due_date: "2026-04-13",
     created_by: 4,
     assigned_to: null,
+    assignee_ids: [],
+    allow_assignees_edit: false,
     metadata: {},
     created_at: "2026-04-03T10:00:00.000Z",
     updated_at: "2026-04-03T10:00:00.000Z",
@@ -98,6 +104,8 @@ const TASKS_FIXTURE = Object.freeze([
     due_date: "2026-04-20",
     created_by: 1,
     assigned_to: 2,
+    assignee_ids: [2],
+    allow_assignees_edit: true,
     metadata: {},
     created_at: "2026-04-04T10:00:00.000Z",
     updated_at: "2026-04-04T10:00:00.000Z",
@@ -113,6 +121,8 @@ const TASKS_FIXTURE = Object.freeze([
     due_date: "2026-03-15",
     created_by: 1,
     assigned_to: null,
+    assignee_ids: [],
+    allow_assignees_edit: false,
     metadata: {},
     created_at: "2026-03-01T10:00:00.000Z",
     updated_at: "2026-03-05T10:00:00.000Z",
@@ -135,6 +145,8 @@ function toTaskSelectRow(task, usersById) {
     priority: task.priority,
     startDate: task.start_date,
     dueDate: task.due_date,
+    assigneeIds: clone(task.assignee_ids || []),
+    allowAssigneesEdit: Boolean(task.allow_assignees_edit),
     metadata: clone(task.metadata || {}),
     createdAt: task.created_at,
     updatedAt: task.updated_at,
@@ -173,12 +185,14 @@ function createFakeTasksDb() {
       filtered = filtered.filter((task) => !task.deleted_at);
     }
 
-    const visibilityMatch = sql.match(/\(t\.created_by = \$(\d+) or t\.assigned_to = \$(\d+)\)/i);
+    const visibilityMatch = sql.match(/\(t\.created_by = \$(\d+) or \$(\d+) = any\(t\.assignee_ids\)\)/i);
     if (visibilityMatch) {
       const createdBy = Number(getParam(params, visibilityMatch[1]));
       const assignedTo = Number(getParam(params, visibilityMatch[2]));
       filtered = filtered.filter(
-        (task) => Number(task.created_by) === createdBy || Number(task.assigned_to) === assignedTo
+        (task) =>
+          Number(task.created_by) === createdBy ||
+          (Array.isArray(task.assignee_ids) && task.assignee_ids.includes(assignedTo))
       );
     }
 
@@ -200,10 +214,12 @@ function createFakeTasksDb() {
       filtered = filtered.filter((task) => Number(task.created_by) === expected);
     }
 
-    const assignedToFilterMatch = sql.match(/and t\.assigned_to = \$(\d+)/i);
+    const assignedToFilterMatch = sql.match(/and \$(\d+) = any\(t\.assignee_ids\)/i);
     if (assignedToFilterMatch) {
       const expected = Number(getParam(params, assignedToFilterMatch[1]));
-      filtered = filtered.filter((task) => Number(task.assigned_to) === expected);
+      filtered = filtered.filter(
+        (task) => Array.isArray(task.assignee_ids) && task.assignee_ids.includes(expected)
+      );
     }
 
     const startFromMatch = sql.match(/t\.start_date >= \$(\d+)/i);
@@ -318,6 +334,24 @@ function createFakeTasksDb() {
     }
 
     if (lower.startsWith("select id, name, email from users")) {
+      if (lower.includes("where id = any($1::bigint[])")) {
+        const ids = Array.isArray(params[0]) ? params[0].map((value) => Number(value)) : [];
+        const rows = ids
+          .filter((id) => usersById.has(id))
+          .map((id) => {
+            const user = usersById.get(id);
+            return {
+              id: user.id,
+              name: user.name,
+              email: user.email
+            };
+          });
+        return {
+          rowCount: rows.length,
+          rows
+        };
+      }
+
       const userId = Number(params[0]);
       const user = usersById.get(userId);
       return {
@@ -358,7 +392,9 @@ function createFakeTasksDb() {
         due_date: params[5] || null,
         created_by: Number(params[6]),
         assigned_to: params[7] ? Number(params[7]) : null,
-        metadata: params[8] ? JSON.parse(params[8]) : {},
+        assignee_ids: Array.isArray(params[8]) ? params[8].map((value) => Number(value)) : [],
+        allow_assignees_edit: Boolean(params[9]),
+        metadata: params[10] ? JSON.parse(params[10]) : {},
         deleted_at: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
@@ -438,6 +474,14 @@ function createFakeTasksDb() {
         if (column === "assigned_to") {
           task.assigned_to = value ? Number(value) : null;
         }
+        if (column === "assignee_ids") {
+          task.assignee_ids = Array.isArray(value)
+            ? value.map((candidate) => Number(candidate)).filter((candidate) => Number.isInteger(candidate) && candidate > 0)
+            : [];
+        }
+        if (column === "allow_assignees_edit") {
+          task.allow_assignees_edit = Boolean(value);
+        }
         if (column === "metadata") {
           task.metadata = value ? JSON.parse(value) : {};
         }
@@ -477,7 +521,7 @@ function createFakeTasksDb() {
           totals[statusKey] += 1;
         }
 
-        if (Number(task.assigned_to) === actorId) {
+        if (Array.isArray(task.assignee_ids) && task.assignee_ids.includes(actorId)) {
           totals.asignadas_a_mi += 1;
         }
         if (Number(task.created_by) === actorId) {
@@ -696,6 +740,29 @@ test("TASKS module: QA, AppSec y hardening", async (t) => {
     const deleteOther = await attachSession(request(app).delete("/tasks/103"), funcionario);
     assert.equal(deleteOther.status, 403);
     assert.equal(deleteOther.body.error, "forbidden");
+  });
+
+  await t.test("edicion compartida: asignado no edita por defecto y puede editar cuando owner/admin habilita", async () => {
+    fakeDb.reset();
+    const app = createApp();
+
+    const assignedWithoutFlag = await attachSession(request(app).patch("/tasks/102"), funcionario2).send({
+      description: "Intento sin permiso compartido"
+    });
+    assert.equal(assignedWithoutFlag.status, 403);
+    assert.equal(assignedWithoutFlag.body.error, "forbidden");
+
+    const adminEnable = await attachSession(request(app).patch("/tasks/102"), admin).send({
+      allowAssigneesEdit: true
+    });
+    assert.equal(adminEnable.status, 200);
+    assert.equal(adminEnable.body.allowAssigneesEdit, true);
+
+    const assignedWithFlag = await attachSession(request(app).patch("/tasks/102"), funcionario2).send({
+      description: "Edicion permitida por bandera"
+    });
+    assert.equal(assignedWithFlag.status, 200);
+    assert.equal(assignedWithFlag.body.description, "Edicion permitida por bandera");
   });
 
   await t.test("funcionario no puede asignar tareas a terceros", async () => {

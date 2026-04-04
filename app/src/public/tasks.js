@@ -27,6 +27,8 @@
   const taskStartDate = document.getElementById("taskStartDate");
   const taskDueDate = document.getElementById("taskDueDate");
   const taskAssignedTo = document.getElementById("taskAssignedTo");
+  const taskAllowAssigneesEdit = document.getElementById("taskAllowAssigneesEdit");
+  const taskAllowAssigneesEditWrap = document.getElementById("taskAllowAssigneesEditWrap");
   const taskSaveBtn = document.getElementById("taskSaveBtn");
   const taskCancelBtn = document.getElementById("taskCancelBtn");
 
@@ -94,6 +96,7 @@
     pageSize: Number(tasksPageSize?.value || 20),
     totalPages: 1,
     editingTaskId: null,
+    editingTaskPermissions: null,
     activeRows: []
   };
 
@@ -346,6 +349,7 @@
 
   function resetTaskForm() {
     state.editingTaskId = null;
+    state.editingTaskPermissions = null;
     if (taskFormTitle) {
       taskFormTitle.textContent = "Nueva tarea";
     }
@@ -362,6 +366,11 @@
     if (taskStatus) {
       taskStatus.value = "sin_realizar";
     }
+    setSelectedAssigneeIds([]);
+    if (taskAllowAssigneesEdit) {
+      taskAllowAssigneesEdit.checked = false;
+    }
+    syncSharedEditControl(null);
     syncTaskDateConstraints();
   }
 
@@ -376,10 +385,14 @@
       taskDetailBody.textContent = "";
       return;
     }
+    const sharedEditText = task.allowAssigneesEdit ? "Asignados pueden editar" : "Asignados solo lectura";
+    const assigneesCount = Array.isArray(task.assignedUserIds) ? task.assignedUserIds.length : 0;
     taskDetailTitle.textContent = `${task.title || "Sin titulo"} (#${task.id})`;
     taskDetailMeta.textContent =
       `Estado: ${statusLabel(task.status)} | Prioridad: ${priorityLabel(task.priority)} | ` +
-      `Creado por: ${task.createdBy?.name || "-"} | Asignado: ${task.assignedTo?.name || "-"}`;
+      `Creado por: ${task.createdBy?.name || "-"} | Asignado principal: ${
+        task.assignedTo?.name || "-"
+      } | Total asignados: ${assigneesCount} | ${sharedEditText}`;
     taskDetailBody.textContent = task.description || "";
     taskDetail.classList.remove("hidden");
   }
@@ -391,12 +404,56 @@
     return option;
   }
 
+  function getSelectedAssigneeIds() {
+    if (!(taskAssignedTo instanceof HTMLSelectElement)) {
+      return [];
+    }
+
+    const selected = Array.from(taskAssignedTo.selectedOptions || [])
+      .map((option) => Number(option.value))
+      .filter((value) => Number.isInteger(value) && value > 0);
+    return Array.from(new Set(selected));
+  }
+
+  function setSelectedAssigneeIds(assigneeIds) {
+    if (!(taskAssignedTo instanceof HTMLSelectElement)) {
+      return;
+    }
+    const selectedSet = new Set(
+      (Array.isArray(assigneeIds) ? assigneeIds : [])
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value) && value > 0)
+    );
+
+    Array.from(taskAssignedTo.options || []).forEach((option) => {
+      const optionId = Number(option.value);
+      option.selected = selectedSet.has(optionId);
+    });
+  }
+
+  function syncSharedEditControl(task = null) {
+    if (!taskAllowAssigneesEditWrap || !taskAllowAssigneesEdit) {
+      return;
+    }
+
+    const canManage = task
+      ? Boolean(task.permissions?.canManageSharedEdit)
+      : Boolean(canCreateTask());
+    taskAllowAssigneesEditWrap.classList.toggle("hidden", !canManage);
+    taskAllowAssigneesEdit.disabled = !canManage;
+    if (!canManage) {
+      taskAllowAssigneesEdit.checked = false;
+      return;
+    }
+
+    taskAllowAssigneesEdit.checked = Boolean(task?.allowAssigneesEdit);
+  }
+
   function renderUserSelectors() {
     clearNode(taskAssignedTo);
     clearNode(tasksFilterCreatedBy);
     clearNode(tasksFilterAssignedTo);
 
-    taskAssignedTo.appendChild(createOption("", "Sin asignar"));
     tasksFilterCreatedBy.appendChild(createOption("", canViewAnyTasks() ? "Todos" : "Mis registros"));
     tasksFilterAssignedTo.appendChild(createOption("", canViewAnyTasks() ? "Todos" : "Mis asignaciones"));
 
@@ -415,7 +472,7 @@
 
     if (!canAssignTask()) {
       taskAssignedTo.disabled = true;
-      taskAssignedTo.value = "";
+      setSelectedAssigneeIds([]);
     } else {
       taskAssignedTo.disabled = false;
     }
@@ -572,7 +629,14 @@
       tdCreator.textContent = task.createdBy?.name || "-";
 
       const tdAssigned = document.createElement("td");
-      tdAssigned.textContent = task.assignedTo?.name || "-";
+      const assigneeCount = Array.isArray(task.assignedUserIds) ? task.assignedUserIds.length : 0;
+      if (!assigneeCount) {
+        tdAssigned.textContent = "-";
+      } else if (assigneeCount === 1) {
+        tdAssigned.textContent = task.assignedTo?.name || "1 asignado";
+      } else {
+        tdAssigned.textContent = `${task.assignedTo?.name || "Asignado"} +${assigneeCount - 1}`;
+      }
 
       const tdStart = document.createElement("td");
       tdStart.textContent = formatDate(task.startDate);
@@ -815,7 +879,8 @@
       title: String(taskTitle.value || "").trim(),
       description: String(taskDescription.value || "").trim(),
       status: taskStatus.value,
-      priority: taskPriority.value
+      priority: taskPriority.value,
+      allowAssigneesEdit: Boolean(taskAllowAssigneesEdit?.checked)
     };
 
     if (taskStartDate.value) {
@@ -824,8 +889,8 @@
     if (taskDueDate.value) {
       payload.dueDate = taskDueDate.value;
     }
-    if (canAssignTask() && taskAssignedTo.value) {
-      payload.assignedTo = Number(taskAssignedTo.value);
+    if (canAssignTask()) {
+      payload.assigneeIds = getSelectedAssigneeIds();
     }
 
     return payload;
@@ -836,6 +901,7 @@
       return;
     }
     state.editingTaskId = Number(task.id);
+    state.editingTaskPermissions = task.permissions || null;
     taskFormTitle.textContent = `Editar tarea #${task.id}`;
     taskSaveBtn.textContent = "Guardar cambios";
     taskCancelBtn.classList.remove("hidden");
@@ -845,7 +911,8 @@
     taskPriority.value = task.priority || "media";
     taskStartDate.value = task.startDate || "";
     taskDueDate.value = task.dueDate || "";
-    taskAssignedTo.value = task.assignedTo?.id ? String(task.assignedTo.id) : "";
+    setSelectedAssigneeIds(task.assignedUserIds || []);
+    syncSharedEditControl(task);
     syncTaskDateConstraints();
     renderTaskDetail(task);
   }
@@ -872,6 +939,12 @@
     if ((payload.startDate && payload.startDate < today) || (payload.dueDate && payload.dueDate < today)) {
       setButtonBusy(submitButton, false);
       showToast("No se permite registrar tareas con fechas anteriores.", "error");
+      return;
+    }
+
+    if (payload.allowAssigneesEdit && (!Array.isArray(payload.assigneeIds) || payload.assigneeIds.length === 0)) {
+      setButtonBusy(submitButton, false);
+      showToast("Debes asignar al menos un usuario para habilitar edicion compartida.", "error");
       return;
     }
 

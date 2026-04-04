@@ -263,6 +263,7 @@ function createApp() {
   app.use("/events/report/export", reportExportLimiter);
   app.use("/tasks/export", tasksExportLimiter);
   app.use("/events/:id/attachments", attachmentsLimiter);
+  app.use("/events/attachments/:attachmentId", attachmentsLimiter);
   app.use("/events/attachments/:attachmentId/download", attachmentsLimiter);
   app.use("/auth", authRouter);
   app.use("/users", usersRouter);

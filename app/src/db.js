@@ -68,6 +68,8 @@ async function ensureDatabaseSchema() {
         due_date DATE,
         created_by BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
         assigned_to BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        assignee_ids BIGINT[] NOT NULL DEFAULT ARRAY[]::BIGINT[],
+        allow_assignees_edit BOOLEAN NOT NULL DEFAULT FALSE,
         metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
         deleted_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -120,6 +122,7 @@ async function ensureDatabaseSchema() {
         id BIGSERIAL PRIMARY KEY,
         event_id BIGINT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
         uploaded_by BIGINT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        owner_id BIGINT REFERENCES users(id) ON DELETE RESTRICT,
         original_name TEXT NOT NULL,
         stored_name TEXT NOT NULL UNIQUE,
         mime_type TEXT NOT NULL,
@@ -130,6 +133,48 @@ async function ensureDatabaseSchema() {
     `
       ALTER TABLE events
       ADD COLUMN IF NOT EXISTS template_id BIGINT REFERENCES event_templates(id) ON DELETE SET NULL
+    `,
+    `
+      ALTER TABLE tasks
+      ADD COLUMN IF NOT EXISTS assignee_ids BIGINT[] NOT NULL DEFAULT ARRAY[]::BIGINT[]
+    `,
+    `
+      ALTER TABLE tasks
+      ADD COLUMN IF NOT EXISTS allow_assignees_edit BOOLEAN NOT NULL DEFAULT FALSE
+    `,
+    `
+      ALTER TABLE event_attachments
+      ADD COLUMN IF NOT EXISTS owner_id BIGINT REFERENCES users(id) ON DELETE RESTRICT
+    `,
+    `
+      UPDATE tasks
+      SET assignee_ids = ARRAY[assigned_to]
+      WHERE assigned_to IS NOT NULL
+        AND (assignee_ids IS NULL OR cardinality(assignee_ids) = 0)
+    `,
+    `
+      UPDATE event_attachments
+      SET owner_id = uploaded_by
+      WHERE owner_id IS NULL
+    `,
+    `
+      ALTER TABLE event_attachments
+      ALTER COLUMN owner_id SET NOT NULL
+    `,
+    `
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conname = 'tasks_assignee_ids_no_nulls_check'
+            AND conrelid = 'tasks'::regclass
+        ) THEN
+          ALTER TABLE tasks
+          ADD CONSTRAINT tasks_assignee_ids_no_nulls_check
+            CHECK (array_position(assignee_ids, NULL) IS NULL);
+        END IF;
+      END $$;
     `,
     `
       DO $$
@@ -211,11 +256,13 @@ async function ensureDatabaseSchema() {
     "CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date)",
     "CREATE INDEX IF NOT EXISTS idx_tasks_deleted_at ON tasks(deleted_at)",
     "CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_assignee_ids ON tasks USING GIN (assignee_ids)",
     "CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at ON refresh_tokens(expires_at)",
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_event_attachments_event_id ON event_attachments(event_id)",
+    "CREATE INDEX IF NOT EXISTS idx_event_attachments_owner_id ON event_attachments(owner_id)",
     `
       CREATE OR REPLACE FUNCTION set_updated_at()
       RETURNS TRIGGER AS $$

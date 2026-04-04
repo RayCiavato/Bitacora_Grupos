@@ -10,7 +10,13 @@ const { validateFullName } = require("../src/services/namePolicy");
 const { validatePasswordPolicy } = require("../src/services/passwordPolicy");
 
 const app = createApp();
-const { canUserEditEvent, canUserUploadEventAttachment } = require("../src/services/authorization");
+const {
+  canUserEditEvent,
+  canUserUploadEventAttachment,
+  canUserViewFile,
+  canUserEditFile,
+  canUserDeleteFile
+} = require("../src/services/authorization");
 
 test("GET /health responde estado ok", async () => {
   const response = await request(app).get("/health");
@@ -256,6 +262,21 @@ test("Permisos adjuntos: usuario normal puede subir adjuntos solo a sus registro
   const canUploadOther = canUserUploadEventAttachment({ sub: 10, role: "funcionario" }, 11);
   assert.equal(canUploadOwn, true);
   assert.equal(canUploadOther, false);
+});
+
+test("Permisos archivos: cualquier usuario autenticado puede visualizar", () => {
+  const canView = canUserViewFile({ sub: 10, role: "funcionario" }, { owner_id: 99 });
+  assert.equal(canView, true);
+});
+
+test("Permisos archivos: solo owner o admin puede editar/eliminar", () => {
+  const file = { owner_id: 44 };
+  assert.equal(canUserEditFile({ sub: 44, role: "funcionario" }, file), true);
+  assert.equal(canUserDeleteFile({ sub: 44, role: "funcionario" }, file), true);
+  assert.equal(canUserEditFile({ sub: 11, role: "funcionario" }, file), false);
+  assert.equal(canUserDeleteFile({ sub: 11, role: "funcionario" }, file), false);
+  assert.equal(canUserEditFile({ sub: 1, role: "admin" }, file), true);
+  assert.equal(canUserDeleteFile({ sub: 1, role: "admin" }, file), true);
 });
 
 require("./tasks.module.test");

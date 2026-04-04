@@ -291,22 +291,64 @@ function resolveTaskUserIds(task) {
   if (!task || typeof task !== "object") {
     return {
       createdById: null,
-      assignedToId: null
+      assignedToId: null,
+      assignedUserIds: [],
+      allowAssigneesEdit: false
     };
   }
 
   const createdByCandidate =
-    task.createdById ?? task.created_by ?? task.createdBy ?? task.ownerId ?? task.userId;
-  const assignedToCandidate = task.assignedToId ?? task.assigned_to ?? task.assignedTo ?? null;
+    task.createdById ??
+    task.created_by ??
+    task.createdBy?.id ??
+    task.createdBy ??
+    task.ownerId ??
+    task.userId;
+  const assignedToCandidate =
+    task.assignedToId ?? task.assigned_to ?? task.assignedTo?.id ?? task.assignedTo ?? null;
+  const allowAssigneesEdit = Boolean(
+    task.allowAssigneesEdit ?? task.allow_assignees_edit ?? false
+  );
+
+  let assigneeCandidates = [];
+  if (Array.isArray(task.assigneeIds)) {
+    assigneeCandidates = task.assigneeIds;
+  } else if (Array.isArray(task.assignee_ids)) {
+    assigneeCandidates = task.assignee_ids;
+  } else if (task.assignee_ids && typeof task.assignee_ids === "string") {
+    const normalized = String(task.assignee_ids)
+      .replace(/[{}]/g, "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    assigneeCandidates = normalized;
+  }
 
   const createdById = Number(createdByCandidate);
   const assignedToId = Number(assignedToCandidate);
+  const assignedUserIds = Array.from(
+    new Set(
+      assigneeCandidates
+        .map((candidate) => Number(candidate))
+        .filter((candidate) => Number.isInteger(candidate) && candidate > 0)
+    )
+  );
+
+  if (
+    Number.isInteger(assignedToId) &&
+    assignedToId > 0 &&
+    !assignedUserIds.includes(assignedToId)
+  ) {
+    assignedUserIds.unshift(assignedToId);
+  }
 
   return {
     createdById:
       Number.isInteger(createdById) && createdById > 0 ? createdById : null,
     assignedToId:
-      Number.isInteger(assignedToId) && assignedToId > 0 ? assignedToId : null
+      Number.isInteger(assignedToId) && assignedToId > 0 ? assignedToId : null,
+    assignedUserIds,
+    allowAssigneesEdit
   };
 }
 
@@ -351,12 +393,20 @@ function canUserViewTask(user, task) {
     return false;
   }
 
-  const { createdById, assignedToId } = resolveTaskUserIds(task);
+  const { createdById, assignedToId, assignedUserIds } = resolveTaskUserIds(task);
   if (capabilities.actions.tasks.viewOwnCreated && actorId === createdById) {
     return true;
   }
 
-  return capabilities.actions.tasks.viewAssigned && actorId === assignedToId;
+  if (!capabilities.actions.tasks.viewAssigned) {
+    return false;
+  }
+
+  if (actorId === assignedToId) {
+    return true;
+  }
+
+  return assignedUserIds.includes(actorId);
 }
 
 function canUserEditTask(user, task) {
@@ -370,12 +420,20 @@ function canUserEditTask(user, task) {
     return false;
   }
 
-  const { createdById, assignedToId } = resolveTaskUserIds(task);
+  const { createdById, assignedToId, assignedUserIds, allowAssigneesEdit } = resolveTaskUserIds(task);
   if (capabilities.actions.tasks.editOwnCreated && actorId === createdById) {
     return true;
   }
 
-  return capabilities.actions.tasks.editAssigned && actorId === assignedToId;
+  if (!capabilities.actions.tasks.editAssigned || !allowAssigneesEdit) {
+    return false;
+  }
+
+  if (actorId === assignedToId) {
+    return true;
+  }
+
+  return assignedUserIds.includes(actorId);
 }
 
 function canUserDeleteTask(user, task) {
@@ -391,6 +449,57 @@ function canUserDeleteTask(user, task) {
 
   const { createdById } = resolveTaskUserIds(task);
   return capabilities.actions.tasks.deleteOwnCreated && actorId === createdById;
+}
+
+function canUserManageTaskSharedEdit(user, task) {
+  const capabilities = getSessionCapabilities(user?.role);
+  if (capabilities.actions.tasks.editAny) {
+    return true;
+  }
+
+  const actorId = resolveActorId(user);
+  if (!Number.isInteger(actorId) || actorId <= 0) {
+    return false;
+  }
+
+  const { createdById } = resolveTaskUserIds(task);
+  return capabilities.actions.tasks.editOwnCreated && actorId === createdById;
+}
+
+function resolveFileOwnerId(file) {
+  if (!file || typeof file !== "object") {
+    return null;
+  }
+
+  const ownerCandidate = file.ownerId ?? file.owner_id ?? file.uploadedBy ?? file.uploaded_by;
+  const ownerId = Number(ownerCandidate);
+  if (!Number.isInteger(ownerId) || ownerId <= 0) {
+    return null;
+  }
+  return ownerId;
+}
+
+function canUserViewFile(user) {
+  const actorId = resolveActorId(user);
+  return Number.isInteger(actorId) && actorId > 0;
+}
+
+function canUserEditFile(user, file) {
+  if (normalizeRole(user?.role) === "admin") {
+    return true;
+  }
+
+  const actorId = resolveActorId(user);
+  const ownerId = resolveFileOwnerId(file);
+  if (!Number.isInteger(actorId) || actorId <= 0 || !Number.isInteger(ownerId) || ownerId <= 0) {
+    return false;
+  }
+
+  return actorId === ownerId;
+}
+
+function canUserDeleteFile(user, file) {
+  return canUserEditFile(user, file);
 }
 
 function buildSessionUser(user) {
@@ -424,7 +533,8 @@ function buildTaskPermissions(user, task) {
     canDelete: canUserDeleteTask(user, task),
     canChangeStatus: canUserEditTask(user, task),
     canAssign: canUserAssignTasks(user),
-    canExport: canUserExportTasks(user)
+    canExport: canUserExportTasks(user),
+    canManageSharedEdit: canUserManageTaskSharedEdit(user, task)
   };
 }
 
@@ -451,6 +561,10 @@ module.exports = {
   canUserViewTask,
   canUserEditTask,
   canUserDeleteTask,
+  canUserManageTaskSharedEdit,
+  canUserViewFile,
+  canUserEditFile,
+  canUserDeleteFile,
   buildSessionUser,
   buildEventPermissions,
   buildTaskPermissions

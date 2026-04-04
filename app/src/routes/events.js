@@ -18,6 +18,9 @@ const {
   canUserDeleteAnyEvent,
   canUserUploadEventAttachment,
   canUserViewEventAttachments,
+  canUserViewFile,
+  canUserEditFile,
+  canUserDeleteFile,
   buildEventPermissions
 } = require("../services/authorization");
 
@@ -82,6 +85,12 @@ const eventParamsSchema = z.object({
 const attachmentDownloadSchema = z.object({
   attachmentId: z.coerce.number().int().positive()
 });
+
+const updateAttachmentSchema = z
+  .object({
+    originalName: z.string().trim().min(1).max(180)
+  })
+  .strict();
 
 const uploadReady = fs.mkdir(config.uploadDir, { recursive: true });
 const allowedMimeTypes = new Set([
@@ -695,6 +704,50 @@ async function getEventWithOwner(eventId) {
     id: event.id,
     encargado_id: event.encargadoId
   };
+}
+
+async function getAttachmentById(attachmentId, client = pool) {
+  const result = await client.query(
+    `
+      SELECT
+        ea.id,
+        ea.event_id AS "eventId",
+        ea.uploaded_by AS "uploadedBy",
+        ea.owner_id AS "ownerId",
+        ea.original_name AS "originalName",
+        ea.stored_name AS "storedName",
+        ea.mime_type AS "mimeType",
+        ea.size_bytes AS "sizeBytes",
+        ea.created_at AS "createdAt",
+        e.encargado_id AS "encargadoId"
+      FROM event_attachments ea
+      JOIN events e ON e.id = ea.event_id
+      WHERE ea.id = $1
+      LIMIT 1
+    `,
+    [attachmentId]
+  );
+
+  if (result.rowCount === 0) {
+    return null;
+  }
+
+  return result.rows[0];
+}
+
+async function auditAttachmentAccessDenied(req, attachmentId, reason = "forbidden") {
+  await createAuditLog({
+    userId: req.user?.sub || null,
+    action: "attachment.access_denied",
+    entity: "event_attachment",
+    entityId: attachmentId || null,
+    metadata: {
+      reason,
+      route: req.originalUrl,
+      method: req.method
+    },
+    req
+  });
 }
 
 function ensureCanEditEventsOrForbidden(req, res, eventOwnerId) {
@@ -1369,13 +1422,22 @@ router.post("/:id/attachments", authenticate, async (req, res, next) => {
 
     const insertResult = await pool.query(
       `
-        INSERT INTO event_attachments (event_id, uploaded_by, original_name, stored_name, mime_type, size_bytes)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO event_attachments (
+          event_id,
+          uploaded_by,
+          owner_id,
+          original_name,
+          stored_name,
+          mime_type,
+          size_bytes
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id, event_id AS "eventId", original_name AS "originalName", mime_type AS "mimeType",
                   size_bytes AS "sizeBytes", created_at AS "createdAt"
       `,
       [
         params.id,
+        req.user.sub,
         req.user.sub,
         req.file.originalname,
         req.file.filename,
@@ -1459,6 +1521,8 @@ router.get("/:id/attachments", authenticate, async (req, res, next) => {
         SELECT
           id,
           event_id AS "eventId",
+          owner_id AS "ownerId",
+          uploaded_by AS "uploadedBy",
           original_name AS "originalName",
           mime_type AS "mimeType",
           size_bytes AS "sizeBytes",
@@ -1470,8 +1534,17 @@ router.get("/:id/attachments", authenticate, async (req, res, next) => {
       [params.id]
     );
 
+    const items = result.rows.map((item) => ({
+      ...item,
+      permissions: {
+        canView: canUserViewFile(req.user, item),
+        canEdit: canUserEditFile(req.user, item),
+        canDelete: canUserDeleteFile(req.user, item)
+      }
+    }));
+
     return res.json({
-      items: result.rows,
+      items,
       permissions: {
         canUpload: canUserUploadEventAttachment(req.user, event.encargado_id),
         canView: canUserViewEventAttachments(req.user, event.encargado_id)
@@ -1489,41 +1562,17 @@ router.get("/attachments/:attachmentId/download", authenticate, async (req, res,
   try {
     const params = attachmentDownloadSchema.parse(req.params);
 
-    const attachmentResult = await pool.query(
-      `
-        SELECT
-          ea.id,
-          ea.event_id,
-          ea.original_name,
-          ea.stored_name,
-          ea.mime_type,
-          ea.size_bytes,
-          e.encargado_id
-        FROM event_attachments ea
-        JOIN events e ON e.id = ea.event_id
-        WHERE ea.id = $1
-        LIMIT 1
-      `,
-      [params.attachmentId]
-    );
-
-    if (attachmentResult.rowCount === 0) {
+    const attachment = await getAttachmentById(params.attachmentId);
+    if (!attachment) {
       return res.status(404).json({ error: "attachment_not_found" });
     }
 
-    const attachment = attachmentResult.rows[0];
-    if (
-      !ensureEventAttachmentPermissionOrNotFound(
-        req,
-        res,
-        attachment,
-        "view",
-        "attachment_not_found"
-      )
-    ) {
-      return;
+    if (!canUserViewFile(req.user, attachment)) {
+      await auditAttachmentAccessDenied(req, params.attachmentId, "view_forbidden");
+      return res.status(403).json({ error: "forbidden" });
     }
-    const filePath = resolveStoredAttachmentPath(attachment.stored_name);
+
+    const filePath = resolveStoredAttachmentPath(attachment.storedName);
     if (!filePath) {
       return res.status(404).json({ error: "attachment_not_found" });
     }
@@ -1531,11 +1580,11 @@ router.get("/attachments/:attachmentId/download", authenticate, async (req, res,
     await fs.access(filePath);
 
     const downloadName = safeDownloadFileName(
-      attachment.original_name,
-      attachment.mime_type,
+      attachment.originalName,
+      attachment.mimeType,
       attachment.id
     );
-    res.setHeader("Content-Type", attachment.mime_type);
+    res.setHeader("Content-Type", attachment.mimeType);
     return res.download(filePath, downloadName);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -1546,6 +1595,114 @@ router.get("/attachments/:attachmentId/download", authenticate, async (req, res,
       return res.status(404).json({ error: "attachment_not_found" });
     }
 
+    return next(error);
+  }
+});
+
+router.patch("/attachments/:attachmentId", authenticate, async (req, res, next) => {
+  try {
+    const params = attachmentDownloadSchema.parse(req.params);
+    const payload = updateAttachmentSchema.parse(req.body);
+    const attachment = await getAttachmentById(params.attachmentId);
+
+    if (!attachment) {
+      return res.status(404).json({ error: "attachment_not_found" });
+    }
+
+    if (!canUserEditFile(req.user, attachment)) {
+      await auditAttachmentAccessDenied(req, params.attachmentId, "edit_forbidden");
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    const safeName = sanitizeOriginalFileName(payload.originalName);
+    if (!safeName) {
+      return res.status(400).json({ error: "invalid_file_name" });
+    }
+    if (!hasAllowedExtensionForMime(safeName, attachment.mimeType)) {
+      return res.status(400).json({ error: "invalid_file_extension" });
+    }
+
+    const result = await pool.query(
+      `
+        UPDATE event_attachments
+        SET original_name = $2
+        WHERE id = $1
+        RETURNING
+          id,
+          event_id AS "eventId",
+          owner_id AS "ownerId",
+          uploaded_by AS "uploadedBy",
+          original_name AS "originalName",
+          mime_type AS "mimeType",
+          size_bytes AS "sizeBytes",
+          created_at AS "createdAt"
+      `,
+      [params.attachmentId, safeName]
+    );
+
+    await createAuditLog({
+      userId: req.user.sub,
+      action: "events.attachment_updated",
+      entity: "event_attachment",
+      entityId: params.attachmentId,
+      metadata: {
+        beforeName: attachment.originalName,
+        afterName: safeName
+      },
+      req
+    });
+
+    const updated = result.rows[0];
+    return res.json({
+      ...updated,
+      permissions: {
+        canView: canUserViewFile(req.user, updated),
+        canEdit: canUserEditFile(req.user, updated),
+        canDelete: canUserDeleteFile(req.user, updated)
+      }
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error" });
+    }
+    return next(error);
+  }
+});
+
+router.delete("/attachments/:attachmentId", authenticate, async (req, res, next) => {
+  try {
+    const params = attachmentDownloadSchema.parse(req.params);
+    const attachment = await getAttachmentById(params.attachmentId);
+
+    if (!attachment) {
+      return res.status(404).json({ error: "attachment_not_found" });
+    }
+
+    if (!canUserDeleteFile(req.user, attachment)) {
+      await auditAttachmentAccessDenied(req, params.attachmentId, "delete_forbidden");
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    await pool.query("DELETE FROM event_attachments WHERE id = $1", [params.attachmentId]);
+    await removeStoredFiles([attachment.storedName]);
+
+    await createAuditLog({
+      userId: req.user.sub,
+      action: "events.attachment_deleted",
+      entity: "event_attachment",
+      entityId: params.attachmentId,
+      metadata: {
+        eventId: attachment.eventId,
+        fileName: attachment.originalName
+      },
+      req
+    });
+
+    return res.json({ message: "Adjunto eliminado correctamente" });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error" });
+    }
     return next(error);
   }
 });

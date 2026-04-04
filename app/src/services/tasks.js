@@ -5,6 +5,7 @@ const {
   canUserViewTask,
   canUserEditTask,
   canUserDeleteTask,
+  canUserManageTaskSharedEdit,
   buildTaskPermissions
 } = require("./authorization");
 
@@ -51,6 +52,53 @@ function normalizeMetadata(value) {
   return value;
 }
 
+function normalizeAssigneeIds(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const normalized = value
+    .map((candidate) => Number(candidate))
+    .filter((candidate) => Number.isInteger(candidate) && candidate > 0);
+  return Array.from(new Set(normalized));
+}
+
+function parsePgBigIntArray(value) {
+  if (Array.isArray(value)) {
+    return normalizeAssigneeIds(value);
+  }
+
+  const raw = String(value || "").trim();
+  if (!raw || raw === "{}") {
+    return [];
+  }
+
+  const parsed = raw
+    .replace(/^\{/, "")
+    .replace(/\}$/, "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return normalizeAssigneeIds(parsed);
+}
+
+function buildTaskIdentityFromRow(row) {
+  const createdById = toPositiveInteger(row.createdById ?? row.created_by ?? row.createdBy);
+  const assignedToId = toPositiveInteger(row.assignedToId ?? row.assigned_to ?? row.assignedTo);
+  const assigneeIdsRaw = row.assigneeIds ?? row.assignee_ids ?? [];
+  const assigneeIds = parsePgBigIntArray(assigneeIdsRaw);
+  if (assignedToId && !assigneeIds.includes(assignedToId)) {
+    assigneeIds.unshift(assignedToId);
+  }
+
+  return {
+    createdById,
+    assignedToId,
+    assignedUserIds: assigneeIds,
+    allowAssigneesEdit: Boolean(row.allowAssigneesEdit ?? row.allow_assignees_edit ?? false)
+  };
+}
+
 function normalizeSort(sortBy, sortOrder) {
   const safeSortBy = TASK_SORT_COLUMNS[sortBy] ? sortBy : "updatedAt";
   const safeSortOrder = String(sortOrder || "desc").toLowerCase() === "asc" ? "ASC" : "DESC";
@@ -70,8 +118,10 @@ function buildTaskFilters(query, user) {
       whereParts.push("1 = 0");
     } else {
       const creatorIndex = params.push(actorId);
-      const assigneeIndex = params.push(actorId);
-      whereParts.push(`(t.created_by = $${creatorIndex} OR t.assigned_to = $${assigneeIndex})`);
+      const assigneeArrayIndex = params.push(actorId);
+      whereParts.push(
+        `(t.created_by = $${creatorIndex} OR $${assigneeArrayIndex} = ANY(t.assignee_ids))`
+      );
     }
   }
 
@@ -92,7 +142,7 @@ function buildTaskFilters(query, user) {
 
   if (query.assignedToId) {
     const assignedToIndex = params.push(query.assignedToId);
-    whereParts.push(`t.assigned_to = $${assignedToIndex}`);
+    whereParts.push(`$${assignedToIndex} = ANY(t.assignee_ids)`);
   }
 
   if (query.startFrom) {
@@ -131,12 +181,9 @@ function mapTaskRow(row, user) {
     return null;
   }
 
-  const createdById = toPositiveInteger(row.createdById);
-  const assignedToId = toPositiveInteger(row.assignedToId);
-  const taskIdentity = {
-    createdById,
-    assignedToId
-  };
+  const taskIdentity = buildTaskIdentityFromRow(row);
+  const createdById = taskIdentity.createdById;
+  const assignedToId = taskIdentity.assignedToId;
 
   return {
     id: toPositiveInteger(row.id),
@@ -147,6 +194,8 @@ function mapTaskRow(row, user) {
     startDate: toDateOnly(row.startDate),
     dueDate: toDateOnly(row.dueDate),
     metadata: normalizeMetadata(row.metadata),
+    allowAssigneesEdit: taskIdentity.allowAssigneesEdit,
+    assignedUserIds: taskIdentity.assignedUserIds,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     createdBy: {
@@ -175,6 +224,8 @@ function taskRowSelectSql() {
       t.priority,
       t.start_date AS "startDate",
       t.due_date AS "dueDate",
+      t.assignee_ids AS "assigneeIds",
+      t.allow_assignees_edit AS "allowAssigneesEdit",
       t.metadata,
       t.created_at AS "createdAt",
       t.updated_at AS "updatedAt",
@@ -211,6 +262,24 @@ async function getUserLiteById(userId) {
   }
 
   return result.rows[0];
+}
+
+async function getUsersLiteByIds(userIds) {
+  const normalizedIds = normalizeAssigneeIds(userIds);
+  if (!normalizedIds.length) {
+    return [];
+  }
+
+  const result = await pool.query(
+    `
+      SELECT id, name, email
+      FROM users
+      WHERE id = ANY($1::bigint[])
+    `,
+    [normalizedIds]
+  );
+
+  return result.rows;
 }
 
 async function getTaskById(taskId) {
@@ -335,6 +404,9 @@ async function createTask({ user, payload }) {
   }
 
   const metadata = normalizeMetadata(payload.metadata);
+  const assigneeIds = normalizeAssigneeIds(payload.assigneeIds);
+  const primaryAssignedTo = assigneeIds[0] || null;
+  const allowAssigneesEdit = Boolean(payload.allowAssigneesEdit);
   const insertResult = await pool.query(
     `
       INSERT INTO tasks (
@@ -346,9 +418,11 @@ async function createTask({ user, payload }) {
         due_date,
         created_by,
         assigned_to,
+        assignee_ids,
+        allow_assignees_edit,
         metadata
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::bigint[], $10, $11::jsonb)
       RETURNING id
     `,
     [
@@ -359,7 +433,9 @@ async function createTask({ user, payload }) {
       payload.startDate || null,
       payload.dueDate || null,
       actorId,
-      payload.assignedTo || null,
+      primaryAssignedTo,
+      assigneeIds,
+      allowAssigneesEdit,
       JSON.stringify(metadata)
     ]
   );
@@ -382,8 +458,20 @@ async function patchTask({ taskId, user, payload }) {
     };
   }
 
+  if (
+    Object.prototype.hasOwnProperty.call(payload, "allowAssigneesEdit") &&
+    !canUserManageTaskSharedEdit(user, beforeRow)
+  ) {
+    return {
+      error: "shared_edit_forbidden"
+    };
+  }
+
   const fields = [];
   const values = [taskId];
+  const beforeIdentity = buildTaskIdentityFromRow(beforeRow);
+  let nextAssigneeIds = beforeIdentity.assignedUserIds.slice();
+  let nextAllowAssigneesEdit = beforeIdentity.allowAssigneesEdit;
 
   if (payload.title !== undefined) {
     values.push(payload.title);
@@ -410,8 +498,31 @@ async function patchTask({ taskId, user, payload }) {
     fields.push(`due_date = $${values.length}`);
   }
   if (payload.assignedTo !== undefined) {
-    values.push(payload.assignedTo || null);
+    nextAssigneeIds = normalizeAssigneeIds(payload.assigneeIds || []);
+    const fallbackAssignedTo = payload.assignedTo || null;
+    if (
+      Number.isInteger(Number(fallbackAssignedTo)) &&
+      Number(fallbackAssignedTo) > 0 &&
+      !nextAssigneeIds.includes(Number(fallbackAssignedTo))
+    ) {
+      nextAssigneeIds.unshift(Number(fallbackAssignedTo));
+    }
+
+    values.push(nextAssigneeIds[0] || null);
     fields.push(`assigned_to = $${values.length}`);
+    values.push(nextAssigneeIds);
+    fields.push(`assignee_ids = $${values.length}::bigint[]`);
+  } else if (payload.assigneeIds !== undefined) {
+    nextAssigneeIds = normalizeAssigneeIds(payload.assigneeIds || []);
+    values.push(nextAssigneeIds[0] || null);
+    fields.push(`assigned_to = $${values.length}`);
+    values.push(nextAssigneeIds);
+    fields.push(`assignee_ids = $${values.length}::bigint[]`);
+  }
+  if (payload.allowAssigneesEdit !== undefined) {
+    nextAllowAssigneesEdit = Boolean(payload.allowAssigneesEdit);
+    values.push(nextAllowAssigneesEdit);
+    fields.push(`allow_assignees_edit = $${values.length}`);
   }
   if (payload.metadata !== undefined) {
     values.push(JSON.stringify(normalizeMetadata(payload.metadata)));
@@ -421,6 +532,12 @@ async function patchTask({ taskId, user, payload }) {
   if (fields.length === 0) {
     return {
       error: "no_changes"
+    };
+  }
+
+  if (nextAllowAssigneesEdit && nextAssigneeIds.length === 0) {
+    return {
+      error: "invalid_shared_edit_state"
     };
   }
 
@@ -445,7 +562,18 @@ async function patchTask({ taskId, user, payload }) {
     before: mapTaskRow(beforeRow, user),
     after: mapTaskRow(afterRow, user),
     statusChanged: beforeRow.status !== afterRow.status,
-    assignedChanged: Number(beforeRow.assignedToId || 0) !== Number(afterRow.assignedToId || 0)
+    assignedChanged: (() => {
+      const afterIdentity = buildTaskIdentityFromRow(afterRow);
+      if (beforeIdentity.assignedUserIds.length !== afterIdentity.assignedUserIds.length) {
+        return true;
+      }
+      return beforeIdentity.assignedUserIds.some(
+        (value, index) => value !== afterIdentity.assignedUserIds[index]
+      );
+    })(),
+    sharedEditChanged:
+      Boolean(beforeRow.allowAssigneesEdit ?? beforeRow.allow_assignees_edit ?? false) !==
+      Boolean(afterRow.allowAssigneesEdit ?? afterRow.allow_assignees_edit ?? false)
   };
 }
 
@@ -580,6 +708,8 @@ function toDashboardTaskItem(task) {
     title: task.title,
     status: task.status,
     priority: task.priority,
+    allowAssigneesEdit: Boolean(task.allowAssigneesEdit),
+    assignedUserIds: Array.isArray(task.assignedUserIds) ? task.assignedUserIds : [],
     dueDate: task.dueDate,
     updatedAt: task.updatedAt,
     createdBy: task.createdBy ? { id: task.createdBy.id, name: task.createdBy.name } : null,
@@ -619,7 +749,7 @@ async function getTaskDashboardSummary({ user, dueSoonDays = 7, recentLimit = 5 
             AND t.due_date <= CURRENT_DATE + $${dueSoonIndex}::int
             AND t.status NOT IN ('completada', 'cancelada')
         )::int AS proximas_vencer,
-        COUNT(*) FILTER (WHERE t.assigned_to = $${actorIndex})::int AS asignadas_a_mi,
+        COUNT(*) FILTER (WHERE $${actorIndex} = ANY(t.assignee_ids))::int AS asignadas_a_mi,
         COUNT(*) FILTER (WHERE t.created_by = $${actorIndex})::int AS creadas_por_mi
       FROM tasks t
       WHERE ${whereSql}
@@ -670,6 +800,7 @@ module.exports = {
   TASK_PRIORITIES,
   ensureTaskDateRange,
   getUserLiteById,
+  getUsersLiteByIds,
   listTasks,
   listTasksForExport,
   getTaskByIdForUser,

@@ -624,10 +624,14 @@
                         <input id="taskDueDate" type="date" />
                       </label>
                       <label>
-                        Asignado a
-                        <select id="taskAssignedTo">
+                        Asignados
+                        <select id="taskAssignedTo" multiple size="4">
                           <option value="">Sin asignar</option>
                         </select>
+                      </label>
+                      <label id="taskAllowAssigneesEditWrap" class="task-shared-edit-toggle hidden">
+                        <input id="taskAllowAssigneesEdit" type="checkbox" />
+                        Permitir edicion a usuarios asignados
                       </label>
                       <div class="form-actions">
                         <button type="submit" id="taskSaveBtn" class="btn btn-primary">Guardar tarea</button>
