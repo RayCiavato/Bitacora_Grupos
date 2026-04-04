@@ -209,7 +209,7 @@ Asegurate de tener abiertos `80` y `443` en firewall/router cuando uses `CADDY_P
 Flujo recomendado:
 
 ```bash
-cd ~/apps/bitacora
+cd ~/apps/Bitacora_gestor_tareas
 chmod +x scripts/*.sh
 bash scripts/deploy-safe.sh
 docker compose ps
