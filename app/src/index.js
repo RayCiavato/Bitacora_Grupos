@@ -172,11 +172,14 @@ function createApp() {
       return res.status(404).send("Not found");
     }
 
+    const looksLikeAssetFetch = scriptLikeRequest || (hasSameOriginReferer && !directDocumentRequest);
+
     if (expectedAssetToken) {
+      if (!looksLikeAssetFetch) {
+        return res.status(404).send("Not found");
+      }
       return next();
     }
-
-    const looksLikeAssetFetch = scriptLikeRequest || (hasSameOriginReferer && !directDocumentRequest);
 
     if (!looksLikeAssetFetch) {
       return res.status(404).send("Not found");

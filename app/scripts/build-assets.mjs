@@ -47,7 +47,7 @@ async function buildTarget(target) {
     throw new Error(`No se pudo minificar ${path.basename(target.input)}`);
   }
   await mkdir(path.dirname(target.output), { recursive: true });
-  await writeFile(target.output, `${result.code}\n`, "utf8");
+  await writeFile(target.output, result.code, "utf8");
 }
 
 async function main() {
@@ -60,3 +60,4 @@ main().catch((error) => {
   console.error(error?.message || error);
   process.exit(1);
 });
+

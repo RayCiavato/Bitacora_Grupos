@@ -73,6 +73,14 @@ test("GET /assets/app.min.js sin token de asset devuelve 404", async () => {
   assert.equal(response.status, 404);
 });
 
+test("GET /assets/app.min.js con token pero sin senales de carga legitima devuelve 404", async () => {
+  const response = await request(app)
+    .get("/assets/app.min.js?asset=web")
+    .set("Host", "bitacora.local")
+    .set("Accept", "*/*");
+  assert.equal(response.status, 404);
+});
+
 test("GET /app.js legacy bloqueado devuelve 404", async () => {
   const response = await request(app).get("/app.js").set("Accept", "*/*");
   assert.equal(response.status, 404);
@@ -120,7 +128,7 @@ test("app.min.js esta minimizado y sin source map publico", () => {
   const appMinSource = fs.readFileSync(appMinPath, "utf8");
   const nonEmptyLines = appMinSource.split(/\r?\n/).filter((line) => line.trim().length > 0);
 
-  assert.ok(nonEmptyLines.length <= 3);
+  assert.equal(nonEmptyLines.length, 1);
   assert.equal(appMinSource.includes("sourceMappingURL"), false);
 });
 
