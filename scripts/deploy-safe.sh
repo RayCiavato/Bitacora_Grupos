@@ -146,16 +146,69 @@ is_legacy_compose() {
   [[ "${COMPOSE_CMD[0]}" == "docker-compose" ]]
 }
 
+COMPOSE_LAST_UP_LOG=""
+
 compose_up_stack() {
-  if [[ "$NO_BUILD" -eq 1 ]]; then
-    "${COMPOSE_CMD[@]}" up -d
-  else
-    "${COMPOSE_CMD[@]}" up -d --build
+  local status=0
+  local up_log
+  if [[ -n "$COMPOSE_LAST_UP_LOG" && -f "$COMPOSE_LAST_UP_LOG" ]]; then
+    rm -f "$COMPOSE_LAST_UP_LOG" >/dev/null 2>&1 || true
   fi
+
+  up_log="$(mktemp)"
+
+  if [[ "$NO_BUILD" -eq 1 ]]; then
+    set +e
+    "${COMPOSE_CMD[@]}" up -d 2>&1 | tee "$up_log"
+    status=${PIPESTATUS[0]}
+    set -e
+  else
+    set +e
+    "${COMPOSE_CMD[@]}" up -d --build 2>&1 | tee "$up_log"
+    status=${PIPESTATUS[0]}
+    set -e
+  fi
+
+  COMPOSE_LAST_UP_LOG="$up_log"
+  return "$status"
+}
+
+cleanup_conflicting_named_containers() {
+  local up_log_file="$1"
+  local -a conflicts=()
+  local name
+
+  if [[ -z "$up_log_file" || ! -f "$up_log_file" ]]; then
+    return 1
+  fi
+
+  mapfile -t conflicts < <(
+    grep -oE 'container name "/[^"]+"' "$up_log_file" \
+      | sed -E 's/.*"\/([^"]+)".*/\1/' \
+      | sort -u
+  )
+
+  if ((${#conflicts[@]} == 0)); then
+    return 1
+  fi
+
+  echo "WARN: conflicto de container_name detectado. Limpiando contenedores en conflicto..."
+  for name in "${conflicts[@]}"; do
+    echo " - removiendo contenedor existente: $name"
+    docker rm -f "$name" >/dev/null 2>&1 || true
+  done
+
+  return 0
 }
 
 if ! compose_up_stack; then
-  if is_legacy_compose; then
+  if cleanup_conflicting_named_containers "$COMPOSE_LAST_UP_LOG"; then
+    echo "INFO: reintentando deploy despues de limpiar conflictos de nombre..."
+    if ! compose_up_stack; then
+      echo "ERROR: fallo en deploy con Compose luego de limpiar conflictos de nombre."
+      exit 1
+    fi
+  elif is_legacy_compose; then
     echo "WARN: fallo de recreate detectado en docker-compose legacy. Aplicando workaround seguro..."
     "${COMPOSE_CMD[@]}" rm -f -s app >/dev/null 2>&1 || true
     "${COMPOSE_CMD[@]}" down --remove-orphans >/dev/null 2>&1 || true
@@ -164,6 +217,10 @@ if ! compose_up_stack; then
     echo "ERROR: fallo en deploy con Compose."
     exit 1
   fi
+fi
+
+if [[ -n "$COMPOSE_LAST_UP_LOG" ]]; then
+  rm -f "$COMPOSE_LAST_UP_LOG" >/dev/null 2>&1 || true
 fi
 
 for _ in {1..90}; do

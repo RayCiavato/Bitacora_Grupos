@@ -1,4 +1,4 @@
-﻿# Manual De Despliegue En Servidor Ubuntu (BitacoraHardening)
+# Manual De Despliegue En Servidor Ubuntu (BitacoraHardening)
 
 Repositorio oficial:
 - https://github.com/RayCiavato/Bitacora_gestor_tareas.git
@@ -100,7 +100,7 @@ cd ~/apps/Bitacora_gestor_tareas
 chmod +x scripts/*.sh
 
 bash scripts/install-server-safe.sh \
-  --app-domain 10.156.99.15 \
+  --app-domain 10.0.210.43 \
   --admin-email admin@n1njahack.local \
   --admin-password 'N1njaHack@2026!' \
   --db-password 'BitacoraDB_2026' \
@@ -227,6 +227,19 @@ cd ~/apps/Bitacora_gestor_tareas
 git stash push -u -m "pre-pull-$(date +%F-%H%M%S)"
 git pull --ff-only origin main
 ```
+
+### F) `Conflict. The container name ... is already in use`
+
+Quedo un contenedor viejo con nombre fijo (por ejemplo `bitacora-node-exporter`) y Compose no puede recrearlo.
+
+```bash
+cd ~/apps/Bitacora_gestor_tareas
+docker rm -f bitacora-node-exporter 2>/dev/null || true
+bash scripts/deploy-safe.sh --fresh-db --ensure-admin --admin-email admin@n1njahack.local --admin-password 'N1njaHack@2026!'
+```
+
+Nota:
+- Si haces `git pull` y actualizas a la version nueva de `deploy-safe.sh`, este conflicto se limpia automaticamente y se reintenta el deploy.
 
 ---
 
