@@ -104,6 +104,22 @@ async function ensureDatabaseSchema() {
       )
     `,
     `
+      CREATE TABLE IF NOT EXISTS role_permission_policies (
+        role user_role PRIMARY KEY,
+        permissions JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS system_settings (
+        setting_key VARCHAR(80) PRIMARY KEY,
+        value_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `,
+    `
       CREATE TABLE IF NOT EXISTS event_templates (
         id BIGSERIAL PRIMARY KEY,
         name VARCHAR(160) NOT NULL UNIQUE,
@@ -261,6 +277,8 @@ async function ensureDatabaseSchema() {
     "CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at ON refresh_tokens(expires_at)",
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_role_permission_policies_updated_at ON role_permission_policies(updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_system_settings_updated_at ON system_settings(updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_event_attachments_event_id ON event_attachments(event_id)",
     "CREATE INDEX IF NOT EXISTS idx_event_attachments_owner_id ON event_attachments(owner_id)",
     `
@@ -390,3 +408,7 @@ async function ensureAdminUser() {
 }
 
 module.exports = { pool, ensureDatabaseSchema, ensureAdminUser };
+
+
+
+

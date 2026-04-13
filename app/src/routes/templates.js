@@ -1,9 +1,10 @@
-const express = require("express");
+﻿const express = require("express");
 const { z } = require("zod");
 const { pool } = require("../db");
 const { authenticate, requireRole } = require("../middleware/auth");
 const { createAuditLog } = require("../services/audit");
-const { canUserManageTemplates } = require("../services/authorization");
+const { getSystemSettings } = require("../services/systemSettings");
+const { canUserManageTemplates, canUserCreateEvent } = require("../services/authorization");
 
 const router = express.Router();
 
@@ -24,9 +25,23 @@ const idSchema = z.object({
   id: z.coerce.number().int().positive()
 });
 
+function areTemplatesEnabled() {
+  const settings = getSystemSettings();
+  return Boolean(settings?.features?.templatesEnabled);
+}
+
 router.get("/", authenticate, async (req, res, next) => {
   try {
     const showAll = canUserManageTemplates(req.user);
+    const canConsumeTemplates = canUserCreateEvent(req.user);
+    if (!showAll && !canConsumeTemplates) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    if (!areTemplatesEnabled()) {
+      return res.json([]);
+    }
+
     const result = await pool.query(
       `
         SELECT
@@ -52,6 +67,14 @@ router.get("/", authenticate, async (req, res, next) => {
 
 router.post("/", authenticate, requireRole(["admin", "supervisor"]), async (req, res, next) => {
   try {
+    if (!canUserManageTemplates(req.user)) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    if (!areTemplatesEnabled()) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
     const payload = templateSchema.parse(req.body);
     const result = await pool.query(
       `
@@ -110,6 +133,14 @@ router.post("/", authenticate, requireRole(["admin", "supervisor"]), async (req,
 
 router.patch("/:id", authenticate, requireRole(["admin", "supervisor"]), async (req, res, next) => {
   try {
+    if (!canUserManageTemplates(req.user)) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    if (!areTemplatesEnabled()) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
     const params = idSchema.parse(req.params);
     const payload = templateUpdateSchema.parse(req.body);
 
@@ -189,6 +220,14 @@ router.delete(
   requireRole(["admin", "supervisor"]),
   async (req, res, next) => {
     try {
+      if (!canUserManageTemplates(req.user)) {
+        return res.status(403).json({ error: "forbidden" });
+      }
+
+      if (!areTemplatesEnabled()) {
+        return res.status(403).json({ error: "forbidden" });
+      }
+
       const params = idSchema.parse(req.params);
       const result = await pool.query(
         `
@@ -223,4 +262,3 @@ router.delete(
 );
 
 module.exports = { templatesRouter: router };
-

@@ -2,6 +2,7 @@ const express = require("express");
 const { z } = require("zod");
 const { pool } = require("../db");
 const { authenticate, requireRole } = require("../middleware/auth");
+const { canUserAccessPanel } = require("../services/authorization");
 
 const router = express.Router();
 
@@ -16,6 +17,10 @@ const querySchema = z.object({
 
 router.get("/", authenticate, requireRole(["admin", "supervisor"]), async (req, res, next) => {
   try {
+    if (!canUserAccessPanel(req.user, "auditoria")) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
     const query = querySchema.parse(req.query);
 
     const where = [];

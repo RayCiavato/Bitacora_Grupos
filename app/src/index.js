@@ -14,8 +14,12 @@ const { eventsRouter } = require("./routes/events");
 const { tasksRouter } = require("./routes/tasks");
 const { templatesRouter } = require("./routes/templates");
 const { auditRouter } = require("./routes/audit");
+const { rolesPermissionsRouter } = require("./routes/rolesPermissions");
+const { settingsRouter } = require("./routes/settings");
 const { healthRouter } = require("./routes/health");
 const { startReminderScheduler } = require("./services/reminders");
+const { ensureRolePermissionPoliciesLoaded, seedMissingRolePolicies } = require("./services/rolePoliciesStore");
+const { ensureSystemSettingsLoaded } = require("./services/systemSettingsStore");
 const {
   hardenPathExposure,
   notFoundHandler,
@@ -91,7 +95,9 @@ function createApp() {
       req.path.startsWith("/events") ||
       req.path.startsWith("/tasks") ||
       req.path.startsWith("/templates") ||
-      req.path.startsWith("/audit")
+      req.path.startsWith("/audit") ||
+      req.path.startsWith("/roles-permissions") ||
+      req.path.startsWith("/settings")
     ) {
       res.set("Cache-Control", "no-store");
     }
@@ -271,6 +277,8 @@ function createApp() {
   app.use("/auth", authRouter);
   app.use("/users", usersRouter);
   app.use("/audit", auditRouter);
+  app.use("/roles-permissions", rolesPermissionsRouter);
+  app.use("/settings", settingsRouter);
   app.use("/templates", templatesRouter);
   app.use("/events", eventsRouter);
   app.use("/tasks", tasksRouter);
@@ -373,6 +381,9 @@ function createApp() {
 async function start() {
   await ensureDatabaseSchema();
   await ensureAdminUser();
+  await ensureRolePermissionPoliciesLoaded();
+  await seedMissingRolePolicies();
+  await ensureSystemSettingsLoaded();
   startReminderScheduler();
 
   const app = createApp();
@@ -389,4 +400,9 @@ if (require.main === module) {
 }
 
 module.exports = { createApp, start };
+
+
+
+
+
 

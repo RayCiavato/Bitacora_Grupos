@@ -270,7 +270,7 @@
                   <a href="/usuarios" class="btn btn-ghost sidebar-link hidden" data-requires="admin">
                     Usuarios
                   </a>
-                  <a href="/usuarios#roles" class="btn btn-ghost sidebar-link hidden" data-requires="admin">
+                  <a href="/usuarios/roles" class="btn btn-ghost sidebar-link hidden" data-requires="admin">
                     Roles y permisos
                   </a>
                 </div>
@@ -913,6 +913,43 @@
                 </p>
               </section>
 
+              <section id="rbacSection" class="card hidden">
+                <div class="rbac-head">
+                  <h3>Roles y permisos</h3>
+                  <p class="help-text">Gestiona capacidades por modulo con controles anti-escalado.</p>
+                </div>
+
+                <div class="rbac-toolbar">
+                  <label>
+                    Rol
+                    <select id="rbacRoleSelect"></select>
+                  </label>
+                  <div class="rbac-toolbar-actions">
+                    <button id="rbacReloadBtn" type="button" class="btn btn-ghost">Recargar</button>
+                    <button id="rbacSaveBtn" type="button" class="btn btn-primary">Guardar permisos</button>
+                  </div>
+                </div>
+
+                <div class="table-wrap rbac-table-wrap">
+                  <table class="rbac-policy-table">
+                    <thead>
+                      <tr>
+                        <th>Modulo</th>
+                        <th>Ver</th>
+                        <th>Crear</th>
+                        <th>Editar</th>
+                        <th>Eliminar</th>
+                        <th>Exportar</th>
+                        <th>Administrar</th>
+                      </tr>
+                    </thead>
+                    <tbody id="rbacTableBody"></tbody>
+                  </table>
+                </div>
+
+                <p id="rbacMeta" class="help-text">Cargando permisos...</p>
+              </section>
+
               <section id="templateTools" class="card hidden">
                 <h3>Plantillas de registro</h3>
                 <form id="templateForm" class="form">
@@ -972,15 +1009,64 @@
               </section>
 
               <section id="settingsSection" class="card hidden">
-                <h3>Configuracion operativa</h3>
-                <p class="help-text">Estado rapido del entorno sin exponer informacion sensible.</p>
-                <ul class="system-settings-list">
-                  <li><strong>Autenticacion:</strong> JWT + cookies HttpOnly</li>
-                  <li><strong>MFA:</strong> habilitado por flujo seguro</li>
-                  <li><strong>Hardening:</strong> anti-enumeracion y respuestas limpias</li>
-                  <li><strong>Base de datos:</strong> PostgreSQL</li>
-                  <li><strong>Auditoria:</strong> activa en acciones criticas</li>
-                </ul>
+                <h3>Configuracion global</h3>
+                <p class="help-text">Parametros centrales del sistema con validacion estricta y auditoria.</p>
+
+                <form id="systemSettingsForm" class="form settings-form">
+                  <div class="settings-grid">
+                    <label>
+                      Reportes por pagina (default)
+                      <input id="settingReportPageSizeDefault" type="number" min="5" max="100" required />
+                    </label>
+                    <label>
+                      Reportes por pagina (maximo)
+                      <input id="settingReportPageSizeMax" type="number" min="10" max="500" required />
+                    </label>
+                    <label>
+                      Tareas por pagina (default)
+                      <input id="settingTasksPageSizeDefault" type="number" min="5" max="100" required />
+                    </label>
+                    <label>
+                      Tareas por pagina (maximo)
+                      <input id="settingTasksPageSizeMax" type="number" min="10" max="100" required />
+                    </label>
+                    <label>
+                      Dashboard dias de eventos
+                      <input id="settingEventsDays" type="number" min="7" max="90" required />
+                    </label>
+                    <label>
+                      Dashboard dias de tareas
+                      <input id="settingTasksSummaryDays" type="number" min="1" max="30" required />
+                    </label>
+                    <label>
+                      Dashboard limite recientes
+                      <input id="settingTasksRecentLimit" type="number" min="1" max="12" required />
+                    </label>
+                  </div>
+
+                  <fieldset class="settings-features">
+                    <legend>Flags funcionales</legend>
+                    <label class="settings-flag-item">
+                      <input id="settingTemplatesEnabled" type="checkbox" />
+                      Habilitar modulo de plantillas
+                    </label>
+                    <label class="settings-flag-item">
+                      <input id="settingTaskExportsEnabled" type="checkbox" />
+                      Habilitar exportaciones de tareas
+                    </label>
+                    <label class="settings-flag-item">
+                      <input id="settingReportExportsEnabled" type="checkbox" />
+                      Habilitar exportaciones de reportes
+                    </label>
+                  </fieldset>
+
+                  <div class="form-actions">
+                    <button id="settingsReloadBtn" type="button" class="btn btn-ghost">Recargar</button>
+                    <button id="settingsSaveBtn" type="submit" class="btn btn-primary">Guardar configuracion</button>
+                  </div>
+                </form>
+
+                <p id="settingsMeta" class="help-text">Cargando configuracion...</p>
               </section>
             </div>
           </div>
@@ -1081,6 +1167,9 @@
     <script src="/assets/tasks.min.js?asset=tasks" defer></script>
   </body>
 </html>
+
+
+
 
 
 

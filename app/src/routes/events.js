@@ -1,4 +1,4 @@
-﻿const fs = require("fs/promises");
+const fs = require("fs/promises");
 const path = require("path");
 const crypto = require("crypto");
 const express = require("express");
@@ -11,8 +11,12 @@ const { authenticate } = require("../middleware/auth");
 const { logger } = require("../logger");
 const { createAuditLog } = require("../services/audit");
 const { config } = require("../config");
+const { getSystemSettings } = require("../services/systemSettings");
 const {
+  canUserAccessPanel,
   canUserFilterByUser,
+  canUserExportReports,
+  canUserCreateEvent,
   canUserEditAnyEvent,
   canUserEditEvent,
   canUserDeleteAnyEvent,
@@ -74,6 +78,48 @@ const trendsQuerySchema = z.object({
 const dashboardQuerySchema = z.object({
   days: z.coerce.number().int().min(7).max(90).default(30)
 });
+
+function clampNumber(value, min, max, fallback) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.trunc(numeric)));
+}
+
+function getRuntimeSystemSettings() {
+  const current = getSystemSettings();
+
+  const reportPageSizeMax = clampNumber(current?.pagination?.reportPageSizeMax, 10, 500, 200);
+  const reportPageSizeDefault = clampNumber(
+    current?.pagination?.reportPageSizeDefault,
+    5,
+    reportPageSizeMax,
+    20
+  );
+  const dashboardEventsDays = clampNumber(current?.dashboard?.eventsDays, 7, 90, 30);
+
+  return {
+    pagination: {
+      reportPageSizeDefault,
+      reportPageSizeMax
+    },
+    dashboard: {
+      eventsDays: dashboardEventsDays
+    },
+    features: {
+      reportExportsEnabled: Boolean(current?.features?.reportExportsEnabled ?? true)
+    }
+  };
+}
+
+function canViewEventsReportModule(user) {
+  return (
+    canUserAccessPanel(user, "resumen") ||
+    canUserAccessPanel(user, "informes") ||
+    canUserAccessPanel(user, "adjuntos")
+  );
+}
 
 const attachmentParamsSchema = z.object({
   id: z.coerce.number().int().positive()
@@ -792,6 +838,10 @@ function ensureEventAttachmentPermissionOrNotFound(
 
 router.post("/", authenticate, async (req, res, next) => {
   try {
+    if (!canUserAccessPanel(req.user, "registroNuevo") || !canUserCreateEvent(req.user)) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
     const payload = createEventSchema.parse(req.body);
     const currentDateIso = resolveCurrentISODate(req);
     if (isPastDate(payload.fecha, currentDateIso)) {
@@ -861,13 +911,30 @@ router.post("/", authenticate, async (req, res, next) => {
 
 router.get("/report", authenticate, async (req, res, next) => {
   try {
+    if (!canViewEventsReportModule(req.user)) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
     const query = reportQuerySchema.parse(req.query);
     if (hasInvertedDateRange(query.from, query.to)) {
       return res.status(400).json({ error: "validation_error" });
     }
 
+    const settings = getRuntimeSystemSettings();
+    const hasRequestedPageSize = Object.prototype.hasOwnProperty.call(req.query || {}, "pageSize");
+    const requestedPageSize = hasRequestedPageSize
+      ? query.pageSize
+      : settings.pagination.reportPageSizeDefault;
+    const effectivePageSize = clampNumber(
+      requestedPageSize,
+      1,
+      settings.pagination.reportPageSizeMax,
+      settings.pagination.reportPageSizeDefault
+    );
+
     const scopedQuery = {
       ...query,
+      pageSize: effectivePageSize,
       encargadoId: getScopedEncargadoId(req, query.encargadoId)
     };
     const { whereSql, params } = buildReportFilters(scopedQuery);
@@ -968,6 +1035,15 @@ router.get("/report", authenticate, async (req, res, next) => {
 
 async function handleReportExport(req, res, next, source) {
   try {
+    if (!canUserAccessPanel(req.user, "informes") || !canUserExportReports(req.user)) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    const settings = getRuntimeSystemSettings();
+    if (!settings.features.reportExportsEnabled) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
     const payload = source === "body" ? exportBodySchema.parse(req.body) : exportQuerySchema.parse(req.query);
     if (hasInvertedDateRange(payload.from, payload.to)) {
       return res.status(400).json({ error: "validation_error" });
@@ -1040,10 +1116,16 @@ router.post("/report/export", authenticate, async (req, res, next) =>
 
 router.get("/trends", authenticate, async (req, res, next) => {
   try {
+    if (!canUserAccessPanel(req.user, "tendencias")) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
     const query = trendsQuerySchema.parse(req.query);
+    const settings = getRuntimeSystemSettings();
+    const defaultDays = settings.dashboard.eventsDays;
     const to = query.to || toISODate(new Date());
     const from =
-      query.from || toISODate(new Date(Date.now() - 29 * 24 * 60 * 60 * 1000));
+      query.from || toISODate(new Date(Date.now() - (defaultDays - 1) * 24 * 60 * 60 * 1000));
     if (hasInvertedDateRange(from, to)) {
       return res.status(400).json({ error: "validation_error" });
     }
@@ -1113,8 +1195,14 @@ router.get("/trends", authenticate, async (req, res, next) => {
 
 router.get("/dashboard", authenticate, async (req, res, next) => {
   try {
+    if (!canUserAccessPanel(req.user, "dashboard")) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
     const query = dashboardQuerySchema.parse(req.query);
-    const days = query.days;
+    const settings = getRuntimeSystemSettings();
+    const hasRequestedDays = Object.prototype.hasOwnProperty.call(req.query || {}, "days");
+    const days = hasRequestedDays ? query.days : settings.dashboard.eventsDays;
     const today = toISODate(new Date());
     const from = toISODate(new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000));
     const scopedEncargadoId = getScopedEncargadoId(req, undefined);
@@ -1461,6 +1549,10 @@ router.delete("/:id", authenticate, async (req, res, next) => {
 
 router.post("/:id/attachments", authenticate, async (req, res, next) => {
   try {
+    if (!canUserAccessPanel(req.user, "adjuntos")) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
     const params = attachmentParamsSchema.parse(req.params);
     const event = await getEventWithOwner(params.id);
 
@@ -1569,6 +1661,10 @@ router.post("/:id/attachments", authenticate, async (req, res, next) => {
 
 router.get("/:id/attachments", authenticate, async (req, res, next) => {
   try {
+    if (!canUserAccessPanel(req.user, "adjuntos")) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
     const params = attachmentParamsSchema.parse(req.params);
     const event = await getEventWithOwner(params.id);
 
@@ -1624,6 +1720,10 @@ router.get("/:id/attachments", authenticate, async (req, res, next) => {
 
 router.get("/attachments/:attachmentId/download", authenticate, async (req, res, next) => {
   try {
+    if (!canUserAccessPanel(req.user, "adjuntos")) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
     const params = attachmentDownloadSchema.parse(req.params);
 
     const attachment = await getAttachmentById(params.attachmentId);
@@ -1665,6 +1765,10 @@ router.get("/attachments/:attachmentId/download", authenticate, async (req, res,
 
 router.patch("/attachments/:attachmentId", authenticate, async (req, res, next) => {
   try {
+    if (!canUserAccessPanel(req.user, "adjuntos")) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
     const params = attachmentDownloadSchema.parse(req.params);
     const payload = updateAttachmentSchema.parse(req.body);
     const attachment = await getAttachmentById(params.attachmentId);
@@ -1735,6 +1839,10 @@ router.patch("/attachments/:attachmentId", authenticate, async (req, res, next) 
 
 router.delete("/attachments/:attachmentId", authenticate, async (req, res, next) => {
   try {
+    if (!canUserAccessPanel(req.user, "adjuntos")) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
     const params = attachmentDownloadSchema.parse(req.params);
     const attachment = await getAttachmentById(params.attachmentId);
 
@@ -1772,6 +1880,10 @@ router.delete("/attachments/:attachmentId", authenticate, async (req, res, next)
 });
 
 module.exports = { eventsRouter: router };
+
+
+
+
 
 
 

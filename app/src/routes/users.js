@@ -10,6 +10,7 @@ const { authenticate, requireRole } = require("../middleware/auth");
 const { validatePasswordPolicy } = require("../services/passwordPolicy");
 const { validateFullName } = require("../services/namePolicy");
 const { createAuditLog } = require("../services/audit");
+const { canUserManageUsers, canUserViewUsers } = require("../services/authorization");
 
 const router = express.Router();
 
@@ -32,6 +33,21 @@ const selfPasswordSchema = z.object({
   newPassword: z.string().min(1)
 });
 
+function ensureCanViewUsersOrForbidden(req, res) {
+  if (!canUserViewUsers(req.user)) {
+    res.status(403).json({ error: "forbidden" });
+    return false;
+  }
+  return true;
+}
+
+function ensureCanManageUsersOrForbidden(req, res) {
+  if (!canUserManageUsers(req.user)) {
+    res.status(403).json({ error: "forbidden" });
+    return false;
+  }
+  return true;
+}
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
@@ -74,6 +90,10 @@ async function removeStoredFiles(storedNames) {
 
 router.post("/", authenticate, requireRole(["admin"]), async (req, res, next) => {
   try {
+    if (!ensureCanManageUsersOrForbidden(req, res)) {
+      return;
+    }
+
     const payload = createUserSchema.parse(req.body);
     const email = normalizeEmail(payload.email);
     const nameResult = validateFullName(payload.name);
@@ -122,8 +142,12 @@ router.post("/", authenticate, requireRole(["admin"]), async (req, res, next) =>
   }
 });
 
-router.get("/", authenticate, requireRole(["admin", "supervisor"]), async (_req, res, next) => {
+router.get("/", authenticate, requireRole(["admin", "supervisor"]), async (req, res, next) => {
   try {
+    if (!ensureCanViewUsersOrForbidden(req, res)) {
+      return;
+    }
+
     const result = await pool.query(
       `
         SELECT id, name, email, role, mfa_enabled, created_at
@@ -209,6 +233,10 @@ router.patch("/me/password", authenticate, requireRole(["admin"]), async (req, r
 
 router.patch("/:id/password", authenticate, requireRole(["admin"]), async (req, res, next) => {
   try {
+    if (!ensureCanManageUsersOrForbidden(req, res)) {
+      return;
+    }
+
     const userId = Number(req.params.id);
     if (!Number.isInteger(userId) || userId <= 0) {
       return res.status(400).json({ error: "invalid_user_id" });
@@ -287,6 +315,10 @@ router.patch("/:id/password", authenticate, requireRole(["admin"]), async (req, 
 
 router.patch("/:id/role", authenticate, requireRole(["admin"]), async (req, res, next) => {
   try {
+    if (!ensureCanManageUsersOrForbidden(req, res)) {
+      return;
+    }
+
     const userId = Number(req.params.id);
     if (!Number.isInteger(userId) || userId <= 0) {
       return res.status(400).json({ error: "invalid_user_id" });
@@ -362,6 +394,10 @@ router.patch("/:id/role", authenticate, requireRole(["admin"]), async (req, res,
 
 router.post("/:id/unlock", authenticate, requireRole(["admin"]), async (req, res, next) => {
   try {
+    if (!ensureCanManageUsersOrForbidden(req, res)) {
+      return;
+    }
+
     const userId = Number(req.params.id);
     if (!Number.isInteger(userId) || userId <= 0) {
       return res.status(400).json({ error: "invalid_user_id" });
@@ -401,6 +437,10 @@ router.post("/:id/unlock", authenticate, requireRole(["admin"]), async (req, res
 });
 
 router.delete("/:id", authenticate, requireRole(["admin"]), async (req, res, next) => {
+  if (!ensureCanManageUsersOrForbidden(req, res)) {
+    return;
+  }
+
   const userId = Number(req.params.id);
   const actorUserId = Number(req.user?.sub);
 
@@ -517,3 +557,13 @@ router.delete("/:id", authenticate, requireRole(["admin"]), async (req, res, nex
 });
 
 module.exports = { usersRouter: router };
+
+
+
+
+
+
+
+
+
+

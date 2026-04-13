@@ -2,7 +2,9 @@ const express = require("express");
 const { z } = require("zod");
 const { authenticate } = require("../middleware/auth");
 const { createAuditLog } = require("../services/audit");
+const { getSystemSettings } = require("../services/systemSettings");
 const {
+  canUserAccessPanel,
   canUserCreateTask,
   canUserAssignTasks,
   canUserExportTasks,
@@ -116,6 +118,50 @@ const exportQuerySchema = listQuerySchema
     pageSize: true
   })
   .extend({});
+
+function clampNumber(value, min, max, fallback) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.trunc(numeric)));
+}
+
+function getRuntimeTaskSettings() {
+  const current = getSystemSettings();
+
+  const tasksPageSizeMax = clampNumber(current?.pagination?.tasksPageSizeMax, 10, 100, 100);
+  const tasksPageSizeDefault = clampNumber(
+    current?.pagination?.tasksPageSizeDefault,
+    5,
+    tasksPageSizeMax,
+    20
+  );
+  const dashboardDays = clampNumber(current?.dashboard?.tasksSummaryDays, 1, 30, 7);
+  const dashboardRecentLimit = clampNumber(current?.dashboard?.tasksRecentLimit, 1, 12, 5);
+
+  return {
+    pagination: {
+      tasksPageSizeDefault,
+      tasksPageSizeMax
+    },
+    dashboard: {
+      tasksSummaryDays: dashboardDays,
+      tasksRecentLimit: dashboardRecentLimit
+    },
+    features: {
+      taskExportsEnabled: Boolean(current?.features?.taskExportsEnabled ?? true)
+    }
+  };
+}
+
+function ensureCanAccessTasksPanel(req, res) {
+  if (!canUserAccessPanel(req.user, "tareas")) {
+    res.status(403).json({ error: "forbidden" });
+    return false;
+  }
+  return true;
+}
 
 const createTaskBaseSchema = z.object({
   title: z.string().trim().min(3).max(180),
@@ -263,7 +309,26 @@ async function auditTaskAccessDenied(req, details = {}) {
 
 router.get("/", authenticate, async (req, res, next) => {
   try {
-    const query = listQuerySchema.parse(req.query);
+    if (!ensureCanAccessTasksPanel(req, res)) {
+      return;
+    }
+
+    const parsedQuery = listQuerySchema.parse(req.query);
+    const settings = getRuntimeTaskSettings();
+    const hasRequestedPageSize = Object.prototype.hasOwnProperty.call(req.query || {}, "pageSize");
+    const requestedPageSize = hasRequestedPageSize
+      ? parsedQuery.pageSize
+      : settings.pagination.tasksPageSizeDefault;
+    const query = {
+      ...parsedQuery,
+      pageSize: clampNumber(
+        requestedPageSize,
+        1,
+        settings.pagination.tasksPageSizeMax,
+        settings.pagination.tasksPageSizeDefault
+      )
+    };
+
     if (!ensureTaskDateRange(query)) {
       return res.status(400).json({ error: "validation_error" });
     }
@@ -283,6 +348,10 @@ router.get("/", authenticate, async (req, res, next) => {
 
 router.get("/stats", authenticate, async (req, res, next) => {
   try {
+    if (!ensureCanAccessTasksPanel(req, res)) {
+      return;
+    }
+
     const query = statsQuerySchema.parse(req.query);
     if (!ensureTaskDateRange(query)) {
       return res.status(400).json({ error: "validation_error" });
@@ -304,11 +373,20 @@ router.get("/stats", authenticate, async (req, res, next) => {
 
 router.get("/dashboard-summary", authenticate, async (req, res, next) => {
   try {
+    if (!ensureCanAccessTasksPanel(req, res)) {
+      return;
+    }
+
     const query = dashboardSummaryQuerySchema.parse(req.query);
+    const settings = getRuntimeTaskSettings();
+    const hasRequestedDays = Object.prototype.hasOwnProperty.call(req.query || {}, "days");
+    const hasRequestedRecentLimit = Object.prototype.hasOwnProperty.call(req.query || {}, "recentLimit");
+    const dueSoonDays = hasRequestedDays ? query.days : settings.dashboard.tasksSummaryDays;
+    const recentLimit = hasRequestedRecentLimit ? query.recentLimit : settings.dashboard.tasksRecentLimit;
     const summary = await getTaskDashboardSummary({
       user: req.user,
-      dueSoonDays: query.days,
-      recentLimit: query.recentLimit
+      dueSoonDays,
+      recentLimit
     });
     return res.json(summary);
   } catch (error) {
@@ -321,6 +399,16 @@ router.get("/dashboard-summary", authenticate, async (req, res, next) => {
 
 router.get("/export/xlsx", authenticate, async (req, res, next) => {
   try {
+    if (!ensureCanAccessTasksPanel(req, res)) {
+      return;
+    }
+
+    const settings = getRuntimeTaskSettings();
+    if (!settings.features.taskExportsEnabled) {
+      await auditTaskAccessDenied(req, { reason: "export_feature_disabled" });
+      return res.status(403).json({ error: "forbidden" });
+    }
+
     if (!canUserExportTasks(req.user)) {
       await auditTaskAccessDenied(req, { reason: "export_forbidden" });
       return res.status(403).json({ error: "forbidden" });
@@ -367,6 +455,16 @@ router.get("/export/xlsx", authenticate, async (req, res, next) => {
 
 router.get("/export/pdf", authenticate, async (req, res, next) => {
   try {
+    if (!ensureCanAccessTasksPanel(req, res)) {
+      return;
+    }
+
+    const settings = getRuntimeTaskSettings();
+    if (!settings.features.taskExportsEnabled) {
+      await auditTaskAccessDenied(req, { reason: "export_feature_disabled" });
+      return res.status(403).json({ error: "forbidden" });
+    }
+
     if (!canUserExportTasks(req.user)) {
       await auditTaskAccessDenied(req, { reason: "export_forbidden" });
       return res.status(403).json({ error: "forbidden" });
@@ -413,6 +511,10 @@ router.get("/export/pdf", authenticate, async (req, res, next) => {
 
 router.get("/:id", authenticate, async (req, res, next) => {
   try {
+    if (!ensureCanAccessTasksPanel(req, res)) {
+      return;
+    }
+
     const { id } = taskIdSchema.parse(req.params);
     const task = await getTaskByIdForUser(id, req.user);
     if (!task) {
@@ -443,6 +545,10 @@ router.get("/:id", authenticate, async (req, res, next) => {
 
 router.post("/", authenticate, async (req, res, next) => {
   try {
+    if (!ensureCanAccessTasksPanel(req, res)) {
+      return;
+    }
+
     if (!canUserCreateTask(req.user)) {
       await auditTaskAccessDenied(req, { reason: "create_forbidden" });
       return res.status(403).json({ error: "forbidden" });
@@ -521,6 +627,10 @@ router.post("/", authenticate, async (req, res, next) => {
 
 router.patch("/:id", authenticate, async (req, res, next) => {
   try {
+    if (!ensureCanAccessTasksPanel(req, res)) {
+      return;
+    }
+
     const { id } = taskIdSchema.parse(req.params);
     const rawPayload = updateTaskSchema.parse(req.body);
     const payload = buildPayloadWithAssignees(rawPayload);
@@ -644,6 +754,10 @@ router.patch("/:id", authenticate, async (req, res, next) => {
 
 router.patch("/:id/status", authenticate, async (req, res, next) => {
   try {
+    if (!ensureCanAccessTasksPanel(req, res)) {
+      return;
+    }
+
     const { id } = taskIdSchema.parse(req.params);
     const payload = updateStatusSchema.parse(req.body);
 
@@ -687,6 +801,10 @@ router.patch("/:id/status", authenticate, async (req, res, next) => {
 
 router.delete("/:id", authenticate, async (req, res, next) => {
   try {
+    if (!ensureCanAccessTasksPanel(req, res)) {
+      return;
+    }
+
     const { id } = taskIdSchema.parse(req.params);
 
     const result = await softDeleteTask({
@@ -725,3 +843,5 @@ router.delete("/:id", authenticate, async (req, res, next) => {
 });
 
 module.exports = { tasksRouter: router };
+
+

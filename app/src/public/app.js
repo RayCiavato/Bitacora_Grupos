@@ -1,4 +1,4 @@
-﻿
+
 const authSection = document.getElementById("authSection");
 const dashboardSection = document.getElementById("dashboardSection");
 const landingPanel = document.getElementById("landingPanel");
@@ -48,6 +48,20 @@ const auditSection = document.getElementById("auditSection");
 const auditTableBody = document.getElementById("auditTableBody");
 const auditTableMeta = document.getElementById("auditTableMeta");
 const settingsSection = document.getElementById("settingsSection");
+const systemSettingsForm = document.getElementById("systemSettingsForm");
+const settingsMeta = document.getElementById("settingsMeta");
+const settingsReloadBtn = document.getElementById("settingsReloadBtn");
+const settingsSaveBtn = document.getElementById("settingsSaveBtn");
+const settingReportPageSizeDefaultInput = document.getElementById("settingReportPageSizeDefault");
+const settingReportPageSizeMaxInput = document.getElementById("settingReportPageSizeMax");
+const settingTasksPageSizeDefaultInput = document.getElementById("settingTasksPageSizeDefault");
+const settingTasksPageSizeMaxInput = document.getElementById("settingTasksPageSizeMax");
+const settingEventsDaysInput = document.getElementById("settingEventsDays");
+const settingTasksSummaryDaysInput = document.getElementById("settingTasksSummaryDays");
+const settingTasksRecentLimitInput = document.getElementById("settingTasksRecentLimit");
+const settingTemplatesEnabledInput = document.getElementById("settingTemplatesEnabled");
+const settingTaskExportsEnabledInput = document.getElementById("settingTaskExportsEnabled");
+const settingReportExportsEnabledInput = document.getElementById("settingReportExportsEnabled");
 const socDashboardSection = document.getElementById("socDashboardSection");
 const socTotalRegistros = document.getElementById("socTotalRegistros");
 const socRegistrosHoy = document.getElementById("socRegistrosHoy");
@@ -138,6 +152,13 @@ const adminCurrentPassword = document.getElementById("adminCurrentPassword");
 const adminSelfNewPassword = document.getElementById("adminSelfNewPassword");
 const adminSelfNewPasswordConfirm = document.getElementById("adminSelfNewPasswordConfirm");
 
+const rbacSection = document.getElementById("rbacSection");
+const rbacRoleSelect = document.getElementById("rbacRoleSelect");
+const rbacReloadBtn = document.getElementById("rbacReloadBtn");
+const rbacSaveBtn = document.getElementById("rbacSaveBtn");
+const rbacTableBody = document.getElementById("rbacTableBody");
+const rbacMeta = document.getElementById("rbacMeta");
+
 const templateTools = document.getElementById("templateTools");
 const templateForm = document.getElementById("templateForm");
 const templateNameInput = document.getElementById("templateName");
@@ -182,9 +203,19 @@ const TASK_PRIORITY_LABELS = Object.freeze({
 });
 const PANEL_ROUTE_ALIASES = Object.freeze({
   "/bitacoras": "/resumen",
-  "/reportes": "/informes",
-  "/usuarios/roles": "/usuarios"
+  "/reportes": "/informes"
 });
+
+const RBAC_ADMIN_REQUIRED_ACTIONS = Object.freeze([
+  ["dashboard", "view"],
+  ["resumen", "view"],
+  ["registroNuevo", "view"],
+  ["usuarios", "view"],
+  ["usuarios", "administer"],
+  ["auditoria", "view"],
+  ["configuracion", "view"],
+  ["configuracion", "administer"]
+]);
 
 const PANEL_ROUTES = new Set([
   "/dashboard",
@@ -308,6 +339,16 @@ const state = {
   sidebarOpen: true,
   pdfLogoDataUrl: "",
   pdfLogoFileName: "",
+  rolePermissionMetadata: {
+    roles: [],
+    actions: [],
+    modules: []
+  },
+  rolePermissionPolicies: {},
+  rolePermissionLimits: {},
+  rolePermissionUpdated: {},
+  selectedRolePolicy: "funcionario",
+  systemSettings: null,
   charts: {
     users: null,
     criticality: null,
@@ -741,6 +782,276 @@ function canExportReports() {
   return Boolean(state.sessionCapabilities?.actions?.reports?.export);
 }
 
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function getRolePolicyFor(roleKey) {
+  if (!roleKey) {
+    return null;
+  }
+  const policy = state.rolePermissionPolicies?.[roleKey];
+  if (!policy || typeof policy !== "object") {
+    return null;
+  }
+  return policy;
+}
+
+function getRolePolicyLimitFor(roleKey) {
+  if (!roleKey) {
+    return null;
+  }
+  const limit = state.rolePermissionLimits?.[roleKey];
+  if (!limit || typeof limit !== "object") {
+    return null;
+  }
+  return limit;
+}
+
+function isAdminRequiredRbacAction(roleKey, moduleKey, actionKey) {
+  if (roleKey !== "admin") {
+    return false;
+  }
+  return RBAC_ADMIN_REQUIRED_ACTIONS.some(
+    ([requiredModule, requiredAction]) => requiredModule === moduleKey && requiredAction === actionKey
+  );
+}
+
+function formatRbacUpdatedMeta(roleKey) {
+  const record = state.rolePermissionUpdated?.[roleKey];
+  if (!record) {
+    return "Sin historial reciente.";
+  }
+
+  const updatedBy = record.updatedByName || record.updatedByEmail || "Sistema";
+  const updatedAt = record.updatedAt ? formatDateTime(record.updatedAt) : "sin fecha";
+  return `Ultima actualizacion: ${updatedAt} por ${updatedBy}.`;
+}
+
+function setRbacMetaMessage(message) {
+  if (!rbacMeta) {
+    return;
+  }
+  security.setSafeText(rbacMeta, message);
+}
+
+function renderRolePolicyRoleOptions() {
+  if (!rbacRoleSelect) {
+    return;
+  }
+
+  clearElement(rbacRoleSelect);
+  const roles = Array.isArray(state.rolePermissionMetadata?.roles)
+    ? state.rolePermissionMetadata.roles
+    : [];
+
+  if (!roles.length) {
+    const emptyOption = document.createElement("option");
+    emptyOption.value = "";
+    emptyOption.textContent = "Sin roles";
+    rbacRoleSelect.appendChild(emptyOption);
+    rbacRoleSelect.disabled = true;
+    return;
+  }
+
+  roles.forEach((roleKey) => {
+    const option = document.createElement("option");
+    option.value = roleKey;
+    option.textContent = formatRoleLabel(roleKey);
+    rbacRoleSelect.appendChild(option);
+  });
+
+  if (!roles.includes(state.selectedRolePolicy)) {
+    state.selectedRolePolicy = roles[0];
+  }
+
+  rbacRoleSelect.value = state.selectedRolePolicy;
+  rbacRoleSelect.disabled = false;
+}
+
+function renderRolePolicyTable() {
+  if (!rbacTableBody) {
+    return;
+  }
+
+  clearElement(rbacTableBody);
+
+  const roleKey = state.selectedRolePolicy;
+  const modules = Array.isArray(state.rolePermissionMetadata?.modules)
+    ? state.rolePermissionMetadata.modules
+    : [];
+  const actions = Array.isArray(state.rolePermissionMetadata?.actions)
+    ? state.rolePermissionMetadata.actions
+    : [];
+  const rolePolicy = getRolePolicyFor(roleKey);
+  const roleLimit = getRolePolicyLimitFor(roleKey);
+
+  if (!roleKey || !modules.length || !actions.length || !rolePolicy || !roleLimit) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 7;
+    cell.textContent = "No hay politicas para mostrar.";
+    row.appendChild(cell);
+    rbacTableBody.appendChild(row);
+    setRbacMetaMessage("Sin politicas disponibles.");
+    return;
+  }
+
+  modules.forEach((moduleItem) => {
+    const row = document.createElement("tr");
+
+    const moduleCell = document.createElement("td");
+    const title = document.createElement("strong");
+    title.textContent = moduleItem.label || moduleItem.key;
+    moduleCell.appendChild(title);
+
+    if (moduleItem.description) {
+      const description = document.createElement("p");
+      description.className = "help-text rbac-module-description";
+      description.textContent = moduleItem.description;
+      moduleCell.appendChild(description);
+    }
+
+    row.appendChild(moduleCell);
+
+    actions.forEach((actionKey) => {
+      const value = Boolean(rolePolicy?.[moduleItem.key]?.[actionKey]);
+      const allowedByLimit = Boolean(roleLimit?.[moduleItem.key]?.[actionKey]);
+      const isRequiredAdminAction = isAdminRequiredRbacAction(roleKey, moduleItem.key, actionKey);
+
+      const cell = document.createElement("td");
+      cell.className = "rbac-action-cell";
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = value;
+      checkbox.dataset.role = roleKey;
+      checkbox.dataset.module = moduleItem.key;
+      checkbox.dataset.action = actionKey;
+
+      const shouldDisable =
+        !canManageUsers() ||
+        (!allowedByLimit && !value) ||
+        isRequiredAdminAction;
+
+      checkbox.disabled = shouldDisable;
+      if (!allowedByLimit && !value) {
+        checkbox.title = "Bloqueado por limite base del rol";
+      }
+      if (isRequiredAdminAction) {
+        checkbox.title = "Accion critica requerida para el rol administrador";
+      }
+
+      cell.appendChild(checkbox);
+
+      if (isRequiredAdminAction) {
+        const badge = document.createElement("span");
+        badge.className = "rbac-lock-indicator";
+        badge.textContent = "Critico";
+        cell.appendChild(badge);
+      } else if (!allowedByLimit && !value) {
+        const badge = document.createElement("span");
+        badge.className = "rbac-limit-indicator";
+        badge.textContent = "Base";
+        cell.appendChild(badge);
+      }
+
+      row.appendChild(cell);
+    });
+
+    rbacTableBody.appendChild(row);
+  });
+
+  setRbacMetaMessage(formatRbacUpdatedMeta(roleKey));
+}
+
+function getSystemSettingsPayloadFromForm() {
+  const payload = {
+    pagination: {
+      reportPageSizeDefault: Number(settingReportPageSizeDefaultInput?.value || 0),
+      reportPageSizeMax: Number(settingReportPageSizeMaxInput?.value || 0),
+      tasksPageSizeDefault: Number(settingTasksPageSizeDefaultInput?.value || 0),
+      tasksPageSizeMax: Number(settingTasksPageSizeMaxInput?.value || 0)
+    },
+    dashboard: {
+      eventsDays: Number(settingEventsDaysInput?.value || 0),
+      tasksSummaryDays: Number(settingTasksSummaryDaysInput?.value || 0),
+      tasksRecentLimit: Number(settingTasksRecentLimitInput?.value || 0)
+    },
+    features: {
+      templatesEnabled: Boolean(settingTemplatesEnabledInput?.checked),
+      taskExportsEnabled: Boolean(settingTaskExportsEnabledInput?.checked),
+      reportExportsEnabled: Boolean(settingReportExportsEnabledInput?.checked)
+    }
+  };
+
+  return payload;
+}
+
+function setSystemSettingsFormValues(settings) {
+  if (!settings || typeof settings !== "object") {
+    return;
+  }
+
+  if (settingReportPageSizeDefaultInput) {
+    settingReportPageSizeDefaultInput.value = String(settings?.pagination?.reportPageSizeDefault ?? "");
+  }
+  if (settingReportPageSizeMaxInput) {
+    settingReportPageSizeMaxInput.value = String(settings?.pagination?.reportPageSizeMax ?? "");
+  }
+  if (settingTasksPageSizeDefaultInput) {
+    settingTasksPageSizeDefaultInput.value = String(settings?.pagination?.tasksPageSizeDefault ?? "");
+  }
+  if (settingTasksPageSizeMaxInput) {
+    settingTasksPageSizeMaxInput.value = String(settings?.pagination?.tasksPageSizeMax ?? "");
+  }
+  if (settingEventsDaysInput) {
+    settingEventsDaysInput.value = String(settings?.dashboard?.eventsDays ?? "");
+  }
+  if (settingTasksSummaryDaysInput) {
+    settingTasksSummaryDaysInput.value = String(settings?.dashboard?.tasksSummaryDays ?? "");
+  }
+  if (settingTasksRecentLimitInput) {
+    settingTasksRecentLimitInput.value = String(settings?.dashboard?.tasksRecentLimit ?? "");
+  }
+  if (settingTemplatesEnabledInput) {
+    settingTemplatesEnabledInput.checked = Boolean(settings?.features?.templatesEnabled);
+  }
+  if (settingTaskExportsEnabledInput) {
+    settingTaskExportsEnabledInput.checked = Boolean(settings?.features?.taskExportsEnabled);
+  }
+  if (settingReportExportsEnabledInput) {
+    settingReportExportsEnabledInput.checked = Boolean(settings?.features?.reportExportsEnabled);
+  }
+}
+
+function validateSystemSettingsPayload(payload) {
+  const pagination = payload?.pagination || {};
+
+  if (pagination.reportPageSizeDefault > pagination.reportPageSizeMax) {
+    return {
+      valid: false,
+      message: "El default de reportes no puede ser mayor al maximo."
+    };
+  }
+
+  if (pagination.tasksPageSizeDefault > pagination.tasksPageSizeMax) {
+    return {
+      valid: false,
+      message: "El default de tareas no puede ser mayor al maximo."
+    };
+  }
+
+  return { valid: true };
+}
+
+function setSettingsMetaMessage(message) {
+  if (!settingsMeta) {
+    return;
+  }
+  security.setSafeText(settingsMeta, message);
+}
+
 function getEventActionPermissions(eventId) {
   return state.eventActionPermissions[String(eventId)] || null;
 }
@@ -795,7 +1106,12 @@ function toCanonicalPanelPath(pathname = window.location.pathname) {
 }
 
 function getCurrentPanelPath() {
-  return toCanonicalPanelPath(window.location.pathname);
+  const canonicalPath = toCanonicalPanelPath(window.location.pathname);
+  const hashValue = String(window.location.hash || "").toLowerCase();
+  if (canonicalPath === "/usuarios" && hashValue === "#roles") {
+    return "/usuarios/roles";
+  }
+  return canonicalPath;
 }
 
 function isPanelRoute(path = getCurrentPanelPath()) {
@@ -868,18 +1184,25 @@ function syncSidebarActiveLink() {
 
 function updateSidebarRoleLinks() {
   sidebarLinks.forEach((button) => {
-    if (!(button instanceof HTMLElement)) {
+    if (!(button instanceof HTMLAnchorElement)) {
       return;
     }
 
     const required = button.dataset.requires;
-    if (required === "admin") {
-      button.classList.toggle("hidden", !canAccessPanel("/usuarios"));
-      return;
-    }
+    const hrefPath = toCanonicalPanelPath(button.getAttribute("href") || "");
 
     if (required === "templates") {
       button.classList.toggle("hidden", !canAccessPanel("/plantillas"));
+      return;
+    }
+
+    if (required === "admin") {
+      if (hrefPath === "/usuarios" || hrefPath === "/usuarios/roles") {
+        button.classList.toggle("hidden", !(canAccessPanel("/usuarios") && canManageUsers()));
+        return;
+      }
+      button.classList.toggle("hidden", !canAccessPanel(hrefPath));
+      return;
     }
   });
 }
@@ -965,6 +1288,16 @@ function clearSession() {
   state.authView = getRequestedAuthView();
   state.authPopup = getAuthPopupMode();
   state.sidebarOpen = true;
+  state.rolePermissionMetadata = {
+    roles: [],
+    actions: [],
+    modules: []
+  };
+  state.rolePermissionPolicies = {};
+  state.rolePermissionLimits = {};
+  state.rolePermissionUpdated = {};
+  state.selectedRolePolicy = "funcionario";
+  state.systemSettings = null;
 
   setKpi({});
   clearElement(dateSummary);
@@ -990,6 +1323,21 @@ function clearSession() {
   }
   if (adminRoleForm) {
     adminRoleForm.reset();
+  }
+  if (rbacRoleSelect) {
+    rbacRoleSelect.replaceChildren();
+  }
+  if (rbacTableBody) {
+    clearElement(rbacTableBody);
+  }
+  if (rbacMeta) {
+    rbacMeta.textContent = "Sin datos de permisos.";
+  }
+  if (systemSettingsForm) {
+    systemSettingsForm.reset();
+  }
+  if (settingsMeta) {
+    settingsMeta.textContent = "Sin configuracion cargada.";
   }
   closeRecoverModal();
   refreshAttachmentUploadState();
@@ -1786,6 +2134,242 @@ async function loadAuditPanel() {
   auditTableMeta.textContent = `Mostrando ${items.length} evento(s) recientes.`;
 }
 
+async function loadRolePermissionsPanel() {
+  if (!rbacSection || !rbacRoleSelect || !rbacTableBody) {
+    return;
+  }
+
+  if (!canManageUsers()) {
+    setRbacMetaMessage("Sin permisos para administrar roles y permisos.");
+    clearElement(rbacTableBody);
+    return;
+  }
+
+  setButtonBusy(rbacSaveBtn, true, "Cargando...");
+  setRbacMetaMessage("Cargando politicas de permisos...");
+
+  const { response, data, networkError } = await apiAuth("/roles-permissions");
+  setButtonBusy(rbacSaveBtn, false);
+
+  if (networkError) {
+    setRbacMetaMessage("No hay conexion para cargar roles y permisos.");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    if (response.status === 403) {
+      setRbacMetaMessage("Sin permisos para administrar roles y permisos.");
+      return;
+    }
+    setRbacMetaMessage(resolveErrorMessage(data?.error, data?.details));
+    return;
+  }
+
+  state.rolePermissionMetadata = {
+    roles: Array.isArray(data?.roles) ? data.roles : [],
+    actions: Array.isArray(data?.actions) ? data.actions : [],
+    modules: Array.isArray(data?.modules) ? data.modules : []
+  };
+  state.rolePermissionPolicies =
+    data?.policies && typeof data.policies === "object" ? cloneJson(data.policies) : {};
+  state.rolePermissionLimits =
+    data?.limits && typeof data.limits === "object" ? cloneJson(data.limits) : {};
+  state.rolePermissionUpdated =
+    data?.updated && typeof data.updated === "object" ? cloneJson(data.updated) : {};
+
+  renderRolePolicyRoleOptions();
+  renderRolePolicyTable();
+}
+
+async function handleRbacRoleChange(event) {
+  const nextRole = String(event?.target?.value || "").trim();
+  if (!nextRole) {
+    return;
+  }
+  state.selectedRolePolicy = nextRole;
+  renderRolePolicyTable();
+}
+
+function handleRbacTableChange(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
+    return;
+  }
+
+  const roleKey = String(target.dataset.role || "").trim();
+  const moduleKey = String(target.dataset.module || "").trim();
+  const actionKey = String(target.dataset.action || "").trim();
+  if (!roleKey || !moduleKey || !actionKey) {
+    return;
+  }
+
+  const policy = getRolePolicyFor(roleKey);
+  const limit = getRolePolicyLimitFor(roleKey);
+  if (!policy || !limit) {
+    target.checked = false;
+    return;
+  }
+
+  const allowedByLimit = Boolean(limit?.[moduleKey]?.[actionKey]);
+  const isRequiredAdminAction = isAdminRequiredRbacAction(roleKey, moduleKey, actionKey);
+  if ((target.checked && !allowedByLimit) || (!target.checked && isRequiredAdminAction)) {
+    target.checked = Boolean(policy?.[moduleKey]?.[actionKey]);
+    return;
+  }
+
+  if (!policy[moduleKey]) {
+    policy[moduleKey] = {};
+  }
+  policy[moduleKey][actionKey] = target.checked;
+
+  state.rolePermissionPolicies[roleKey] = policy;
+}
+
+async function handleRbacSave() {
+  if (!canManageUsers()) {
+    showToast("No tienes permisos para administrar roles y permisos.", "error");
+    return;
+  }
+
+  const roleKey = String(rbacRoleSelect?.value || "").trim();
+  const policy = getRolePolicyFor(roleKey);
+  if (!roleKey || !policy) {
+    showToast("Selecciona un rol valido.", "error");
+    return;
+  }
+
+  setButtonBusy(rbacSaveBtn, true, "Guardando...");
+
+  const { response, data, networkError } = await apiAuth(`/roles-permissions/${roleKey}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ permissions: policy })
+  });
+
+  setButtonBusy(rbacSaveBtn, false);
+
+  if (networkError) {
+    showToast("No hay conexion para guardar permisos.", "error");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  if (data?.permissions) {
+    state.rolePermissionPolicies[roleKey] = cloneJson(data.permissions);
+  }
+
+  setRbacMetaMessage("Permisos actualizados correctamente. Recargando estado...");
+  showToast("Permisos del rol actualizados correctamente.", "success");
+  await loadRolePermissionsPanel();
+}
+
+async function handleRbacReload() {
+  await loadRolePermissionsPanel();
+}
+
+async function loadSystemSettingsPanel() {
+  if (!settingsSection || !systemSettingsForm) {
+    return;
+  }
+
+  if (!canAccessPanel("/configuracion")) {
+    setSettingsMetaMessage("Sin permisos para consultar configuracion.");
+    return;
+  }
+
+  setButtonBusy(settingsSaveBtn, true, "Cargando...");
+  setSettingsMetaMessage("Cargando configuracion...");
+
+  const { response, data, networkError } = await apiAuth("/settings");
+  setButtonBusy(settingsSaveBtn, false);
+
+  if (networkError) {
+    setSettingsMetaMessage("No hay conexion para cargar configuracion.");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    if (response.status === 403) {
+      setSettingsMetaMessage("Sin permisos para consultar configuracion.");
+      return;
+    }
+    setSettingsMetaMessage(resolveErrorMessage(data?.error, data?.details));
+    return;
+  }
+
+  state.systemSettings = cloneJson(data || {});
+  setSystemSettingsFormValues(state.systemSettings);
+  setSettingsMetaMessage("Configuracion cargada correctamente.");
+}
+
+async function handleSystemSettingsSave(event) {
+  event.preventDefault();
+
+  if (!canAccessPanel("/configuracion")) {
+    showToast("No tienes permisos para modificar configuracion.", "error");
+    return;
+  }
+
+  const payload = getSystemSettingsPayloadFromForm();
+  const validation = validateSystemSettingsPayload(payload);
+  if (!validation.valid) {
+    showToast(validation.message, "error");
+    return;
+  }
+
+  setButtonBusy(settingsSaveBtn, true, "Guardando...");
+
+  const { response, data, networkError } = await apiAuth("/settings", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  setButtonBusy(settingsSaveBtn, false);
+
+  if (networkError) {
+    showToast("No hay conexion para actualizar configuracion.", "error");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  if (data?.settings) {
+    state.systemSettings = cloneJson(data.settings);
+    setSystemSettingsFormValues(state.systemSettings);
+  }
+
+  setSettingsMetaMessage("Configuracion actualizada correctamente.");
+  showToast("Configuracion actualizada correctamente.", "success");
+}
+
+async function handleSystemSettingsReload() {
+  await loadSystemSettingsPanel();
+}
+
 function renderUsersOptions() {
   clearElement(adminUserSelect);
   if (adminRoleUserSelect) {
@@ -1970,6 +2554,7 @@ function applyRouteMode() {
   const showAdjuntos = route === "/adjuntos";
   const showTareas = route === "/tareas";
   const showUsuarios = route === "/usuarios";
+  const showRolesPermisos = route === "/usuarios/roles";
   const showPlantillas = route === "/plantillas";
   const showAuditoria = route === "/auditoria";
   const showConfiguracion = route === "/configuracion";
@@ -1992,6 +2577,7 @@ function applyRouteMode() {
   setElementVisible(mainWorkspaceSection, showRegistro || showBitacoraReport);
   setElementVisible(secondaryWorkspaceSection, showTendencias || showAdjuntos || showResumen);
   setElementVisible(adminTools, showUsuarios && canManageUsers());
+  setElementVisible(rbacSection, showRolesPermisos && canManageUsers());
   setElementVisible(templateTools, showPlantillas && canManageTemplates());
   setElementVisible(auditSection, showAuditoria && canAccessPanel("/auditoria"));
   setElementVisible(settingsSection, showConfiguracion && canAccessPanel("/configuracion"));
@@ -2010,7 +2596,6 @@ function applyRouteMode() {
 
   syncSidebarActiveLink();
 }
-
 function renderAuthView() {
   applyLayoutMode(state.authPopup ? "auth-popup-mode" : "landing-mode");
   dashboardSection.classList.add("hidden");
@@ -2505,6 +3090,11 @@ async function loadDashboardData() {
     return;
   }
 
+  if (route === "/usuarios/roles") {
+    await loadRolePermissionsPanel();
+    return;
+  }
+
   if (route === "/plantillas") {
     await loadTemplates();
     return;
@@ -2516,10 +3106,19 @@ async function loadDashboardData() {
   }
 
   if (route === "/configuracion") {
+    await loadSystemSettingsPanel();
     return;
   }
 
-  await Promise.all([loadUsers(), loadTemplates(), loadReport(), loadTrends(), loadResumenTasks()]);
+  await Promise.all([
+    loadUsers(),
+    loadTemplates(),
+    loadReport(),
+    loadTrends(),
+    loadResumenTasks(),
+    loadRolePermissionsPanel(),
+    loadSystemSettingsPanel()
+  ]);
 }
 async function handleLogin(event) {
   event.preventDefault();
@@ -3041,7 +3640,7 @@ async function handleAttachmentRename(attachmentId, currentName) {
 }
 
 async function handleAttachmentDelete(attachmentId) {
-  if (!window.confirm("Â¿Eliminar este adjunto? Esta acciÃ³n no se puede deshacer.")) {
+  if (!window.confirm("¿Eliminar este adjunto? Esta acción no se puede deshacer.")) {
     return;
   }
 
@@ -4275,6 +4874,26 @@ async function bootstrap() {
   adminDeleteUser.addEventListener("click", handleAdminUserDelete);
   adminSelfPasswordForm.addEventListener("submit", handleAdminSelfPasswordUpdate);
 
+  if (rbacRoleSelect) {
+    rbacRoleSelect.addEventListener("change", handleRbacRoleChange);
+  }
+  if (rbacTableBody) {
+    rbacTableBody.addEventListener("change", handleRbacTableChange);
+  }
+  if (rbacReloadBtn) {
+    rbacReloadBtn.addEventListener("click", handleRbacReload);
+  }
+  if (rbacSaveBtn) {
+    rbacSaveBtn.addEventListener("click", handleRbacSave);
+  }
+
+  if (systemSettingsForm) {
+    systemSettingsForm.addEventListener("submit", handleSystemSettingsSave);
+  }
+  if (settingsReloadBtn) {
+    settingsReloadBtn.addEventListener("click", handleSystemSettingsReload);
+  }
+
   templateForm.addEventListener("submit", handleTemplateCreate);
   templateList.addEventListener("click", handleTemplateToggle);
   eventTemplateSelect.addEventListener("change", handleTemplateSelectChange);
@@ -4358,6 +4977,19 @@ async function bootstrap() {
 }
 
 bootstrap();
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
