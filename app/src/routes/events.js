@@ -1,4 +1,4 @@
-const fs = require("fs/promises");
+﻿const fs = require("fs/promises");
 const path = require("path");
 const crypto = require("crypto");
 const express = require("express");
@@ -21,6 +21,7 @@ const {
   canUserViewFile,
   canUserEditFile,
   canUserDeleteFile,
+  canUserViewAnyTasks,
   buildEventPermissions
 } = require("../services/authorization");
 
@@ -1189,6 +1190,63 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
       byDateParams
     );
 
+    const canViewAnyTaskScope = canUserViewAnyTasks(req.user);
+    const actorId = Number(req.user?.sub || req.user?.id || 0);
+    const taskAlertsWhere = canViewAnyTaskScope
+      ? "WHERE t.deleted_at IS NULL"
+      : "WHERE t.deleted_at IS NULL AND (t.created_by = $1 OR $1 = ANY(t.assignee_ids))";
+    const taskAlertsParams = canViewAnyTaskScope ? [] : [actorId];
+    const taskAlertsResult = await pool.query(
+      `
+        SELECT
+          COUNT(*) FILTER (
+            WHERE t.due_date IS NOT NULL
+              AND t.due_date < CURRENT_DATE
+              AND t.status NOT IN ('completada', 'cancelada')
+          )::int AS tareas_vencidas,
+          COUNT(*) FILTER (
+            WHERE t.priority = 'alta'
+              AND t.status NOT IN ('completada', 'cancelada')
+          )::int AS tareas_criticas
+        FROM tasks t
+        ${taskAlertsWhere}
+      `,
+      taskAlertsParams
+    );
+
+    const criticalEventsResult = await pool.query(
+      `
+        SELECT COUNT(*)::int AS bitacoras_criticas
+        FROM events e
+        WHERE e.prioridad = 'alta'
+          AND e.fecha >= CURRENT_DATE - INTERVAL '6 day'
+          ${hasScope ? "AND e.encargado_id = $1" : ""}
+      `,
+      hasScope ? [Number(scopedEncargadoId)] : []
+    );
+
+    const privilegedActivity = ["admin", "supervisor"].includes(String(req.user?.role || ""));
+    const activityResult = await pool.query(
+      `
+        SELECT
+          a.id,
+          a.action,
+          a.entity,
+          a.entity_id AS "entityId",
+          a.created_at AS "createdAt",
+          u.name AS "userName"
+        FROM audit_logs a
+        LEFT JOIN users u ON u.id = a.user_id
+        ${privilegedActivity ? "" : "WHERE a.user_id = $1"}
+        ORDER BY a.created_at DESC
+        LIMIT 8
+      `,
+      privilegedActivity ? [] : [actorId]
+    );
+
+    const alertsRow = taskAlertsResult.rows[0] || {};
+    const eventsAlertRow = criticalEventsResult.rows[0] || {};
+
     return res.json({
       range: {
         from,
@@ -1202,6 +1260,12 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
         media: 0,
         baja: 0
       },
+      alerts: {
+        tareasVencidas: Number(alertsRow.tareas_vencidas || 0),
+        tareasCriticas: Number(alertsRow.tareas_criticas || 0),
+        bitacorasCriticas: Number(eventsAlertRow.bitacoras_criticas || 0)
+      },
+      recentActivity: activityResult.rows,
       byUser: byUserResult.rows,
       byPriority: byPriorityResult.rows,
       byDate: byDateResult.rows
@@ -1708,4 +1772,6 @@ router.delete("/attachments/:attachmentId", authenticate, async (req, res, next)
 });
 
 module.exports = { eventsRouter: router };
+
+
 

@@ -100,7 +100,7 @@ cd ~/apps/Bitacora_gestor_tareas
 chmod +x scripts/*.sh
 
 bash scripts/install-server-safe.sh \
-  --app-domain 10.0.210.43 \
+  --app-domain 10.156.99.35 \
   --admin-email admin@n1njahack.local \
   --admin-password 'N1njaHack@2026!' \
   --db-password 'BitacoraDB_2026' \

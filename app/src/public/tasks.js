@@ -1,4 +1,4 @@
-(function initTasksModule() {
+﻿(function initTasksModule() {
   "use strict";
 
   function normalizePathname(pathname) {
@@ -31,6 +31,7 @@
   const taskAllowAssigneesEditWrap = document.getElementById("taskAllowAssigneesEditWrap");
   const taskSaveBtn = document.getElementById("taskSaveBtn");
   const taskCancelBtn = document.getElementById("taskCancelBtn");
+  const tasksNewTaskBtn = document.getElementById("tasksNewTaskBtn");
 
   const taskDetail = document.getElementById("taskDetail");
   const taskDetailTitle = document.getElementById("taskDetailTitle");
@@ -60,6 +61,10 @@
   const tasksExportXlsx = document.getElementById("tasksExportXlsx");
   const tasksExportPdf = document.getElementById("tasksExportPdf");
   const toast = document.getElementById("toast");
+  const entityModal = document.getElementById("entityModal");
+  const entityModalTitle = document.getElementById("entityModalTitle");
+  const entityModalMeta = document.getElementById("entityModalMeta");
+  const entityModalBody = document.getElementById("entityModalBody");
 
   const STATUS_LABELS = Object.freeze({
     sin_realizar: "Sin realizar",
@@ -99,6 +104,8 @@
     editingTaskPermissions: null,
     activeRows: []
   };
+
+  let filtersDebounceTimer = null;
 
   function showToast(message, type = "info") {
     if (!toast) {
@@ -347,6 +354,32 @@
     tasksAdvancedFilters.open = hasAdvancedFiltersEnabled();
   }
 
+  function scheduleFiltersReload(delayMs = 300) {
+    window.clearTimeout(filtersDebounceTimer);
+    filtersDebounceTimer = window.setTimeout(async () => {
+      state.page = 1;
+      state.pageSize = Number(tasksPageSize?.value || state.pageSize || 20);
+      syncAdvancedFiltersState();
+      await loadTasks();
+    }, Math.max(0, Number(delayMs) || 0));
+  }
+
+  function openTaskDetailModal(task) {
+    if (!task || !entityModal || !entityModalTitle || !entityModalMeta || !entityModalBody) {
+      return;
+    }
+
+    entityModalTitle.textContent = `${task.title || "Tarea"} (#${task.id})`;
+    entityModalMeta.textContent =
+      `Estado: ${statusLabel(task.status)} | Prioridad: ${priorityLabel(task.priority)} | ` +
+      `Creada por: ${task.createdBy?.name || "-"} | Asignado: ${task.assignedTo?.name || "-"}`;
+    entityModalBody.textContent =
+      `Descripcion:\n${task.description || "-"}\n\nInicio: ${formatDate(task.startDate)}\n` +
+      `Vence: ${formatDate(task.dueDate)}\nActualizada: ${formatDateTime(task.updatedAt)}`;
+    entityModal.classList.remove("hidden");
+    entityModal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("modal-open");
+  }
   function resetTaskForm() {
     state.editingTaskId = null;
     state.editingTaskPermissions = null;
@@ -872,6 +905,7 @@
       return;
     }
     renderTaskDetail(data);
+    openTaskDetailModal(data);
   }
 
   function extractTaskPayloadFromForm() {
@@ -985,7 +1019,7 @@
   }
 
   async function handleTaskDelete(taskId) {
-    if (!window.confirm("¿Eliminar esta tarea? Esta accion la retirara del listado activo.")) {
+    if (!window.confirm("Eliminar esta tarea? Esta accion la retirara del listado activo.")) {
       return;
     }
 
@@ -1167,10 +1201,7 @@
 
   async function handleFiltersSubmit(event) {
     event.preventDefault();
-    state.page = 1;
-    state.pageSize = Number(tasksPageSize.value || 20);
-    syncAdvancedFiltersState();
-    await loadTasks();
+    scheduleFiltersReload(0);
   }
 
   async function init() {
@@ -1200,27 +1231,56 @@
     renderTaskDetail(null);
   });
 
+  if (tasksNewTaskBtn) {
+    tasksNewTaskBtn.addEventListener("click", () => {
+      resetTaskForm();
+      renderTaskDetail(null);
+      if (taskTitle instanceof HTMLInputElement) {
+        taskTitle.focus();
+      }
+    });
+  }
+
   tasksFilterForm.addEventListener("submit", handleFiltersSubmit);
-  tasksPageSize.addEventListener("change", async () => {
-    state.page = 1;
+  tasksPageSize.addEventListener("change", () => {
     state.pageSize = Number(tasksPageSize.value || 20);
-    await loadTasks();
+    scheduleFiltersReload(0);
   });
 
-  [
+  const immediateFilterElements = [
+    tasksFilterStatus,
+    tasksFilterPriority,
     tasksFilterCreatedBy,
     tasksFilterAssignedTo,
+    tasksFilterSortBy,
+    tasksFilterSortOrder
+  ].filter(Boolean);
+
+  immediateFilterElements.forEach((element) => {
+    element.addEventListener("change", () => {
+      syncAdvancedFiltersState();
+      scheduleFiltersReload(120);
+    });
+  });
+
+  const textFilterElements = [
+    tasksFilterSearch,
     tasksFilterStartFrom,
     tasksFilterStartTo,
     tasksFilterDueFrom,
-    tasksFilterDueTo,
-    tasksFilterSortBy,
-    tasksFilterSortOrder
-  ]
-    .filter(Boolean)
-    .forEach((element) => {
-      element.addEventListener("change", syncAdvancedFiltersState);
+    tasksFilterDueTo
+  ].filter(Boolean);
+
+  textFilterElements.forEach((element) => {
+    element.addEventListener("input", () => {
+      syncAdvancedFiltersState();
+      scheduleFiltersReload(300);
     });
+    element.addEventListener("change", () => {
+      syncAdvancedFiltersState();
+      scheduleFiltersReload(180);
+    });
+  });
 
   tasksPrev.addEventListener("click", handlePaginationPrev);
   tasksNext.addEventListener("click", handlePaginationNext);
@@ -1239,3 +1299,13 @@
 
   syncTaskDateConstraints();
 })();
+
+
+
+
+
+
+
+
+
+

@@ -1,4 +1,4 @@
-const PANEL_KEYS = Object.freeze([
+﻿const PANEL_KEYS = Object.freeze([
   "dashboard",
   "resumen",
   "registroNuevo",
@@ -7,7 +7,9 @@ const PANEL_KEYS = Object.freeze([
   "adjuntos",
   "tareas",
   "usuarios",
-  "plantillas"
+  "plantillas",
+  "auditoria",
+  "configuracion"
 ]);
 
 const BASE_PANELS = Object.freeze({
@@ -19,7 +21,9 @@ const BASE_PANELS = Object.freeze({
   adjuntos: true,
   tareas: true,
   usuarios: false,
-  plantillas: false
+  plantillas: false,
+  auditoria: false,
+  configuracion: false
 });
 
 const ROLE_CAPABILITIES = Object.freeze({
@@ -27,7 +31,9 @@ const ROLE_CAPABILITIES = Object.freeze({
     panels: Object.freeze({
       ...BASE_PANELS,
       usuarios: true,
-      plantillas: true
+      plantillas: true,
+      auditoria: true,
+      configuracion: true
     }),
     actions: Object.freeze({
       users: Object.freeze({
@@ -72,7 +78,8 @@ const ROLE_CAPABILITIES = Object.freeze({
   supervisor: Object.freeze({
     panels: Object.freeze({
       ...BASE_PANELS,
-      plantillas: true
+      plantillas: true,
+      auditoria: true
     }),
     actions: Object.freeze({
       users: Object.freeze({
@@ -569,3 +576,5 @@ module.exports = {
   buildEventPermissions,
   buildTaskPermissions
 };
+
+

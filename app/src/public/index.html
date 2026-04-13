@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
@@ -157,7 +157,7 @@
                   minlength="2"
                   maxlength="120"
                   autocomplete="name"
-                  pattern="^[A-Za-zÀ-ÖØ-öø-ÿ0-9]+(?:[ -][A-Za-zÀ-ÖØ-öø-ÿ0-9]+)*$"
+                  pattern="^[A-Za-zÃ€-Ã–Ã˜-Ã¶Ã¸-Ã¿0-9]+(?:[ -][A-Za-zÃ€-Ã–Ã˜-Ã¶Ã¸-Ã¿0-9]+)*$"
                   title="Usa letras, numeros, espacios simples y guion medio."
                   required
                 />
@@ -236,41 +236,56 @@
               <p class="eyebrow">ACCESOS</p>
               <h3>Navegacion</h3>
               <nav id="sidebarNav" class="sidebar-nav">
-                <a href="/dashboard" class="btn btn-ghost sidebar-link is-active">
-                  Inicio
-                </a>
-                <a href="/resumen" class="btn btn-ghost sidebar-link">Resumen</a>
-                <a href="/registro/nuevo" class="btn btn-ghost sidebar-link">
-                  Nuevo registro
-                </a>
-                <a href="/informes" class="btn btn-ghost sidebar-link">
-                  Informe
-                </a>
-                <a href="/tendencias" class="btn btn-ghost sidebar-link">
-                  Tendencias
-                </a>
-                <a href="/adjuntos" class="btn btn-ghost sidebar-link">
-                  Adjuntos
-                </a>
-                <a href="/tareas" class="btn btn-ghost sidebar-link">
-                  Tareas
-                </a>
-                <a
-                  href="/usuarios"
-                  class="btn btn-ghost sidebar-link hidden"
-                  data-requires="admin"
-                >
-                  Usuarios
-                </a>
-                <a
-                  href="/plantillas"
-                  class="btn btn-ghost sidebar-link hidden"
-                  data-requires="templates"
-                >
-                  Plantillas
-                </a>
+                <div class="sidebar-group">
+                  <p class="sidebar-group-title">Dashboard</p>
+                  <a href="/dashboard" class="btn btn-ghost sidebar-link is-active">Dashboard</a>
+                </div>
+
+                <div class="sidebar-group">
+                  <p class="sidebar-group-title">Operaciones</p>
+                  <a href="/resumen" class="btn btn-ghost sidebar-link">Bitacoras</a>
+                  <a href="/tareas" class="btn btn-ghost sidebar-link">Tareas</a>
+                </div>
+
+                <div class="sidebar-group">
+                  <p class="sidebar-group-title">Gestion</p>
+                  <a href="/adjuntos" class="btn btn-ghost sidebar-link">Adjuntos</a>
+                  <a
+                    href="/plantillas"
+                    class="btn btn-ghost sidebar-link hidden"
+                    data-requires="templates"
+                  >
+                    Plantillas
+                  </a>
+                </div>
+
+                <div class="sidebar-group">
+                  <p class="sidebar-group-title">Analisis</p>
+                  <a href="/informes" class="btn btn-ghost sidebar-link">Reportes</a>
+                  <a href="/tendencias" class="btn btn-ghost sidebar-link">Tendencias</a>
+                </div>
+
+                <div class="sidebar-group">
+                  <p class="sidebar-group-title">Administracion</p>
+                  <a href="/usuarios" class="btn btn-ghost sidebar-link hidden" data-requires="admin">
+                    Usuarios
+                  </a>
+                  <a href="/usuarios#roles" class="btn btn-ghost sidebar-link hidden" data-requires="admin">
+                    Roles y permisos
+                  </a>
+                </div>
+
+                <div class="sidebar-group">
+                  <p class="sidebar-group-title">Sistema</p>
+                  <a href="/auditoria" class="btn btn-ghost sidebar-link hidden" data-requires="admin">
+                    Auditoria
+                  </a>
+                  <a href="/configuracion" class="btn btn-ghost sidebar-link hidden" data-requires="admin">
+                    Configuracion
+                  </a>
+                </div>
               </nav>
-              <p class="help-text">Navegacion por paginas independientes del panel operativo.</p>
+              <p class="help-text">Panel enterprise por dominios operativos.</p>
             </aside>
 
             <div class="dashboard-content">
@@ -351,6 +366,25 @@
                   </p>
                 </article>
 
+                <section class="soc-bottom-grid">
+                  <article id="dashboardAlertsCard" class="card soc-chart-card">
+                    <div class="soc-chart-head">
+                      <h3>Alertas operativas</h3>
+                      <p class="help-text">Estado de riesgos actuales</p>
+                    </div>
+                    <div id="dashboardAlertsList" class="dashboard-alerts-list"></div>
+                  </article>
+
+                  <article id="dashboardActivityCard" class="card soc-chart-card">
+                    <div class="soc-chart-head">
+                      <h3>Actividad reciente</h3>
+                      <p class="help-text">Ultimas acciones del sistema</p>
+                    </div>
+                    <ul id="dashboardActivityList" class="dashboard-activity-list"></ul>
+                    <p id="dashboardActivityEmpty" class="help-text hidden">Sin actividad reciente.</p>
+                  </article>
+                </section>
+
                 <article class="card soc-chart-card">
                   <div class="soc-chart-head">
                     <h3>Registros por usuario</h3>
@@ -394,7 +428,7 @@
 
               <section id="mainWorkspaceSection" class="grid-main">
                 <article id="registroSection" class="card">
-                  <h3 id="registroTitle">Nuevo registro</h3>
+                  <h3 id="registroTitle">Nueva bitacora</h3>
                   <p id="registroModeHint" class="help-text hidden"></p>
                   <form id="eventForm" class="form">
                     <label>
@@ -452,7 +486,7 @@
                 </article>
 
                 <article id="informeSection" class="card">
-                  <h3>Informe por fecha</h3>
+                  <h3>Reportes de bitacora</h3>
                   <form id="filterForm" class="report-filters">
                     <label>
                       Desde
@@ -567,6 +601,33 @@
                   </div>
                 </article>
 
+                <article id="resumenTasksSection" class="card hidden">
+                  <div class="soc-chart-head">
+                    <h3>Tareas operativas</h3>
+                    <p class="help-text">Ultimas 15 tareas visibles segun permisos.</p>
+                  </div>
+                  <div class="resumen-quick-actions">
+                    <a href="/registro/nuevo" class="btn btn-ghost">+ Nueva bitacora</a>
+                    <a href="/tareas" class="btn btn-ghost">Abrir Tasks</a>
+                    <a href="/informes" class="btn btn-ghost">Ir a reportes</a>
+                  </div>
+                  <div class="table-wrap resumen-tasks-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>ID</th>
+                          <th>Titulo</th>
+                          <th>Estado</th>
+                          <th>Prioridad</th>
+                          <th>Vence</th>
+                        </tr>
+                      </thead>
+                      <tbody id="resumenTasksBody"></tbody>
+                    </table>
+                  </div>
+                  <p id="resumenTasksMeta" class="help-text">Cargando tareas...</p>
+                </article>
+
                 <article id="attachmentsCard" class="card attachments-card">
                   <h3>Adjuntos de registro</h3>
                   <p id="selectedEventLabel" class="help-text">Selecciona un registro para ver o subir adjuntos.</p>
@@ -583,8 +644,13 @@
               </section>
 
               <section id="tasksSection" class="card hidden">
-                <h3>Gestion de tareas</h3>
-                <p id="tasksSummary" class="help-text">Consulta, crea y administra tareas del equipo.</p>
+                <div class="tasks-headline">
+                  <div>
+                    <h3>Gestion de tareas</h3>
+                    <p id="tasksSummary" class="help-text">Consulta, crea y administra tareas del equipo.</p>
+                  </div>
+                  <button id="tasksNewTaskBtn" type="button" class="btn btn-primary">+ Nueva tarea</button>
+                </div>
                 <div class="tasks-layout">
                   <article class="tasks-panel">
                     <h4 id="taskFormTitle">Nueva tarea</h4>
@@ -737,7 +803,7 @@
                       </details>
 
                       <div class="report-actions tasks-filter-actions">
-                        <button type="submit" class="btn btn-secondary">Aplicar filtros</button>
+                        <p class="help-text tasks-reactive-note">Filtros reactivos activos (300ms).</p>
                         <button type="button" id="tasksExportXlsx" class="btn btn-ghost">Excel</button>
                         <button type="button" id="tasksExportPdf" class="btn btn-ghost">PDF</button>
                       </div>
@@ -885,6 +951,37 @@
                 </form>
                 <div id="templateList" class="template-list"></div>
               </section>
+
+              <section id="auditSection" class="card hidden">
+                <h3>Auditoria del sistema</h3>
+                <p class="help-text">Trazabilidad de eventos criticos para administracion y seguridad.</p>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Fecha</th>
+                        <th>Usuario</th>
+                        <th>Accion</th>
+                        <th>Entidad</th>
+                      </tr>
+                    </thead>
+                    <tbody id="auditTableBody"></tbody>
+                  </table>
+                </div>
+                <p id="auditTableMeta" class="help-text">Cargando auditoria...</p>
+              </section>
+
+              <section id="settingsSection" class="card hidden">
+                <h3>Configuracion operativa</h3>
+                <p class="help-text">Estado rapido del entorno sin exponer informacion sensible.</p>
+                <ul class="system-settings-list">
+                  <li><strong>Autenticacion:</strong> JWT + cookies HttpOnly</li>
+                  <li><strong>MFA:</strong> habilitado por flujo seguro</li>
+                  <li><strong>Hardening:</strong> anti-enumeracion y respuestas limpias</li>
+                  <li><strong>Base de datos:</strong> PostgreSQL</li>
+                  <li><strong>Auditoria:</strong> activa en acciones criticas</li>
+                </ul>
+              </section>
             </div>
           </div>
         </section>
@@ -967,9 +1064,28 @@
         </form>
       </section>
     </div>
+        <div id="entityModal" class="entity-modal hidden" aria-hidden="true">
+      <div class="entity-modal-overlay" data-entity-close></div>
+      <section class="entity-modal-card card" role="dialog" aria-modal="true" aria-labelledby="entityModalTitle">
+        <header class="entity-modal-header">
+          <h3 id="entityModalTitle">Detalle</h3>
+          <button id="entityModalClose" type="button" class="btn btn-ghost">Cerrar</button>
+        </header>
+        <p id="entityModalMeta" class="help-text"></p>
+        <pre id="entityModalBody" class="entity-modal-body"></pre>
+      </section>
+    </div>
     <div id="toast" class="toast hidden" aria-live="polite"></div>
     <script src="/assets/security.min.js?asset=sec" defer></script>
     <script src="/assets/app.min.js?asset=web" defer></script>
     <script src="/assets/tasks.min.js?asset=tasks" defer></script>
   </body>
 </html>
+
+
+
+
+
+
+
+

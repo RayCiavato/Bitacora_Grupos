@@ -295,12 +295,17 @@ function createApp() {
   const panelRoutes = [
     "/dashboard",
     "/resumen",
+    "/bitacoras",
     "/registro/nuevo",
     "/informes",
+    "/reportes",
     "/tendencias",
     "/adjuntos",
     "/tareas",
     "/usuarios",
+    "/usuarios/roles",
+    "/auditoria",
+    "/configuracion",
     "/plantillas"
   ];
 
@@ -384,3 +389,4 @@ if (require.main === module) {
 }
 
 module.exports = { createApp, start };
+

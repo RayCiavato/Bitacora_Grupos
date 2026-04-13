@@ -1,4 +1,4 @@
-
+﻿
 const authSection = document.getElementById("authSection");
 const dashboardSection = document.getElementById("dashboardSection");
 const landingPanel = document.getElementById("landingPanel");
@@ -41,6 +41,13 @@ const informeSection = document.getElementById("informeSection");
 const tendenciasSection = document.getElementById("tendenciasSection");
 const attachmentsCard = document.getElementById("attachmentsCard");
 const tasksSection = document.getElementById("tasksSection");
+const resumenTasksSection = document.getElementById("resumenTasksSection");
+const resumenTasksBody = document.getElementById("resumenTasksBody");
+const resumenTasksMeta = document.getElementById("resumenTasksMeta");
+const auditSection = document.getElementById("auditSection");
+const auditTableBody = document.getElementById("auditTableBody");
+const auditTableMeta = document.getElementById("auditTableMeta");
+const settingsSection = document.getElementById("settingsSection");
 const socDashboardSection = document.getElementById("socDashboardSection");
 const socTotalRegistros = document.getElementById("socTotalRegistros");
 const socRegistrosHoy = document.getElementById("socRegistrosHoy");
@@ -62,6 +69,9 @@ const dashboardTasksAssignedToMe = document.getElementById("dashboardTasksAssign
 const dashboardTasksLoading = document.getElementById("dashboardTasksLoading");
 const dashboardTasksRecentList = document.getElementById("dashboardTasksRecentList");
 const dashboardTasksEmptyState = document.getElementById("dashboardTasksEmptyState");
+const dashboardAlertsList = document.getElementById("dashboardAlertsList");
+const dashboardActivityList = document.getElementById("dashboardActivityList");
+const dashboardActivityEmpty = document.getElementById("dashboardActivityEmpty");
 
 const trendByDate = document.getElementById("trendByDate");
 const trendPriority = document.getElementById("trendPriority");
@@ -100,6 +110,11 @@ const forgotPasswordBtn = document.getElementById("forgotPasswordBtn");
 const recoverModal = document.getElementById("recoverModal");
 const recoverForm = document.getElementById("recoverForm");
 const recoverCancelBtn = document.getElementById("recoverCancelBtn");
+const entityModal = document.getElementById("entityModal");
+const entityModalTitle = document.getElementById("entityModalTitle");
+const entityModalMeta = document.getElementById("entityModalMeta");
+const entityModalBody = document.getElementById("entityModalBody");
+const entityModalClose = document.getElementById("entityModalClose");
 const recoverEmailInput = document.getElementById("recoverEmail");
 const recoverMfaTokenInput = document.getElementById("recoverMfaToken");
 const recoverNewPasswordInput = document.getElementById("recoverNewPassword");
@@ -165,31 +180,47 @@ const TASK_PRIORITY_LABELS = Object.freeze({
   media: "Media",
   alta: "Alta"
 });
+const PANEL_ROUTE_ALIASES = Object.freeze({
+  "/bitacoras": "/resumen",
+  "/reportes": "/informes",
+  "/usuarios/roles": "/usuarios"
+});
+
 const PANEL_ROUTES = new Set([
   "/dashboard",
   "/resumen",
+  "/bitacoras",
   "/registro/nuevo",
   "/informes",
+  "/reportes",
   "/tendencias",
   "/adjuntos",
   "/tareas",
   "/usuarios",
-  "/plantillas"
+  "/usuarios/roles",
+  "/plantillas",
+  "/auditoria",
+  "/configuracion"
 ]);
 const PANEL_ROUTE_CAPABILITY_MAP = Object.freeze({
   "/dashboard": "dashboard",
   "/resumen": "resumen",
+  "/bitacoras": "resumen",
   "/registro/nuevo": "registroNuevo",
   "/informes": "informes",
+  "/reportes": "informes",
   "/tendencias": "tendencias",
   "/adjuntos": "adjuntos",
   "/tareas": "tareas",
   "/usuarios": "usuarios",
-  "/plantillas": "plantillas"
+  "/usuarios/roles": "usuarios",
+  "/plantillas": "plantillas",
+  "/auditoria": "auditoria",
+  "/configuracion": "configuracion"
 });
 const FULL_NAME_MIN_LENGTH = 2;
 const FULL_NAME_MAX_LENGTH = 120;
-const FULL_NAME_REGEX = /^[A-Za-zÀ-ÖØ-öø-ÿ0-9]+(?:[ -][A-Za-zÀ-ÖØ-öø-ÿ0-9]+)*$/;
+const FULL_NAME_REGEX = /^[A-Za-z0-9]+(?:[ -][A-Za-z0-9]+)*$/;
 const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{12,}$/;
 const COMMON_WEAK_PASSWORDS = new Set([
   "password",
@@ -354,6 +385,19 @@ function formatDate(dateValue) {
     month: "short",
     year: "numeric"
   });
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return "-";
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return String(value);
+  }
+
+  return parsed.toLocaleString("es-ES");
 }
 
 function formatBytes(bytes) {
@@ -738,18 +782,24 @@ function getAuthPopupMode() {
 }
 
 function normalizePathname(pathname = window.location.pathname) {
-  if (!pathname || pathname === "/") {
+  const raw = String(pathname || "").split("#")[0].split("?")[0].trim();
+  if (!raw || raw === "/") {
     return "/";
   }
-  return pathname.replace(/\/+$/, "");
+  return raw.replace(/\/+$/, "");
+}
+
+function toCanonicalPanelPath(pathname = window.location.pathname) {
+  const normalized = normalizePathname(pathname);
+  return PANEL_ROUTE_ALIASES[normalized] || normalized;
 }
 
 function getCurrentPanelPath() {
-  return normalizePathname(window.location.pathname);
+  return toCanonicalPanelPath(window.location.pathname);
 }
 
 function isPanelRoute(path = getCurrentPanelPath()) {
-  return PANEL_ROUTES.has(path);
+  return PANEL_ROUTES.has(path) || Boolean(PANEL_ROUTE_ALIASES[path]);
 }
 
 function completeAuthPopupNavigation() {
@@ -811,7 +861,7 @@ function syncSidebarActiveLink() {
     if (!(link instanceof HTMLAnchorElement)) {
       return;
     }
-    const href = normalizePathname(link.getAttribute("href") || "");
+    const href = toCanonicalPanelPath(link.getAttribute("href") || "");
     link.classList.toggle("is-active", href === currentPath);
   });
 }
@@ -844,7 +894,7 @@ function setEventEditorMode(nextMode = "create", options = {}) {
   }
 
   if (registroTitle) {
-    registroTitle.textContent = isEditMode ? `Editar bitacora #${requestedEditId}` : "Nuevo registro";
+    registroTitle.textContent = isEditMode ? `Editar bitacora #${requestedEditId}` : "Nueva bitacora";
   }
 
   if (registroModeHint) {
@@ -1082,37 +1132,46 @@ function renderReportRows(report) {
     const actionWrap = document.createElement("div");
     actionWrap.className = "row-actions";
 
-    if (canEdit || canDelete) {
-      state.eventPayloadById[eventId] = {
-        fecha: normalizeDateInputValue(item.fecha),
-        descripcionActividad: item.descripcionActividad || "",
-        observacion: item.observacion || "",
-        prioridad: normalizePriority(item.prioridad),
-        templateId:
-          item.templateId === null || item.templateId === undefined
-            ? null
-            : Number(item.templateId),
-        encargado: item.encargado || "-"
-      };
+    state.eventPayloadById[eventId] = {
+      id: eventId,
+      fecha: normalizeDateInputValue(item.fecha),
+      descripcionActividad: item.descripcionActividad || "",
+      observacion: item.observacion || "",
+      prioridad: normalizePriority(item.prioridad),
+      templateName: item.templateName || "-",
+      templateId:
+        item.templateId === null || item.templateId === undefined
+          ? null
+          : Number(item.templateId),
+      encargado: item.encargado || "-"
+    };
 
-      if (canEdit) {
-        const editButton = document.createElement("button");
-        editButton.type = "button";
-        editButton.className = "btn btn-ghost event-edit";
-        editButton.dataset.eventId = String(eventId);
-        editButton.textContent = "Editar";
-        actionWrap.appendChild(editButton);
-      }
+    const viewButton = document.createElement("button");
+    viewButton.type = "button";
+    viewButton.className = "btn btn-ghost event-view";
+    viewButton.dataset.eventId = String(eventId);
+    viewButton.textContent = "Ver";
+    actionWrap.appendChild(viewButton);
 
-      if (canDelete) {
-        const deleteButton = document.createElement("button");
-        deleteButton.type = "button";
-        deleteButton.className = "btn btn-ghost event-delete";
-        deleteButton.dataset.eventId = String(eventId);
-        deleteButton.textContent = "Eliminar";
-        actionWrap.appendChild(deleteButton);
-      }
-    } else {
+    if (canEdit) {
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.className = "btn btn-ghost event-edit";
+      editButton.dataset.eventId = String(eventId);
+      editButton.textContent = "Editar";
+      actionWrap.appendChild(editButton);
+    }
+
+    if (canDelete) {
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "btn btn-ghost event-delete";
+      deleteButton.dataset.eventId = String(eventId);
+      deleteButton.textContent = "Eliminar";
+      actionWrap.appendChild(deleteButton);
+    }
+
+    if (!canEdit && !canDelete) {
       const readOnlyTag = document.createElement("span");
       readOnlyTag.className = "help-text";
       readOnlyTag.textContent = "Solo lectura";
@@ -1350,6 +1409,78 @@ function renderSocDashboardCharts(data) {
   }
 }
 
+function renderDashboardAlerts(alerts = {}) {
+  if (!dashboardAlertsList) {
+    return;
+  }
+
+  clearElement(dashboardAlertsList);
+  const items = [
+    {
+      label: "Tareas vencidas",
+      value: Number(alerts.tareasVencidas || 0),
+      className: "alert-critical"
+    },
+    {
+      label: "Tareas criticas",
+      value: Number(alerts.tareasCriticas || 0),
+      className: "alert-high"
+    },
+    {
+      label: "Bitacoras criticas (7 dias)",
+      value: Number(alerts.bitacorasCriticas || 0),
+      className: "alert-medium"
+    }
+  ];
+
+  items.forEach((item) => {
+    const chip = document.createElement("article");
+    chip.className = `dashboard-alert-chip ${item.className}`;
+
+    const title = document.createElement("p");
+    title.className = "dashboard-alert-label";
+    security.setSafeText(title, item.label);
+
+    const value = document.createElement("strong");
+    value.className = "dashboard-alert-value";
+    security.setSafeText(value, item.value);
+
+    chip.appendChild(title);
+    chip.appendChild(value);
+    dashboardAlertsList.appendChild(chip);
+  });
+}
+
+function renderDashboardActivity(items = []) {
+  if (!dashboardActivityList || !dashboardActivityEmpty) {
+    return;
+  }
+
+  clearElement(dashboardActivityList);
+  const entries = Array.isArray(items) ? items : [];
+  dashboardActivityEmpty.classList.toggle("hidden", entries.length > 0);
+
+  entries.slice(0, 8).forEach((item) => {
+    const li = document.createElement("li");
+    li.className = "dashboard-activity-item";
+
+    const action = document.createElement("p");
+    action.className = "dashboard-activity-action";
+    security.setSafeText(
+      action,
+      `${item.userName || "Sistema"}: ${String(item.action || "accion").replace(/_/g, " ")}`
+    );
+
+    const meta = document.createElement("p");
+    meta.className = "dashboard-activity-meta";
+    security.setSafeText(meta, `${item.entity || "sistema"} #${item.entityId || "-"} | ${formatDateTime(item.createdAt)}`);
+
+    li.appendChild(action);
+    li.appendChild(meta);
+    dashboardActivityList.appendChild(li);
+  });
+}
+
 async function loadSocDashboard() {
   const { response, data, networkError } = await apiAuth("/events/dashboard?days=30");
 
@@ -1376,6 +1507,9 @@ async function loadSocDashboard() {
   if (socRangeInfo) {
     socRangeInfo.textContent = `Rango ${formatDate(data?.range?.from)} - ${formatDate(data?.range?.to)}`;
   }
+
+  renderDashboardAlerts(data?.alerts || {});
+  renderDashboardActivity(data?.recentActivity || []);
 
   const chartReady = await ensureChartJsLoaded();
   if (!chartReady) {
@@ -1512,6 +1646,144 @@ async function loadDashboardTasksSummary() {
   }
 
   renderDashboardTasksSummary(data);
+}
+
+async function loadResumenTasks() {
+  if (!resumenTasksSection || !resumenTasksBody || !resumenTasksMeta || !canAccessPanel("/tareas")) {
+    return;
+  }
+
+  clearElement(resumenTasksBody);
+  resumenTasksMeta.textContent = "Cargando tareas...";
+
+  const params = new URLSearchParams({
+    page: "1",
+    pageSize: "15",
+    sortBy: "updatedAt",
+    sortOrder: "desc"
+  });
+
+  const { response, data, networkError } = await apiAuth(`/tasks?${params.toString()}`);
+  if (networkError) {
+    resumenTasksMeta.textContent = "No hay conexion para cargar tareas operativas.";
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    resumenTasksMeta.textContent = resolveErrorMessage(data?.error, data?.details);
+    return;
+  }
+
+  const rows = Array.isArray(data?.items) ? data.items : [];
+  if (rows.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 5;
+    td.textContent = "No hay tareas para mostrar en resumen.";
+    tr.appendChild(td);
+    resumenTasksBody.appendChild(tr);
+    resumenTasksMeta.textContent = "Sin tareas en el alcance actual.";
+    return;
+  }
+
+  rows.forEach((task) => {
+    const tr = document.createElement("tr");
+
+    const tdId = document.createElement("td");
+    security.setSafeText(tdId, task.id);
+
+    const tdTitle = document.createElement("td");
+    security.setSafeText(tdTitle, task.title || "-");
+
+    const tdStatus = document.createElement("td");
+    security.setSafeText(tdStatus, TASK_STATUS_LABELS[task.status] || task.status || "-");
+
+    const tdPriority = document.createElement("td");
+    security.setSafeText(tdPriority, TASK_PRIORITY_LABELS[task.priority] || task.priority || "-");
+
+    const tdDue = document.createElement("td");
+    security.setSafeText(tdDue, formatDashboardTaskDate(task.dueDate));
+
+    tr.appendChild(tdId);
+    tr.appendChild(tdTitle);
+    tr.appendChild(tdStatus);
+    tr.appendChild(tdPriority);
+    tr.appendChild(tdDue);
+    resumenTasksBody.appendChild(tr);
+  });
+
+  const total = Number(data?.pagination?.totalItems || rows.length);
+  resumenTasksMeta.textContent = `Mostrando ${rows.length} de ${total} tarea(s).`;
+}
+
+async function loadAuditPanel() {
+  if (!auditSection || !auditTableBody || !auditTableMeta) {
+    return;
+  }
+
+  clearElement(auditTableBody);
+  auditTableMeta.textContent = "Cargando auditoria...";
+
+  const params = new URLSearchParams({ page: "1", pageSize: "15" });
+  const { response, data, networkError } = await apiAuth(`/audit?${params.toString()}`);
+
+  if (networkError) {
+    auditTableMeta.textContent = "No hay conexion para cargar auditoria.";
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    if (response.status === 403) {
+      auditTableMeta.textContent = "Sin permisos para consultar auditoria.";
+      return;
+    }
+    auditTableMeta.textContent = resolveErrorMessage(data?.error, data?.details);
+    return;
+  }
+
+  const items = Array.isArray(data?.items) ? data.items : [];
+  if (!items.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 4;
+    td.textContent = "Sin eventos de auditoria recientes.";
+    tr.appendChild(td);
+    auditTableBody.appendChild(tr);
+    auditTableMeta.textContent = "Sin actividad auditada.";
+    return;
+  }
+
+  items.forEach((item) => {
+    const tr = document.createElement("tr");
+
+    const tdDate = document.createElement("td");
+    security.setSafeText(tdDate, formatDateTime(item.createdAt));
+
+    const tdUser = document.createElement("td");
+    security.setSafeText(tdUser, item.userName || "Sistema");
+
+    const tdAction = document.createElement("td");
+    security.setSafeText(tdAction, String(item.action || "-").replace(/_/g, " "));
+
+    const tdEntity = document.createElement("td");
+    security.setSafeText(tdEntity, `${item.entity || "-"} #${item.entityId || "-"}`);
+
+    tr.appendChild(tdDate);
+    tr.appendChild(tdUser);
+    tr.appendChild(tdAction);
+    tr.appendChild(tdEntity);
+    auditTableBody.appendChild(tr);
+  });
+
+  auditTableMeta.textContent = `Mostrando ${items.length} evento(s) recientes.`;
 }
 
 function renderUsersOptions() {
@@ -1699,6 +1971,9 @@ function applyRouteMode() {
   const showTareas = route === "/tareas";
   const showUsuarios = route === "/usuarios";
   const showPlantillas = route === "/plantillas";
+  const showAuditoria = route === "/auditoria";
+  const showConfiguracion = route === "/configuracion";
+  const showBitacoraReport = showInformes || showAdjuntos || showResumen;
 
   if (isPanelRoute(route) && !canAccessPanel(route)) {
     window.location.href = "/dashboard";
@@ -1709,20 +1984,20 @@ function applyRouteMode() {
   setElementVisible(dashboardTasksSummaryCard, showDashboard && canAccessPanel("/tareas"));
   setElementVisible(kpiSection, showResumen);
   setElementVisible(registroSection, showRegistro);
-  setElementVisible(informeSection, showInformes || showAdjuntos);
+  setElementVisible(informeSection, showBitacoraReport);
   setElementVisible(tendenciasSection, showTendencias || showResumen);
   setElementVisible(attachmentsCard, showAdjuntos);
   setElementVisible(tasksSection, showTareas);
-  setElementVisible(mainWorkspaceSection, showRegistro || showInformes || showAdjuntos);
+  setElementVisible(resumenTasksSection, showResumen && canAccessPanel("/tareas"));
+  setElementVisible(mainWorkspaceSection, showRegistro || showBitacoraReport);
   setElementVisible(secondaryWorkspaceSection, showTendencias || showAdjuntos || showResumen);
   setElementVisible(adminTools, showUsuarios && canManageUsers());
   setElementVisible(templateTools, showPlantillas && canManageTemplates());
+  setElementVisible(auditSection, showAuditoria && canAccessPanel("/auditoria"));
+  setElementVisible(settingsSection, showConfiguracion && canAccessPanel("/configuracion"));
 
   if (mainWorkspaceSection) {
-    mainWorkspaceSection.classList.toggle(
-      "single-column",
-      showRegistro || showInformes || showAdjuntos
-    );
+    mainWorkspaceSection.classList.toggle("single-column", showRegistro || showBitacoraReport);
     mainWorkspaceSection.classList.toggle("registro-focus", showRegistro);
   }
 
@@ -2187,7 +2462,12 @@ async function loadDashboardData() {
   }
 
   if (route === "/resumen") {
-    await Promise.all([loadReport(), loadTrends()]);
+    state.report.page = 1;
+    state.report.pageSize = 10;
+    if (pageSizeInput) {
+      pageSizeInput.value = "10";
+    }
+    await Promise.all([loadUsers(), loadReport(), loadTrends(), loadResumenTasks()]);
     return;
   }
 
@@ -2197,6 +2477,11 @@ async function loadDashboardData() {
   }
 
   if (route === "/informes") {
+    state.report.page = 1;
+    state.report.pageSize = 20;
+    if (pageSizeInput) {
+      pageSizeInput.value = "20";
+    }
     await Promise.all([loadUsers(), loadReport()]);
     return;
   }
@@ -2225,7 +2510,16 @@ async function loadDashboardData() {
     return;
   }
 
-  await Promise.all([loadUsers(), loadTemplates(), loadReport(), loadTrends()]);
+  if (route === "/auditoria") {
+    await loadAuditPanel();
+    return;
+  }
+
+  if (route === "/configuracion") {
+    return;
+  }
+
+  await Promise.all([loadUsers(), loadTemplates(), loadReport(), loadTrends(), loadResumenTasks()]);
 }
 async function handleLogin(event) {
   event.preventDefault();
@@ -2747,7 +3041,7 @@ async function handleAttachmentRename(attachmentId, currentName) {
 }
 
 async function handleAttachmentDelete(attachmentId) {
-  if (!window.confirm("¿Eliminar este adjunto? Esta acción no se puede deshacer.")) {
+  if (!window.confirm("Â¿Eliminar este adjunto? Esta acciÃ³n no se puede deshacer.")) {
     return;
   }
 
@@ -3514,6 +3808,28 @@ function closeRecoverModal() {
   document.body.classList.remove("modal-open");
 }
 
+function openEntityModal({ title = "Detalle", meta = "", body = "" } = {}) {
+  if (!entityModal || !entityModalTitle || !entityModalMeta || !entityModalBody) {
+    return;
+  }
+
+  security.setSafeText(entityModalTitle, title);
+  security.setSafeText(entityModalMeta, meta);
+  security.setSafeText(entityModalBody, body);
+  entityModal.classList.remove("hidden");
+  entityModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+}
+
+function closeEntityModal() {
+  if (!entityModal) {
+    return;
+  }
+  entityModal.classList.add("hidden");
+  entityModal.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+}
+
 function handleForgotPasswordHint() {
   openRecoverModal();
 }
@@ -3602,6 +3918,20 @@ function handleSidebarToggle() {
 async function handleReportTableClick(event) {
   const target = event.target;
   if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  const viewButton = target.closest(".event-view");
+  if (viewButton instanceof HTMLButtonElement) {
+    const eventId = Number(viewButton.dataset.eventId || 0);
+    const payload = state.eventPayloadById[eventId];
+    if (payload) {
+      openEntityModal({
+        title: `Bitacora #${eventId}`,
+        meta: `${payload.encargado || "-"} | ${formatDate(payload.fecha)} | ${formatPriorityLabel(payload.prioridad)}`,
+        body: `Actividad:\n${payload.descripcionActividad || "-"}\n\nObservacion:\n${payload.observacion || "-"}\n\nPlantilla: ${payload.templateName || "-"}`
+      });
+    }
     return;
   }
 
@@ -3892,9 +4222,27 @@ async function bootstrap() {
       }
     });
   }
+  if (entityModalClose) {
+    entityModalClose.addEventListener("click", closeEntityModal);
+  }
+  if (entityModal) {
+    entityModal.addEventListener("click", (event) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && target.hasAttribute("data-entity-close")) {
+        closeEntityModal();
+      }
+    });
+  }
+
   window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && recoverModal && !recoverModal.classList.contains("hidden")) {
+    if (event.key !== "Escape") {
+      return;
+    }
+    if (recoverModal && !recoverModal.classList.contains("hidden")) {
       closeRecoverModal();
+    }
+    if (entityModal && !entityModal.classList.contains("hidden")) {
+      closeEntityModal();
     }
   });
 
@@ -4010,3 +4358,22 @@ async function bootstrap() {
 }
 
 bootstrap();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
