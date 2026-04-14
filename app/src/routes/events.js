@@ -189,6 +189,14 @@ const uploadStorageErrorCodes = new Set([
 ]);
 const uploadStorageMessagePattern =
   /(no space left on device|read-only file system|permission denied|eacces|eperm|erofs|enospc|enoent|enotdir|eisdir|emfile|enfile)/i;
+const previewableMimeTypes = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+  "application/pdf",
+  "text/plain"
+]);
 
 function sanitizeOriginalFileName(originalName) {
   const withoutControlChars = Array.from(path.basename(String(originalName || "")).normalize("NFKC"))
@@ -1763,6 +1771,58 @@ router.get("/attachments/:attachmentId/download", authenticate, async (req, res,
   }
 });
 
+router.get("/attachments/:attachmentId/preview", authenticate, async (req, res, next) => {
+  try {
+    if (!canUserAccessPanel(req.user, "adjuntos")) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    const params = attachmentDownloadSchema.parse(req.params);
+    const attachment = await getAttachmentById(params.attachmentId);
+
+    if (!attachment) {
+      return res.status(404).json({ error: "attachment_not_found" });
+    }
+
+    if (!canUserViewFile(req.user, attachment)) {
+      await auditAttachmentAccessDenied(req, params.attachmentId, "preview_forbidden");
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    if (!previewableMimeTypes.has(attachment.mimeType)) {
+      return res.status(415).json({ error: "preview_not_supported" });
+    }
+
+    const filePath = resolveStoredAttachmentPath(attachment.storedName);
+    if (!filePath) {
+      return res.status(404).json({ error: "attachment_not_found" });
+    }
+
+    await fs.access(filePath);
+
+    const previewName = safeDownloadFileName(
+      attachment.originalName,
+      attachment.mimeType,
+      attachment.id
+    );
+
+    res.setHeader("Content-Type", attachment.mimeType);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Disposition", `inline; filename="${previewName.replace(/"/g, "")}"`);
+    return res.sendFile(filePath);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error" });
+    }
+
+    if (error.code === "ENOENT") {
+      return res.status(404).json({ error: "attachment_not_found" });
+    }
+
+    return next(error);
+  }
+});
+
 router.patch("/attachments/:attachmentId", authenticate, async (req, res, next) => {
   try {
     if (!canUserAccessPanel(req.user, "adjuntos")) {
@@ -1880,6 +1940,9 @@ router.delete("/attachments/:attachmentId", authenticate, async (req, res, next)
 });
 
 module.exports = { eventsRouter: router };
+
+
+
 
 
 

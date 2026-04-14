@@ -1012,6 +1012,19 @@ textarea {
   gap: 0.22rem;
 }
 
+.dashboard-alert-chip-clickable {
+  cursor: pointer;
+  transition: border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+}
+
+.dashboard-alert-chip-clickable:hover,
+.dashboard-alert-chip-clickable:focus-visible {
+  border-color: rgba(145, 198, 255, 0.55);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.26);
+  outline: none;
+}
+
 .dashboard-alert-label {
   margin: 0;
   color: #9cb8de;
@@ -2197,6 +2210,293 @@ th {
   color: #ff9fb6;
 }
 
+
+.sidebar-group-toggle {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.sidebar-group-content {
+  display: grid;
+  gap: 0.35rem;
+  max-height: 280px;
+  opacity: 1;
+  overflow: hidden;
+  transition: max-height 180ms ease, opacity 180ms ease;
+}
+
+.sidebar-group.is-collapsed .sidebar-group-content {
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sidebar-group-chevron {
+  color: #8fb9f0;
+  font-size: 0.76rem;
+  transition: transform 180ms ease;
+}
+
+.sidebar-group.is-collapsed .sidebar-group-chevron {
+  transform: rotate(-90deg);
+}
+
+.sidebar-group.is-active .sidebar-group-toggle {
+  color: #d9ebff;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+
+.notifications-wrap {
+  position: relative;
+}
+
+.notifications-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.36rem;
+}
+
+.notifications-badge {
+  min-width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 140, 158, 0.55);
+  background: rgba(255, 113, 140, 0.22);
+  color: #ffd8df;
+  font-size: 0.74rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.28rem;
+}
+
+.notifications-dropdown {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  width: min(420px, 90vw);
+  border: 1px solid rgba(117, 157, 223, 0.32);
+  border-radius: 12px;
+  background: rgba(7, 18, 40, 0.96);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 18px 28px rgba(0, 0, 0, 0.35);
+  padding: 0.65rem;
+  z-index: 40;
+}
+
+.notifications-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  margin-bottom: 0.45rem;
+}
+
+.notifications-head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.notifications-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.notifications-item-btn {
+  width: 100%;
+  border: 1px solid rgba(116, 156, 222, 0.28);
+  border-radius: 10px;
+  background: rgba(11, 24, 52, 0.82);
+  color: inherit;
+  text-align: left;
+  padding: 0.5rem 0.58rem;
+  cursor: pointer;
+  display: grid;
+  gap: 0.22rem;
+}
+
+.notifications-item.is-unread .notifications-item-btn {
+  border-color: rgba(121, 194, 255, 0.48);
+  box-shadow: 0 0 0 1px rgba(121, 194, 255, 0.2) inset;
+}
+
+.notifications-item-title {
+  margin: 0;
+  color: #deedff;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.notifications-item-message,
+.notifications-item-meta {
+  margin: 0;
+  color: #9fb6d9;
+  font-size: 0.77rem;
+}
+
+.dashboard-task-item-clickable {
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.dashboard-task-item-clickable:hover,
+.dashboard-task-item-clickable:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(126, 192, 255, 0.48);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.28);
+  outline: none;
+}
+
+.dashboard-task-open-link {
+  color: #8ed5ff;
+  font-size: 0.76rem;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.dashboard-task-open-link:hover {
+  text-decoration: underline;
+}
+
+.audit-filter-form {
+  margin-bottom: 0.7rem;
+}
+
+.audit-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.audit-timeline-empty {
+  border: 1px dashed rgba(132, 170, 234, 0.35);
+  border-radius: 11px;
+  padding: 0.7rem;
+  color: #9db7dc;
+}
+
+.audit-timeline-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.55rem;
+  border: 1px solid rgba(116, 156, 223, 0.26);
+  border-radius: 11px;
+  background: rgba(10, 24, 51, 0.74);
+  padding: 0.58rem;
+}
+
+.audit-timeline-icon {
+  width: 2.15rem;
+  height: 2.15rem;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  border: 1px solid rgba(124, 165, 231, 0.35);
+  color: #cbe4ff;
+}
+
+.audit-timeline-content {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.audit-timeline-title,
+.audit-timeline-meta {
+  margin: 0;
+}
+
+.audit-timeline-title {
+  color: #deeeff;
+  font-weight: 700;
+  font-size: 0.84rem;
+}
+
+.audit-timeline-meta {
+  color: #a0badf;
+  font-size: 0.77rem;
+}
+
+.audit-detail-btn {
+  justify-self: flex-start;
+}
+
+.audit-timeline-item.audit-auth .audit-timeline-icon {
+  border-color: rgba(99, 228, 191, 0.52);
+  color: #9ff3d6;
+}
+
+.audit-timeline-item.audit-task .audit-timeline-icon {
+  border-color: rgba(255, 193, 102, 0.5);
+  color: #ffd9a8;
+}
+
+.audit-timeline-item.audit-event .audit-timeline-icon {
+  border-color: rgba(110, 186, 255, 0.5);
+  color: #bfe4ff;
+}
+
+.audit-timeline-item.audit-config .audit-timeline-icon {
+  border-color: rgba(215, 167, 255, 0.5);
+  color: #e9cbff;
+}
+
+.entity-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
+}
+
+.attachment-preview-card {
+  max-width: min(980px, 96vw);
+}
+
+.attachment-preview-media {
+  width: 100%;
+  min-height: min(70vh, 560px);
+  border: 1px solid rgba(123, 165, 233, 0.35);
+  border-radius: 10px;
+  background: rgba(7, 18, 40, 0.86);
+}
+
+.attachment-preview-text {
+  margin: 0;
+  border: 1px solid rgba(123, 165, 233, 0.35);
+  border-radius: 10px;
+  background: rgba(7, 18, 40, 0.86);
+  max-height: min(70vh, 560px);
+  overflow: auto;
+  padding: 0.7rem;
+  font-size: 0.82rem;
+  color: #d2e6ff;
+}
+
 @media (hover: hover) and (pointer: fine) {
   .card.mouse-reactive {
     transform:
@@ -2535,6 +2835,14 @@ th {
     transition: none !important;
   }
 }
+
+
+
+
+
+
+
+
 
 
 

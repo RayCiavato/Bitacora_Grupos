@@ -12,6 +12,7 @@ const { validatePasswordPolicy } = require("../services/passwordPolicy");
 const { validateFullName } = require("../services/namePolicy");
 const { createAuditLog } = require("../services/audit");
 const { buildSessionUser } = require("../services/authorization");
+const { getSystemSettings } = require("../services/systemSettings");
 const {
   createAccessToken,
   createRefreshToken,
@@ -48,6 +49,53 @@ const recoverPasswordSchema = z.object({
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
+}
+
+function getRuntimeSessionSettings() {
+  const current = getSystemSettings();
+
+  const idleCandidate = Number(current?.session?.idleTimeoutMinutes || config.sessionIdleTimeoutMinutes || 120);
+  const idleTimeoutMinutes = Math.min(
+    1440,
+    Math.max(5, Number.isFinite(idleCandidate) ? Math.trunc(idleCandidate) : 120)
+  );
+
+  const warningCandidate = Number(current?.session?.warningMinutes || 5);
+  const keepAliveCandidate = Number(current?.session?.keepAliveIntervalMinutes || 5);
+
+  const warningMinutes = Math.min(
+    idleTimeoutMinutes - 1,
+    Math.max(1, Number.isFinite(warningCandidate) ? Math.trunc(warningCandidate) : 5)
+  );
+
+  const keepAliveIntervalMinutes = Math.min(
+    idleTimeoutMinutes - 1,
+    Math.max(1, Number.isFinite(keepAliveCandidate) ? Math.trunc(keepAliveCandidate) : 5)
+  );
+
+  return {
+    idleTimeoutMinutes,
+    warningMinutes,
+    keepAliveIntervalMinutes
+  };
+}
+
+function resolveTokenLastActivityDate(storedToken) {
+  if (storedToken?.last_used_at) {
+    const parsed = new Date(storedToken.last_used_at);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+
+  if (storedToken?.created_at) {
+    const parsed = new Date(storedToken.created_at);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+
+  return null;
 }
 
 function createMfaSetupToken(user) {
@@ -112,8 +160,8 @@ async function resetLockState(userId) {
 async function persistRefreshToken(userId, refreshTokenObj) {
   await pool.query(
     `
-      INSERT INTO refresh_tokens (user_id, token_hash, token_id, expires_at)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO refresh_tokens (user_id, token_hash, token_id, expires_at, last_used_at)
+      VALUES ($1, $2, $3, $4, NOW())
     `,
     [
       userId,
@@ -159,10 +207,19 @@ function setSessionCookies(res, accessToken, refreshToken, csrfToken) {
   res.cookie(config.csrfCookieName, csrfToken, getCsrfCookieOptions());
 }
 
+function cookieOptionsForClear(baseOptions) {
+  if (!baseOptions || typeof baseOptions !== "object") {
+    return { path: "/" };
+  }
+
+  const { maxAge: _maxAge, expires: _expires, ...rest } = baseOptions;
+  return rest;
+}
+
 function clearSessionCookies(res) {
-  res.clearCookie(config.authCookieName, getAccessCookieOptions());
-  res.clearCookie(config.refreshCookieName, getRefreshCookieOptions());
-  res.clearCookie(config.csrfCookieName, getCsrfCookieOptions());
+  res.clearCookie(config.authCookieName, cookieOptionsForClear(getAccessCookieOptions()));
+  res.clearCookie(config.refreshCookieName, cookieOptionsForClear(getRefreshCookieOptions()));
+  res.clearCookie(config.csrfCookieName, cookieOptionsForClear(getCsrfCookieOptions()));
 }
 
 async function issueSession({ user, req, res, auditAction = "auth.session_created" }) {
@@ -463,7 +520,7 @@ router.post("/refresh", async (req, res, next) => {
     const tokenId = payload.tokenId;
     const tokenResult = await pool.query(
       `
-        SELECT id, user_id, token_hash, expires_at, revoked_at
+        SELECT id, user_id, token_hash, expires_at, revoked_at, created_at, last_used_at
         FROM refresh_tokens
         WHERE token_id = $1
         LIMIT 1
@@ -478,6 +535,14 @@ router.post("/refresh", async (req, res, next) => {
     const storedToken = tokenResult.rows[0];
     if (storedToken.revoked_at || new Date(storedToken.expires_at) <= new Date()) {
       return res.status(401).json({ error: "refresh_token_expired" });
+    }
+
+    const sessionSettings = getRuntimeSessionSettings();
+    const lastActivityAt = resolveTokenLastActivityDate(storedToken);
+    const idleTimeoutMs = sessionSettings.idleTimeoutMinutes * 60 * 1000;
+    if (!lastActivityAt || Date.now() - lastActivityAt.getTime() > idleTimeoutMs) {
+      await revokeRefreshTokenById(tokenId);
+      return res.status(401).json({ error: "session_inactive_timeout" });
     }
 
     if (storedToken.token_hash !== hashToken(refreshToken)) {
@@ -569,6 +634,21 @@ router.get("/me", authenticate, async (req, res, next) => {
   }
 });
 
+router.get("/session-config", authenticate, async (_req, res, next) => {
+  try {
+    const sessionSettings = getRuntimeSessionSettings();
+    return res.json({
+      session: {
+        idleTimeoutMinutes: sessionSettings.idleTimeoutMinutes,
+        warningMinutes: sessionSettings.warningMinutes,
+        keepAliveIntervalMinutes: sessionSettings.keepAliveIntervalMinutes
+      },
+      serverTime: new Date().toISOString()
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
 router.post("/mfa/setup", authenticate, requirePurpose("mfa_setup"), async (req, res, next) => {
   try {
     const userResult = await pool.query(
@@ -659,3 +739,9 @@ router.post("/mfa/enable", authenticate, requirePurpose("mfa_setup"), async (req
 });
 
 module.exports = { authRouter: router };
+
+
+
+
+
+

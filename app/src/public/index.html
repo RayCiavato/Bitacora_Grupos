@@ -236,55 +236,65 @@
               <p class="eyebrow">ACCESOS</p>
               <h3>Navegacion</h3>
               <nav id="sidebarNav" class="sidebar-nav">
-                <div class="sidebar-group">
-                  <p class="sidebar-group-title">Dashboard</p>
-                  <a href="/dashboard" class="btn btn-ghost sidebar-link is-active">Dashboard</a>
-                </div>
+  <a href="/dashboard" class="btn btn-ghost sidebar-link sidebar-dashboard-link is-active" data-group="dashboard">
+    <span>Dashboard</span>
+  </a>
 
-                <div class="sidebar-group">
-                  <p class="sidebar-group-title">Operaciones</p>
-                  <a href="/resumen" class="btn btn-ghost sidebar-link">Bitacoras</a>
-                  <a href="/tareas" class="btn btn-ghost sidebar-link">Tareas</a>
-                </div>
+  <section class="sidebar-group is-collapsible" data-group-id="operaciones">
+    <button type="button" class="sidebar-group-toggle" aria-expanded="true">
+      <span class="sidebar-group-title">Operaciones</span>
+      <span class="sidebar-group-chevron" aria-hidden="true">&#9662;</span>
+    </button>
+    <div class="sidebar-group-content">
+      <a href="/resumen" class="btn btn-ghost sidebar-link" data-group="operaciones">Bitacoras</a>
+      <a href="/tareas" class="btn btn-ghost sidebar-link" data-group="operaciones">Tareas</a>
+    </div>
+  </section>
 
-                <div class="sidebar-group">
-                  <p class="sidebar-group-title">Gestion</p>
-                  <a href="/adjuntos" class="btn btn-ghost sidebar-link">Adjuntos</a>
-                  <a
-                    href="/plantillas"
-                    class="btn btn-ghost sidebar-link hidden"
-                    data-requires="templates"
-                  >
-                    Plantillas
-                  </a>
-                </div>
+  <section class="sidebar-group is-collapsible" data-group-id="gestion">
+    <button type="button" class="sidebar-group-toggle" aria-expanded="true">
+      <span class="sidebar-group-title">Gestion</span>
+      <span class="sidebar-group-chevron" aria-hidden="true">&#9662;</span>
+    </button>
+    <div class="sidebar-group-content">
+      <a href="/adjuntos" class="btn btn-ghost sidebar-link" data-group="gestion">Adjuntos</a>
+      <a href="/plantillas" class="btn btn-ghost sidebar-link hidden" data-group="gestion" data-requires="templates">Plantillas</a>
+    </div>
+  </section>
 
-                <div class="sidebar-group">
-                  <p class="sidebar-group-title">Analisis</p>
-                  <a href="/informes" class="btn btn-ghost sidebar-link">Reportes</a>
-                  <a href="/tendencias" class="btn btn-ghost sidebar-link">Tendencias</a>
-                </div>
+  <section class="sidebar-group is-collapsible" data-group-id="analisis">
+    <button type="button" class="sidebar-group-toggle" aria-expanded="true">
+      <span class="sidebar-group-title">Analisis</span>
+      <span class="sidebar-group-chevron" aria-hidden="true">&#9662;</span>
+    </button>
+    <div class="sidebar-group-content">
+      <a href="/informes" class="btn btn-ghost sidebar-link" data-group="analisis">Reportes</a>
+      <a href="/tendencias" class="btn btn-ghost sidebar-link" data-group="analisis">Tendencias</a>
+    </div>
+  </section>
 
-                <div class="sidebar-group">
-                  <p class="sidebar-group-title">Administracion</p>
-                  <a href="/usuarios" class="btn btn-ghost sidebar-link hidden" data-requires="admin">
-                    Usuarios
-                  </a>
-                  <a href="/usuarios/roles" class="btn btn-ghost sidebar-link hidden" data-requires="admin">
-                    Roles y permisos
-                  </a>
-                </div>
+  <section class="sidebar-group is-collapsible" data-group-id="administracion">
+    <button type="button" class="sidebar-group-toggle" aria-expanded="true">
+      <span class="sidebar-group-title">Administracion</span>
+      <span class="sidebar-group-chevron" aria-hidden="true">&#9662;</span>
+    </button>
+    <div class="sidebar-group-content">
+      <a href="/usuarios" class="btn btn-ghost sidebar-link hidden" data-group="administracion" data-requires="admin">Usuarios</a>
+      <a href="/usuarios/roles" class="btn btn-ghost sidebar-link hidden" data-group="administracion" data-requires="admin">Roles y permisos</a>
+    </div>
+  </section>
 
-                <div class="sidebar-group">
-                  <p class="sidebar-group-title">Sistema</p>
-                  <a href="/auditoria" class="btn btn-ghost sidebar-link hidden" data-requires="admin">
-                    Auditoria
-                  </a>
-                  <a href="/configuracion" class="btn btn-ghost sidebar-link hidden" data-requires="admin">
-                    Configuracion
-                  </a>
-                </div>
-              </nav>
+  <section class="sidebar-group is-collapsible" data-group-id="sistema">
+    <button type="button" class="sidebar-group-toggle" aria-expanded="true">
+      <span class="sidebar-group-title">Sistema</span>
+      <span class="sidebar-group-chevron" aria-hidden="true">&#9662;</span>
+    </button>
+    <div class="sidebar-group-content">
+      <a href="/auditoria" class="btn btn-ghost sidebar-link hidden" data-group="sistema" data-requires="admin">Auditoria</a>
+      <a href="/configuracion" class="btn btn-ghost sidebar-link hidden" data-group="sistema" data-requires="admin">Configuracion</a>
+    </div>
+  </section>
+</nav>
               <p class="help-text">Panel enterprise por dominios operativos.</p>
             </aside>
 
@@ -296,7 +306,30 @@
                   <p id="welcomeMessage" class="welcome-text"></p>
                   <p id="sessionInfo" class="subtitle"></p>
                 </div>
-                <button id="logoutBtn" class="btn btn-ghost">Cerrar sesion</button>
+                <div class="topbar-actions">
+                  <div class="notifications-wrap">
+                    <button
+                      id="notificationsBtn"
+                      type="button"
+                      class="btn btn-ghost notifications-btn"
+                      aria-expanded="false"
+                      aria-controls="notificationsDropdown"
+                    >
+                      <span class="notifications-bell" aria-hidden="true">&#128276;</span>
+                      <span>Notificaciones</span>
+                      <span id="notificationsBadge" class="notifications-badge hidden">0</span>
+                    </button>
+                    <section id="notificationsDropdown" class="notifications-dropdown hidden" aria-live="polite">
+                      <header class="notifications-head">
+                        <h3>Centro de notificaciones</h3>
+                        <button id="notificationsMarkAllBtn" type="button" class="btn btn-ghost">Marcar todas</button>
+                      </header>
+                      <ul id="notificationsList" class="notifications-list"></ul>
+                      <p id="notificationsEmpty" class="help-text">Sin notificaciones pendientes.</p>
+                    </section>
+                  </div>
+                  <button id="logoutBtn" class="btn btn-ghost">Cerrar sesion</button>
+                </div>
               </header>
 
               <section id="socDashboardSection" class="soc-dashboard hidden">
@@ -601,32 +634,20 @@
                   </div>
                 </article>
 
-                <article id="resumenTasksSection" class="card hidden">
-                  <div class="soc-chart-head">
-                    <h3>Tareas operativas</h3>
-                    <p class="help-text">Ultimas 15 tareas visibles segun permisos.</p>
-                  </div>
-                  <div class="resumen-quick-actions">
-                    <a href="/registro/nuevo" class="btn btn-ghost">+ Nueva bitacora</a>
-                    <a href="/tareas" class="btn btn-ghost">Abrir Tasks</a>
-                    <a href="/informes" class="btn btn-ghost">Ir a reportes</a>
-                  </div>
-                  <div class="table-wrap resumen-tasks-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>ID</th>
-                          <th>Titulo</th>
-                          <th>Estado</th>
-                          <th>Prioridad</th>
-                          <th>Vence</th>
-                        </tr>
-                      </thead>
-                      <tbody id="resumenTasksBody"></tbody>
-                    </table>
-                  </div>
-                  <p id="resumenTasksMeta" class="help-text">Cargando tareas...</p>
-                </article>
+                <article id="resumenOpsSection" class="card collapsible-card hidden" data-collapsible-id="resumen-ops">
+  <button type="button" class="collapsible-toggle" data-collapsible-target="resumenOpsBody" aria-expanded="true">
+    <span>Bloques secundarios</span>
+    <span class="collapsible-chevron" aria-hidden="true">?</span>
+  </button>
+  <div id="resumenOpsBody" class="collapsible-body">
+    <div class="resumen-quick-actions">
+      <a href="/registro/nuevo" class="btn btn-ghost">+ Nueva bitacora</a>
+      <a href="/informes" class="btn btn-ghost">Reportes detallados</a>
+      <a href="/tareas" class="btn btn-ghost">Ir a Tasks</a>
+    </div>
+    <p class="help-text">El modulo de Bitacoras ahora muestra solo dominio de bitacoras. El detalle de tareas vive exclusivamente en la vista Tasks y en el dashboard agregado.</p>
+  </div>
+</article>
 
                 <article id="attachmentsCard" class="card attachments-card">
                   <h3>Adjuntos de registro</h3>
@@ -990,23 +1011,37 @@
               </section>
 
               <section id="auditSection" class="card hidden">
-                <h3>Auditoria del sistema</h3>
-                <p class="help-text">Trazabilidad de eventos criticos para administracion y seguridad.</p>
-                <div class="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Fecha</th>
-                        <th>Usuario</th>
-                        <th>Accion</th>
-                        <th>Entidad</th>
-                      </tr>
-                    </thead>
-                    <tbody id="auditTableBody"></tbody>
-                  </table>
-                </div>
-                <p id="auditTableMeta" class="help-text">Cargando auditoria...</p>
-              </section>
+  <h3>Auditoria del sistema</h3>
+  <p class="help-text">Timeline de eventos criticos con filtros operativos.</p>
+
+  <form id="auditFilterForm" class="report-filters audit-filter-form">
+    <label>
+      Usuario
+      <select id="auditUserFilter">
+        <option value="">Todos</option>
+      </select>
+    </label>
+    <label>
+      Accion
+      <input id="auditActionFilter" type="text" maxlength="80" placeholder="Ej: settings.updated" />
+    </label>
+    <label>
+      Desde
+      <input id="auditFromDate" type="date" />
+    </label>
+    <label>
+      Hasta
+      <input id="auditToDate" type="date" />
+    </label>
+    <div class="report-actions">
+      <button type="submit" class="btn btn-secondary">Filtrar</button>
+      <button id="auditResetBtn" type="button" class="btn btn-ghost">Limpiar</button>
+    </div>
+  </form>
+
+  <ul id="auditTimeline" class="audit-timeline"></ul>
+  <p id="auditTableMeta" class="help-text">Cargando auditoria...</p>
+</section>
 
               <section id="settingsSection" class="card hidden">
                 <h3>Configuracion global</h3>
@@ -1014,37 +1049,49 @@
 
                 <form id="systemSettingsForm" class="form settings-form">
                   <div class="settings-grid">
-                    <label>
-                      Reportes por pagina (default)
-                      <input id="settingReportPageSizeDefault" type="number" min="5" max="100" required />
-                    </label>
-                    <label>
-                      Reportes por pagina (maximo)
-                      <input id="settingReportPageSizeMax" type="number" min="10" max="500" required />
-                    </label>
-                    <label>
-                      Tareas por pagina (default)
-                      <input id="settingTasksPageSizeDefault" type="number" min="5" max="100" required />
-                    </label>
-                    <label>
-                      Tareas por pagina (maximo)
-                      <input id="settingTasksPageSizeMax" type="number" min="10" max="100" required />
-                    </label>
-                    <label>
-                      Dashboard dias de eventos
-                      <input id="settingEventsDays" type="number" min="7" max="90" required />
-                    </label>
-                    <label>
-                      Dashboard dias de tareas
-                      <input id="settingTasksSummaryDays" type="number" min="1" max="30" required />
-                    </label>
-                    <label>
-                      Dashboard limite recientes
-                      <input id="settingTasksRecentLimit" type="number" min="1" max="12" required />
-                    </label>
-                  </div>
+  <label>
+    Reportes por pagina (default)
+    <input id="settingReportPageSizeDefault" type="number" min="5" max="100" required />
+  </label>
+  <label>
+    Reportes por pagina (maximo)
+    <input id="settingReportPageSizeMax" type="number" min="10" max="500" required />
+  </label>
+  <label>
+    Tareas por pagina (default)
+    <input id="settingTasksPageSizeDefault" type="number" min="5" max="100" required />
+  </label>
+  <label>
+    Tareas por pagina (maximo)
+    <input id="settingTasksPageSizeMax" type="number" min="10" max="100" required />
+  </label>
+  <label>
+    Dashboard dias de eventos
+    <input id="settingEventsDays" type="number" min="7" max="90" required />
+  </label>
+  <label>
+    Dashboard dias de tareas
+    <input id="settingTasksSummaryDays" type="number" min="1" max="30" required />
+  </label>
+  <label>
+    Dashboard limite recientes
+    <input id="settingTasksRecentLimit" type="number" min="1" max="12" required />
+  </label>
+  <label>
+    Timeout por inactividad (min)
+    <input id="settingSessionIdleTimeout" type="number" min="5" max="1440" required />
+  </label>
+  <label>
+    Aviso previo de sesion (min)
+    <input id="settingSessionWarningMinutes" type="number" min="1" max="60" required />
+  </label>
+  <label>
+    Keepalive de sesion (min)
+    <input id="settingSessionKeepAliveMinutes" type="number" min="1" max="60" required />
+  </label>
+</div>
 
-                  <fieldset class="settings-features">
+<fieldset class="settings-features">
                     <legend>Flags funcionales</legend>
                     <label class="settings-flag-item">
                       <input id="settingTemplatesEnabled" type="checkbox" />
@@ -1159,6 +1206,20 @@
         </header>
         <p id="entityModalMeta" class="help-text"></p>
         <pre id="entityModalBody" class="entity-modal-body"></pre>
+        <div id="entityModalActions" class="entity-modal-actions hidden"></div>
+      </section>
+    </div>
+    <div id="attachmentPreviewModal" class="entity-modal hidden" aria-hidden="true">
+      <div class="entity-modal-overlay" data-attachment-preview-close></div>
+      <section class="entity-modal-card attachment-preview-card card" role="dialog" aria-modal="true" aria-labelledby="attachmentPreviewTitle">
+        <header class="entity-modal-header">
+          <h3 id="attachmentPreviewTitle">Preview de adjunto</h3>
+          <button id="attachmentPreviewClose" type="button" class="btn btn-ghost">Cerrar</button>
+        </header>
+        <p id="attachmentPreviewMeta" class="help-text"></p>
+        <img id="attachmentPreviewImage" class="attachment-preview-media hidden" alt="Preview de imagen" />
+        <iframe id="attachmentPreviewFrame" class="attachment-preview-media hidden" title="Preview de archivo"></iframe>
+        <pre id="attachmentPreviewText" class="attachment-preview-text hidden"></pre>
       </section>
     </div>
     <div id="toast" class="toast hidden" aria-live="polite"></div>
@@ -1167,6 +1228,15 @@
     <script src="/assets/tasks.min.js?asset=tasks" defer></script>
   </body>
 </html>
+
+
+
+
+
+
+
+
+
 
 
 

@@ -116,6 +116,13 @@ CREATE TABLE IF NOT EXISTS event_attachments (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS user_notification_reads (
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  notification_key VARCHAR(160) NOT NULL,
+  read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, notification_key)
+);
+
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_events_fecha ON events(fecha);
 CREATE INDEX IF NOT EXISTS idx_events_encargado ON events(encargado_id);
@@ -132,6 +139,8 @@ CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at ON refresh_tokens(expir
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_event_attachments_event_id ON event_attachments(event_id);
+CREATE INDEX IF NOT EXISTS idx_user_notification_reads_user_id ON user_notification_reads(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_notification_reads_read_at ON user_notification_reads(read_at DESC);
 
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER AS $$
@@ -204,3 +213,4 @@ BEGIN
     EXECUTE FUNCTION prevent_encargado_change();
   END IF;
 END $$;
+

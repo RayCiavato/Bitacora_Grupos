@@ -16,6 +16,7 @@ const { templatesRouter } = require("./routes/templates");
 const { auditRouter } = require("./routes/audit");
 const { rolesPermissionsRouter } = require("./routes/rolesPermissions");
 const { settingsRouter } = require("./routes/settings");
+const { notificationsRouter } = require("./routes/notifications");
 const { healthRouter } = require("./routes/health");
 const { startReminderScheduler } = require("./services/reminders");
 const { ensureRolePermissionPoliciesLoaded, seedMissingRolePolicies } = require("./services/rolePoliciesStore");
@@ -97,7 +98,8 @@ function createApp() {
       req.path.startsWith("/templates") ||
       req.path.startsWith("/audit") ||
       req.path.startsWith("/roles-permissions") ||
-      req.path.startsWith("/settings")
+      req.path.startsWith("/settings") ||
+      req.path.startsWith("/notifications")
     ) {
       res.set("Cache-Control", "no-store");
     }
@@ -279,6 +281,7 @@ function createApp() {
   app.use("/audit", auditRouter);
   app.use("/roles-permissions", rolesPermissionsRouter);
   app.use("/settings", settingsRouter);
+  app.use("/notifications", notificationsRouter);
   app.use("/templates", templatesRouter);
   app.use("/events", eventsRouter);
   app.use("/tasks", tasksRouter);
@@ -400,6 +403,7 @@ if (require.main === module) {
 }
 
 module.exports = { createApp, start };
+
 
 
 

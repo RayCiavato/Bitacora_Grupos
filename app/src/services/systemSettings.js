@@ -19,6 +19,11 @@ const systemSettingsSchema = z
       templatesEnabled: z.boolean(),
       taskExportsEnabled: z.boolean(),
       reportExportsEnabled: z.boolean()
+    }),
+    session: z.object({
+      idleTimeoutMinutes: z.number().int().min(5).max(1440),
+      warningMinutes: z.number().int().min(1).max(60),
+      keepAliveIntervalMinutes: z.number().int().min(1).max(60)
     })
   })
   .superRefine((value, ctx) => {
@@ -35,6 +40,22 @@ const systemSettingsSchema = z
         code: z.ZodIssueCode.custom,
         path: ["pagination", "tasksPageSizeDefault"],
         message: "tasks_default_exceeds_max"
+      });
+    }
+
+    if (value.session.warningMinutes >= value.session.idleTimeoutMinutes) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["session", "warningMinutes"],
+        message: "session_warning_must_be_less_than_idle"
+      });
+    }
+
+    if (value.session.keepAliveIntervalMinutes >= value.session.idleTimeoutMinutes) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["session", "keepAliveIntervalMinutes"],
+        message: "session_keep_alive_must_be_less_than_idle"
       });
     }
   });
@@ -65,6 +86,14 @@ const systemSettingsPatchSchema = z
         reportExportsEnabled: z.boolean().optional()
       })
       .strict()
+      .optional(),
+    session: z
+      .object({
+        idleTimeoutMinutes: z.coerce.number().int().min(5).max(1440).optional(),
+        warningMinutes: z.coerce.number().int().min(1).max(60).optional(),
+        keepAliveIntervalMinutes: z.coerce.number().int().min(1).max(60).optional()
+      })
+      .strict()
       .optional()
   })
   .strict();
@@ -85,6 +114,11 @@ const SYSTEM_SETTINGS_DEFAULTS = Object.freeze({
     templatesEnabled: true,
     taskExportsEnabled: true,
     reportExportsEnabled: true
+  }),
+  session: Object.freeze({
+    idleTimeoutMinutes: 120,
+    warningMinutes: 5,
+    keepAliveIntervalMinutes: 5
   })
 });
 
@@ -138,6 +172,10 @@ function mergeSystemSettingsPatch(currentSettings, patch) {
     features: {
       ...currentSettings.features,
       ...(patch.features || {})
+    },
+    session: {
+      ...currentSettings.session,
+      ...(patch.session || {})
     }
   };
 

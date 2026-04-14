@@ -120,6 +120,14 @@ async function ensureDatabaseSchema() {
       )
     `,
     `
+      CREATE TABLE IF NOT EXISTS user_notification_reads (
+        user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        notification_key VARCHAR(160) NOT NULL,
+        read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (user_id, notification_key)
+      )
+    `,
+    `
       CREATE TABLE IF NOT EXISTS event_templates (
         id BIGSERIAL PRIMARY KEY,
         name VARCHAR(160) NOT NULL UNIQUE,
@@ -279,6 +287,8 @@ async function ensureDatabaseSchema() {
     "CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_role_permission_policies_updated_at ON role_permission_policies(updated_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_system_settings_updated_at ON system_settings(updated_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_user_notification_reads_user_id ON user_notification_reads(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_user_notification_reads_read_at ON user_notification_reads(read_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_event_attachments_event_id ON event_attachments(event_id)",
     "CREATE INDEX IF NOT EXISTS idx_event_attachments_owner_id ON event_attachments(owner_id)",
     `
@@ -408,6 +418,12 @@ async function ensureAdminUser() {
 }
 
 module.exports = { pool, ensureDatabaseSchema, ensureAdminUser };
+
+
+
+
+
+
 
 
 

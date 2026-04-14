@@ -17,6 +17,7 @@ const config = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "12h",
   accessTokenExpiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN || "15m",
   refreshTokenExpiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN || "7d",
+  sessionIdleTimeoutMinutes: Number(process.env.SESSION_IDLE_TIMEOUT_MINUTES || 120),
   jwtIssuer: process.env.JWT_ISSUER || "bitacora-api",
   jwtAudience: process.env.JWT_AUDIENCE || "bitacora-clients",
   authCookieName: process.env.AUTH_COOKIE_NAME || "bitacora_access",
@@ -62,6 +63,14 @@ function assertConfig() {
 
   if (config.uploadMaxBytes <= 0 || Number.isNaN(config.uploadMaxBytes)) {
     throw new Error("UPLOAD_MAX_BYTES debe ser un numero positivo.");
+  }
+
+  if (
+    !Number.isInteger(config.sessionIdleTimeoutMinutes) ||
+    config.sessionIdleTimeoutMinutes < 5 ||
+    config.sessionIdleTimeoutMinutes > 1440
+  ) {
+    throw new Error("SESSION_IDLE_TIMEOUT_MINUTES debe estar entre 5 y 1440.");
   }
 
   if (config.reminderEnabled) {
