@@ -999,8 +999,9 @@ textarea {
 
 .dashboard-alerts-list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 0.55rem;
+  align-items: start;
 }
 
 .dashboard-alert-chip {
@@ -1046,6 +1047,14 @@ textarea {
 
 .dashboard-alert-chip.alert-medium .dashboard-alert-value {
   color: #8ce4ff;
+}
+
+.dashboard-alert-empty {
+  border: 1px dashed rgba(121, 166, 239, 0.35);
+  border-radius: 12px;
+  padding: 0.62rem 0.7rem;
+  color: #9fbde4;
+  background: rgba(9, 22, 48, 0.62);
 }
 
 .dashboard-activity-list {
@@ -1333,7 +1342,35 @@ th {
 
 .attachments-card {
   display: grid;
+  gap: 0.65rem;
+}
+
+.attachments-repo-filters {
+  align-items: end;
+}
+
+.attachments-context {
+  border-top: 1px solid rgba(116, 156, 223, 0.24);
+  padding-top: 0.65rem;
+  display: grid;
   gap: 0.55rem;
+}
+
+.attachments-context h4 {
+  margin: 0;
+}
+
+.composer-headline {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.composer-panel {
+  display: grid;
+  gap: 0.65rem;
 }
 
 .attachment-list {
@@ -1426,6 +1463,10 @@ th {
   gap: 0.75rem;
 }
 
+.tasks-layout.tasks-layout--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .tasks-filter-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1509,6 +1550,10 @@ th {
 
 .tasks-panel h4 {
   margin: 0;
+}
+
+.tasks-composer-panel {
+  max-height: 100%;
 }
 
 .task-shared-edit-toggle {
@@ -2257,10 +2302,12 @@ th {
   display: flex;
   align-items: flex-start;
   gap: 0.55rem;
+  overflow: visible;
 }
 
 .notifications-wrap {
   position: relative;
+  overflow: visible;
 }
 
 .notifications-btn {
@@ -2286,17 +2333,18 @@ th {
 }
 
 .notifications-dropdown {
-  position: absolute;
-  top: calc(100% + 0.35rem);
-  right: 0;
+  position: fixed;
+  top: 0;
+  left: 0;
   width: min(420px, 90vw);
+  max-height: min(80vh, 520px);
   border: 1px solid rgba(117, 157, 223, 0.32);
   border-radius: 12px;
   background: rgba(7, 18, 40, 0.96);
   backdrop-filter: blur(10px);
   box-shadow: 0 18px 28px rgba(0, 0, 0, 0.35);
   padding: 0.65rem;
-  z-index: 40;
+  z-index: 1200;
 }
 
 .notifications-head {
@@ -2495,6 +2543,21 @@ th {
   padding: 0.7rem;
   font-size: 0.82rem;
   color: #d2e6ff;
+}
+
+.attachment-preview-fallback {
+  margin: 0;
+  border: 1px dashed rgba(132, 172, 241, 0.34);
+  border-radius: 10px;
+  padding: 0.62rem;
+  color: #b8d3f7;
+  background: rgba(8, 19, 45, 0.6);
+}
+
+.attachment-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
 }
 
 @media (hover: hover) and (pointer: fine) {

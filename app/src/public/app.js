@@ -1,4 +1,4 @@
-
+﻿
 const authSection = document.getElementById("authSection");
 const dashboardSection = document.getElementById("dashboardSection");
 const landingPanel = document.getElementById("landingPanel");
@@ -37,6 +37,8 @@ const secondaryWorkspaceSection = document.getElementById("secondaryWorkspaceSec
 const registroSection = document.getElementById("registroSection");
 const registroTitle = document.getElementById("registroTitle");
 const registroModeHint = document.getElementById("registroModeHint");
+const registroNewEventBtn = document.getElementById("registroNewEventBtn");
+const registroComposerPanel = document.getElementById("registroComposerPanel");
 const informeSection = document.getElementById("informeSection");
 const tendenciasSection = document.getElementById("tendenciasSection");
 const attachmentsCard = document.getElementById("attachmentsCard");
@@ -143,6 +145,10 @@ const attachmentPreviewMeta = document.getElementById("attachmentPreviewMeta");
 const attachmentPreviewImage = document.getElementById("attachmentPreviewImage");
 const attachmentPreviewFrame = document.getElementById("attachmentPreviewFrame");
 const attachmentPreviewText = document.getElementById("attachmentPreviewText");
+const attachmentPreviewFallback = document.getElementById("attachmentPreviewFallback");
+const attachmentPreviewActions = document.getElementById("attachmentPreviewActions");
+const attachmentPreviewOpenLink = document.getElementById("attachmentPreviewOpenLink");
+const attachmentPreviewDownloadLink = document.getElementById("attachmentPreviewDownloadLink");
 const recoverEmailInput = document.getElementById("recoverEmail");
 const recoverMfaTokenInput = document.getElementById("recoverMfaToken");
 const recoverNewPasswordInput = document.getElementById("recoverNewPassword");
@@ -187,13 +193,24 @@ const attachmentForm = document.getElementById("attachmentForm");
 const attachmentEventId = document.getElementById("attachmentEventId");
 const attachmentFileInput = document.getElementById("attachmentFile");
 const attachmentList = document.getElementById("attachmentList");
+const attachmentsContext = document.getElementById("attachmentsContext");
+const attachmentsRepoFiltersForm = document.getElementById("attachmentsRepoFilters");
+const attachmentsFilterQueryInput = document.getElementById("attachmentsFilterQuery");
+const attachmentsFilterTypeInput = document.getElementById("attachmentsFilterType");
+const attachmentsFilterOwnerInput = document.getElementById("attachmentsFilterOwner");
+const attachmentsFilterFromInput = document.getElementById("attachmentsFilterFrom");
+const attachmentsFilterToInput = document.getElementById("attachmentsFilterTo");
+const attachmentsRepoBody = document.getElementById("attachmentsRepoBody");
+const attachmentsRepoMeta = document.getElementById("attachmentsRepoMeta");
+const attachmentsRepoPrevBtn = document.getElementById("attachmentsRepoPrev");
+const attachmentsRepoNextBtn = document.getElementById("attachmentsRepoNext");
+const attachmentsRepoPageInfo = document.getElementById("attachmentsRepoPageInfo");
 
 const exportButtons = document.querySelectorAll(".export-btn");
 const openReportBtn = document.getElementById("openReportBtn");
 const authLaunchButtons = document.querySelectorAll(".auth-launch");
 const sidebarToggleBtn = document.getElementById("sidebarToggleBtn");
 const dashboardSidebar = document.getElementById("dashboardSidebar");
-const sidebarNav = document.getElementById("sidebarNav");
 const sidebarLinks = document.querySelectorAll(".sidebar-link");
 const sidebarGroupToggles = document.querySelectorAll(".sidebar-group-toggle");
 const sidebarGroups = document.querySelectorAll(".sidebar-group.is-collapsible");
@@ -354,6 +371,12 @@ const state = {
   editingEventId: null,
   selectedEventId: null,
   selectedEventPermissions: null,
+  attachmentsRepo: {
+    page: 1,
+    pageSize: 20,
+    totalPages: 1,
+    total: 0
+  },
   authView: "login",
   authPopup: false,
   pendingRefresh: null,
@@ -389,6 +412,10 @@ const state = {
     keepAliveIntervalMinutes: 5
   },
   sessionLastActivityAt: null,
+  sessionLastRefreshAt: null,
+  sessionWarningVisible: false,
+  registroComposerOpen: false,
+  tasksComposerOpen: false,
   auditItemsById: {}
 };
 
@@ -416,6 +443,7 @@ const sessionActivityEvents = ["mousemove", "mousedown", "keydown", "scroll", "t
 let sessionWarningTimer = null;
 let sessionExpiryTimer = null;
 let sessionKeepAliveTimer = null;
+let sessionLastRescheduleAt = 0;
 let notificationsPollTimer = null;
 
 function clearElement(node) {
@@ -1471,12 +1499,54 @@ function setEventEditorMode(nextMode = "create", options = {}) {
   if (!isEditMode && state.user?.name && encargadoInput) {
     encargadoInput.value = state.user.name;
   }
+
+  state.registroComposerOpen = isEditMode || state.registroComposerOpen;
+  syncRegistroComposerState();
+}
+
+function syncRegistroComposerState() {
+  if (!registroComposerPanel) {
+    return;
+  }
+
+  const isEditMode = Number.isInteger(state.editingEventId) && Number(state.editingEventId) > 0;
+  const shouldShow = isEditMode || Boolean(state.registroComposerOpen);
+  registroComposerPanel.classList.toggle("hidden", !shouldShow);
+
+  if (registroNewEventBtn) {
+    registroNewEventBtn.disabled = isEditMode;
+    registroNewEventBtn.setAttribute("aria-expanded", shouldShow ? "true" : "false");
+    registroNewEventBtn.textContent = shouldShow && !isEditMode ? "Cerrar panel" : "+ Nueva bitacora";
+  }
+}
+
+function openRegistroComposer() {
+  state.registroComposerOpen = true;
+  if (eventForm) {
+    eventForm.reset();
+  }
+  setDateDefaults();
+  setEventEditorMode("create");
+  syncRegistroComposerState();
+}
+
+function closeRegistroComposer() {
+  const isEditMode = Number.isInteger(state.editingEventId) && Number(state.editingEventId) > 0;
+  if (isEditMode) {
+    return;
+  }
+  state.registroComposerOpen = false;
+  syncRegistroComposerState();
 }
 
 function refreshAttachmentUploadState() {
   const submitButton = attachmentForm.querySelector('button[type="submit"]');
   const hasSelection = Boolean(state.selectedEventId);
   const canUpload = hasSelection && canUploadToSelectedEvent();
+
+  if (attachmentsContext) {
+    attachmentsContext.classList.toggle("hidden", !hasSelection);
+  }
 
   attachmentFileInput.disabled = !canUpload;
 
@@ -1514,6 +1584,7 @@ function clearSession() {
   state.editingEventId = null;
   state.selectedEventId = null;
   state.selectedEventPermissions = null;
+  state.attachmentsRepo = { page: 1, pageSize: 20, totalPages: 1, total: 0 };
   state.authView = getRequestedAuthView();
   state.authPopup = getAuthPopupMode();
   state.sidebarOpen = true;
@@ -1531,10 +1602,15 @@ function clearSession() {
   state.notifications = { items: [], unread: 0, open: false };
   state.sessionRuntime = { idleTimeoutMinutes: 120, warningMinutes: 5, keepAliveIntervalMinutes: 5 };
   state.sessionLastActivityAt = null;
+  state.sessionLastRefreshAt = null;
+  state.sessionWarningVisible = false;
+  state.registroComposerOpen = false;
+  state.tasksComposerOpen = false;
   state.auditItemsById = {};
 
   stopSessionRuntimeHandlers();
   stopNotificationsPolling();
+  setNotificationsOpen(false);
 
   setKpi({});
   clearElement(dateSummary);
@@ -1545,8 +1621,18 @@ function clearSession() {
   clearElement(templateList);
   clearElement(notificationsList);
   clearElement(attachmentList);
+  clearElement(attachmentsRepoBody);
   attachmentEventId.value = "";
   attachmentFileInput.value = "";
+  if (attachmentsRepoMeta) {
+    attachmentsRepoMeta.textContent = "";
+  }
+  if (attachmentsRepoPageInfo) {
+    attachmentsRepoPageInfo.textContent = "Pagina 1 de 1";
+  }
+  if (attachmentsRepoFiltersForm) {
+    attachmentsRepoFiltersForm.reset();
+  }
   loginForm.reset();
   registerForm.reset();
   mfaEnableForm.reset();
@@ -2033,7 +2119,16 @@ function renderDashboardAlerts(alerts = {}) {
     }
   ];
 
-  items.forEach((item) => {
+  const activeItems = items.filter((item) => Number(item.value) > 0);
+  if (!activeItems.length) {
+    const empty = document.createElement("article");
+    empty.className = "dashboard-alert-empty";
+    empty.textContent = "No hay alertas operativas";
+    dashboardAlertsList.appendChild(empty);
+    return;
+  }
+
+  activeItems.forEach((item) => {
     const chip = document.createElement("article");
     chip.className = `dashboard-alert-chip ${item.className} dashboard-alert-chip-clickable`;
     chip.tabIndex = 0;
@@ -3056,6 +3151,225 @@ function renderAttachments(items) {
   });
 }
 
+function setAttachmentsRepositoryMeta(message = "") {
+  if (attachmentsRepoMeta) {
+    attachmentsRepoMeta.textContent = message;
+  }
+}
+
+function syncAttachmentsRepositoryPagination() {
+  const page = Number(state.attachmentsRepo?.page || 1);
+  const totalPages = Math.max(1, Number(state.attachmentsRepo?.totalPages || 1));
+  const total = Math.max(0, Number(state.attachmentsRepo?.total || 0));
+
+  if (attachmentsRepoPageInfo) {
+    attachmentsRepoPageInfo.textContent = `Pagina ${page} de ${totalPages}`;
+  }
+  if (attachmentsRepoPrevBtn) {
+    attachmentsRepoPrevBtn.disabled = page <= 1;
+  }
+  if (attachmentsRepoNextBtn) {
+    attachmentsRepoNextBtn.disabled = page >= totalPages;
+  }
+
+  setAttachmentsRepositoryMeta(total > 0 ? `Adjuntos encontrados: ${total}` : "No hay adjuntos para los filtros aplicados.");
+}
+
+function renderAttachmentsRepository(items = []) {
+  if (!attachmentsRepoBody) {
+    return;
+  }
+
+  clearElement(attachmentsRepoBody);
+  const rows = Array.isArray(items) ? items : [];
+
+  if (!rows.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 7;
+    td.className = "help-text";
+    td.textContent = "No hay adjuntos operativos para mostrar.";
+    tr.appendChild(td);
+    attachmentsRepoBody.appendChild(tr);
+    syncAttachmentsRepositoryPagination();
+    return;
+  }
+
+  rows.forEach((file) => {
+    const tr = document.createElement("tr");
+
+    const nameTd = document.createElement("td");
+    const nameStrong = document.createElement("strong");
+    security.setSafeText(nameStrong, file.originalName || "-");
+    nameTd.appendChild(nameStrong);
+
+    const typeTd = document.createElement("td");
+    security.setSafeText(typeTd, file.mimeType || "-");
+
+    const sizeTd = document.createElement("td");
+    security.setSafeText(sizeTd, formatBytes(file.sizeBytes || 0));
+
+    const ownerTd = document.createElement("td");
+    security.setSafeText(ownerTd, file.ownerName || file.ownerEmail || `Usuario #${file.ownerId || "-"}`);
+
+    const dateTd = document.createElement("td");
+    security.setSafeText(dateTd, formatDateTime(file.createdAt));
+
+    const relationTd = document.createElement("td");
+    const relationBtn = document.createElement("button");
+    relationBtn.type = "button";
+    relationBtn.className = "btn btn-ghost attachments-select-event";
+    relationBtn.dataset.eventId = String(file.eventId || "");
+    relationBtn.textContent = file.relationLabel || `Bitacora #${file.eventId || "-"}`;
+    relationTd.appendChild(relationBtn);
+
+    const actionsTd = document.createElement("td");
+    actionsTd.className = "attachment-actions";
+
+    if (isAttachmentPreviewable(file.mimeType)) {
+      const previewBtn = document.createElement("button");
+      previewBtn.type = "button";
+      previewBtn.className = "btn btn-ghost attachment-preview";
+      previewBtn.dataset.attachmentId = String(file.id);
+      previewBtn.dataset.attachmentName = String(file.originalName || "Adjunto");
+      previewBtn.dataset.attachmentMime = String(file.mimeType || "");
+      previewBtn.textContent = "Preview";
+      actionsTd.appendChild(previewBtn);
+    }
+
+    const downloadLink = document.createElement("a");
+    downloadLink.href = `/events/attachments/${file.id}/download`;
+    downloadLink.target = "_blank";
+    downloadLink.rel = "noopener noreferrer";
+    downloadLink.className = "btn btn-ghost";
+    downloadLink.textContent = "Descargar";
+    actionsTd.appendChild(downloadLink);
+
+    if (file?.permissions?.canEdit) {
+      const renameBtn = document.createElement("button");
+      renameBtn.type = "button";
+      renameBtn.className = "btn btn-ghost attachment-rename";
+      renameBtn.dataset.attachmentId = String(file.id);
+      renameBtn.dataset.attachmentName = String(file.originalName || "");
+      renameBtn.textContent = "Renombrar";
+      actionsTd.appendChild(renameBtn);
+    }
+
+    if (file?.permissions?.canDelete) {
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "btn btn-ghost attachment-delete";
+      deleteBtn.dataset.attachmentId = String(file.id);
+      deleteBtn.textContent = "Eliminar";
+      actionsTd.appendChild(deleteBtn);
+    }
+
+    tr.appendChild(nameTd);
+    tr.appendChild(typeTd);
+    tr.appendChild(sizeTd);
+    tr.appendChild(ownerTd);
+    tr.appendChild(dateTd);
+    tr.appendChild(relationTd);
+    tr.appendChild(actionsTd);
+    attachmentsRepoBody.appendChild(tr);
+  });
+
+  syncAttachmentsRepositoryPagination();
+}
+
+function syncAttachmentsOwnerFilter() {
+  if (!attachmentsFilterOwnerInput) {
+    return;
+  }
+
+  const previousValue = String(attachmentsFilterOwnerInput.value || "");
+  clearElement(attachmentsFilterOwnerInput);
+
+  const allOption = document.createElement("option");
+  allOption.value = "";
+  allOption.textContent = "Todos";
+  attachmentsFilterOwnerInput.appendChild(allOption);
+
+  if (Array.isArray(state.users) && state.users.length > 0) {
+    state.users.forEach((user) => {
+      const option = document.createElement("option");
+      option.value = String(user.id);
+      option.textContent = `${user.name || user.email || `Usuario #${user.id}`}`;
+      attachmentsFilterOwnerInput.appendChild(option);
+    });
+  } else if (state.user?.sub) {
+    const option = document.createElement("option");
+    option.value = String(state.user.sub);
+    option.textContent = `${state.user.name || state.user.email || "Mi usuario"}`;
+    attachmentsFilterOwnerInput.appendChild(option);
+  }
+
+  attachmentsFilterOwnerInput.value = previousValue;
+}
+
+function buildAttachmentsRepositoryParams() {
+  const params = new URLSearchParams();
+  const page = Number(state.attachmentsRepo?.page || 1);
+  const pageSize = Number(state.attachmentsRepo?.pageSize || 20);
+  params.set("page", String(page));
+  params.set("pageSize", String(pageSize));
+
+  if (attachmentsFilterQueryInput?.value?.trim()) {
+    params.set("q", attachmentsFilterQueryInput.value.trim());
+  }
+  if (attachmentsFilterTypeInput?.value) {
+    params.set("mimeType", attachmentsFilterTypeInput.value);
+  }
+  if (attachmentsFilterOwnerInput?.value) {
+    params.set("ownerId", attachmentsFilterOwnerInput.value);
+  }
+  if (attachmentsFilterFromInput?.value) {
+    params.set("from", attachmentsFilterFromInput.value);
+  }
+  if (attachmentsFilterToInput?.value) {
+    params.set("to", attachmentsFilterToInput.value);
+  }
+
+  return params;
+}
+
+async function loadAttachmentsRepository({ keepPage = false } = {}) {
+  if (!attachmentsRepoBody) {
+    return;
+  }
+
+  if (!keepPage) {
+    state.attachmentsRepo.page = 1;
+  }
+
+  const params = buildAttachmentsRepositoryParams();
+  setAttachmentsRepositoryMeta("Cargando adjuntos...");
+  const { response, data, networkError } = await apiAuth(`/events/attachments?${params.toString()}`);
+
+  if (networkError) {
+    setAttachmentsRepositoryMeta("No hay conexion para cargar adjuntos.");
+    return;
+  }
+
+  if (!response?.ok) {
+    if (response?.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    setAttachmentsRepositoryMeta(resolveErrorMessage(data?.error, data?.details));
+    return;
+  }
+
+  const items = Array.isArray(data?.items) ? data.items : [];
+  const pagination = data?.pagination && typeof data.pagination === "object" ? data.pagination : {};
+  state.attachmentsRepo.page = Math.max(1, Number(pagination.page || state.attachmentsRepo.page || 1));
+  state.attachmentsRepo.pageSize = Math.max(5, Number(pagination.pageSize || state.attachmentsRepo.pageSize || 20));
+  state.attachmentsRepo.totalPages = Math.max(1, Number(pagination.totalPages || 1));
+  state.attachmentsRepo.total = Math.max(0, Number(pagination.total || items.length));
+
+  renderAttachmentsRepository(items);
+}
+
 function applyRouteMode() {
   const route = getCurrentPanelPath();
   const isEditingRecord =
@@ -3072,7 +3386,11 @@ function applyRouteMode() {
   const showPlantillas = route === "/plantillas";
   const showAuditoria = route === "/auditoria";
   const showConfiguracion = route === "/configuracion";
-  const showBitacoraReport = showInformes || showAdjuntos || showResumen;
+  const showBitacoraReport = showInformes || showResumen;
+
+  if (!showRegistro) {
+    state.registroComposerOpen = false;
+  }
 
   if (isPanelRoute(route) && !canAccessPanel(route)) {
     window.location.href = "/dashboard";
@@ -3107,6 +3425,8 @@ function applyRouteMode() {
       showTendencias || showResumen || showAdjuntos
     );
   }
+
+  syncRegistroComposerState();
 
   syncSidebarActiveLink();
 }
@@ -3151,6 +3471,7 @@ function renderDashboardView() {
 
   userFilterInput.disabled = !canFilterByUser();
   refreshAttachmentUploadState();
+  syncAttachmentsOwnerFilter();
   updateSidebarRoleLinks();
   applyRouteMode();
 
@@ -3361,7 +3682,14 @@ async function refreshSession() {
   }
 
   const result = await state.pendingRefresh;
-  return result.response?.ok;
+  const refreshed = Boolean(result.response?.ok);
+  if (refreshed) {
+    const now = Date.now();
+    state.sessionLastRefreshAt = now;
+    state.sessionLastActivityAt = now;
+    state.sessionWarningVisible = false;
+  }
+  return refreshed;
 }
 
 async function apiAuth(path, options = {}, allowRetry = true) {
@@ -3388,6 +3716,8 @@ function handleUnauthorized(shouldNotify = true) {
 
 async function loadUsers() {
   if (!canFilterByUser()) {
+    state.users = [];
+    syncAttachmentsOwnerFilter();
     return;
   }
 
@@ -3408,6 +3738,7 @@ async function loadUsers() {
 
   state.users = Array.isArray(data) ? data : [];
   renderUsersOptions();
+  syncAttachmentsOwnerFilter();
 }
 
 async function loadTemplates() {
@@ -3595,10 +3926,45 @@ async function loadSessionRuntimeConfig() {
 }
 
 function showSessionExpiryWarning() {
-  if (!state.user) {
+  if (!state.user || state.sessionWarningVisible) {
     return;
   }
-  showToast("Tu sesion expirara pronto por inactividad. Contin�a trabajando para mantenerla activa.", "info");
+
+  const runtime = normalizeSessionRuntimeConfig(state.sessionRuntime);
+  state.sessionWarningVisible = true;
+
+  openEntityModal({
+    title: "Advertencia de sesion",
+    meta: `Tu sesion expira en ${runtime.warningMinutes} minuto(s) por inactividad.`,
+    body: "Selecciona continuar sesion para extender el tiempo activo y evitar cierre inesperado.",
+    actions: [
+      {
+        label: "Continuar sesion",
+        onClick: async () => {
+          const refreshed = await refreshSession();
+          if (!refreshed) {
+            state.sessionWarningVisible = false;
+            closeEntityModal();
+            handleUnauthorized(false);
+            showToast("La sesion no pudo renovarse. Inicia sesion nuevamente.", "error");
+            return;
+          }
+
+          state.sessionWarningVisible = false;
+          closeEntityModal();
+          scheduleSessionRuntimeHandlers();
+          showToast("Sesion extendida correctamente.", "success");
+        }
+      },
+      {
+        label: "Cerrar aviso",
+        onClick: () => {
+          state.sessionWarningVisible = false;
+          closeEntityModal();
+        }
+      }
+    ]
+  });
 }
 
 async function handleSessionKeepAliveTick() {
@@ -3634,6 +4000,7 @@ function scheduleSessionRuntimeHandlers() {
 
   const runtime = normalizeSessionRuntimeConfig(state.sessionRuntime);
   state.sessionRuntime = runtime;
+  state.sessionWarningVisible = false;
 
   const now = Date.now();
   const lastActivityAt = Number(state.sessionLastActivityAt || now);
@@ -3668,17 +4035,41 @@ function handleSessionActivityEvent() {
   if (!state.user) {
     return;
   }
+
+  const now = Date.now();
+  state.sessionLastActivityAt = now;
+  if (state.sessionWarningVisible) {
+    state.sessionWarningVisible = false;
+    closeEntityModal();
+  }
+
+  if (now - sessionLastRescheduleAt >= 1000) {
+    sessionLastRescheduleAt = now;
+    scheduleSessionRuntimeHandlers();
+  }
+
+  const runtime = normalizeSessionRuntimeConfig(state.sessionRuntime);
+  const keepAliveMs = runtime.keepAliveIntervalMinutes * 60 * 1000;
+  const lastRefreshAt = Number(state.sessionLastRefreshAt || 0);
+  const shouldTouchSession = now - lastRefreshAt >= Math.max(60000, Math.trunc(keepAliveMs * 0.8));
+  if (shouldTouchSession && !document.hidden) {
+    void handleSessionKeepAliveTick();
+  }
 }
 
 function handleSessionVisibilityChange() {
   if (!state.user || document.hidden) {
     return;
   }
+  handleSessionActivityEvent();
 }
 
 function startSessionRuntimeHandlers() {
   stopSessionRuntimeHandlers();
-  state.sessionLastActivityAt = Date.now();
+  const now = Date.now();
+  state.sessionLastActivityAt = now;
+  state.sessionLastRefreshAt = now;
+  sessionLastRescheduleAt = now;
   sessionActivityEvents.forEach((eventName) => {
     window.addEventListener(eventName, handleSessionActivityEvent);
   });
@@ -3699,6 +4090,8 @@ function stopSessionRuntimeHandlers() {
     window.clearInterval(sessionKeepAliveTimer);
     sessionKeepAliveTimer = null;
   }
+  state.sessionWarningVisible = false;
+  sessionLastRescheduleAt = 0;
 
   sessionActivityEvents.forEach((eventName) => {
     window.removeEventListener(eventName, handleSessionActivityEvent);
@@ -3716,15 +4109,59 @@ function normalizeNotificationsPayload(payload) {
   };
 }
 
+function positionNotificationsDropdown() {
+  if (!notificationsDropdown || !notificationsBtn || !state.notifications?.open) {
+    return;
+  }
+
+  const triggerRect = notificationsBtn.getBoundingClientRect();
+  const maxWidth = Math.max(260, Math.min(420, window.innerWidth - 16));
+  notificationsDropdown.style.width = `${maxWidth}px`;
+  notificationsDropdown.style.position = "fixed";
+  notificationsDropdown.style.zIndex = "1200";
+
+  const leftCandidate = triggerRect.right - maxWidth;
+  const safeLeft = Math.max(8, Math.min(leftCandidate, window.innerWidth - maxWidth - 8));
+  notificationsDropdown.style.left = `${safeLeft}px`;
+
+  const dropdownHeight = notificationsDropdown.offsetHeight || 320;
+  const belowTop = triggerRect.bottom + 8;
+  const aboveTop = triggerRect.top - dropdownHeight - 8;
+  const canRenderBelow = belowTop + dropdownHeight <= window.innerHeight - 8;
+  const top = canRenderBelow ? belowTop : Math.max(8, aboveTop);
+  notificationsDropdown.style.top = `${top}px`;
+}
+
+function handleNotificationsViewportChange() {
+  if (!state.notifications?.open) {
+    return;
+  }
+  positionNotificationsDropdown();
+}
+
 function setNotificationsOpen(isOpen) {
   const open = Boolean(isOpen);
   state.notifications.open = open;
 
   if (notificationsDropdown) {
     notificationsDropdown.classList.toggle("hidden", !open);
+    if (!open) {
+      notificationsDropdown.style.removeProperty("top");
+      notificationsDropdown.style.removeProperty("left");
+      notificationsDropdown.style.removeProperty("width");
+    }
   }
   if (notificationsBtn) {
     notificationsBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+
+  if (open) {
+    positionNotificationsDropdown();
+    window.addEventListener("resize", handleNotificationsViewportChange);
+    window.addEventListener("scroll", handleNotificationsViewportChange, true);
+  } else {
+    window.removeEventListener("resize", handleNotificationsViewportChange);
+    window.removeEventListener("scroll", handleNotificationsViewportChange, true);
   }
 }
 
@@ -3782,6 +4219,8 @@ function renderNotificationsDropdown() {
     li.appendChild(button);
     notificationsList.appendChild(li);
   });
+
+  positionNotificationsDropdown();
 }
 
 async function loadNotifications(options = {}) {
@@ -3972,7 +4411,7 @@ async function loadDashboardData() {
   }
 
   if (route === "/adjuntos") {
-    await Promise.all([loadUsers(), loadReport()]);
+    await Promise.all([loadUsers(), loadAttachmentsRepository()]);
     return;
   }
 
@@ -4411,12 +4850,14 @@ async function handleCreateEvent(event) {
   }
 
   if (isEditMode) {
+    state.registroComposerOpen = false;
     setEventEditorMode("create");
     eventForm.reset();
     setDateDefaults();
     applyRouteMode();
   } else {
     syncDateConstraints();
+    closeRegistroComposer();
   }
 
   if (uploadedFiles > 0 && failedUploads === 0) {
@@ -4490,6 +4931,9 @@ async function handleAttachmentSubmit(event) {
   attachmentFileInput.value = "";
   showToast("Adjunto cargado correctamente.", "success");
   await loadAttachments(eventId);
+  if (getCurrentPanelPath() === "/adjuntos") {
+    await loadAttachmentsRepository({ keepPage: true });
+  }
   await loadReport();
 }
 
@@ -4531,11 +4975,14 @@ async function handleAttachmentRename(attachmentId, currentName) {
   if (state.selectedEventId) {
     await loadAttachments(state.selectedEventId);
   }
+  if (getCurrentPanelPath() === "/adjuntos") {
+    await loadAttachmentsRepository({ keepPage: true });
+  }
   await loadReport();
 }
 
 async function handleAttachmentDelete(attachmentId) {
-  if (!window.confirm("¿Eliminar este adjunto? Esta acción no se puede deshacer.")) {
+  if (!window.confirm("Â¿Eliminar este adjunto? Esta acciÃ³n no se puede deshacer.")) {
     return;
   }
 
@@ -4560,13 +5007,15 @@ async function handleAttachmentDelete(attachmentId) {
   if (state.selectedEventId) {
     await loadAttachments(state.selectedEventId);
   }
+  if (getCurrentPanelPath() === "/adjuntos") {
+    await loadAttachmentsRepository({ keepPage: true });
+  }
   await loadReport();
 }
 
-async function handleAttachmentListClick(event) {
-  const target = event.target;
+async function handleAttachmentActionClick(target) {
   if (!(target instanceof HTMLElement)) {
-    return;
+    return false;
   }
 
   const previewButton = target.closest(".attachment-preview");
@@ -4579,7 +5028,7 @@ async function handleAttachmentListClick(event) {
         previewButton.dataset.attachmentMime || ""
       );
     }
-    return;
+    return true;
   }
 
   const renameButton = target.closest(".attachment-rename");
@@ -4588,7 +5037,7 @@ async function handleAttachmentListClick(event) {
     if (attachmentId > 0) {
       await handleAttachmentRename(attachmentId, renameButton.dataset.attachmentName || "");
     }
-    return;
+    return true;
   }
 
   const deleteButton = target.closest(".attachment-delete");
@@ -4597,6 +5046,40 @@ async function handleAttachmentListClick(event) {
     if (attachmentId > 0) {
       await handleAttachmentDelete(attachmentId);
     }
+    return true;
+  }
+
+  return false;
+}
+
+async function handleAttachmentListClick(event) {
+  await handleAttachmentActionClick(event.target);
+}
+
+async function handleAttachmentsRepoClick(event) {
+  const handled = await handleAttachmentActionClick(event.target);
+  if (handled) {
+    return;
+  }
+
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  const relationButton = target.closest(".attachments-select-event");
+  if (!(relationButton instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const eventId = Number(relationButton.dataset.eventId || 0);
+  if (!eventId) {
+    return;
+  }
+
+  await loadAttachments(eventId);
+  if (attachmentsContext) {
+    attachmentsContext.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 
@@ -4650,6 +5133,7 @@ function handleCancelEventEdit() {
   setEventEditorMode("create");
   eventForm.reset();
   setDateDefaults();
+  closeRegistroComposer();
   applyRouteMode();
   showToast("Edicion cancelada.", "info");
 }
@@ -5373,21 +5857,38 @@ function closeEntityModal() {
 
   entityModal.classList.add("hidden");
   entityModal.setAttribute("aria-hidden", "true");
+  state.sessionWarningVisible = false;
   document.body.classList.remove("modal-open");
 }
 
 function resetAttachmentPreviewContent() {
   if (attachmentPreviewImage) {
     attachmentPreviewImage.classList.add("hidden");
+    attachmentPreviewImage.onerror = null;
     attachmentPreviewImage.removeAttribute("src");
   }
   if (attachmentPreviewFrame) {
     attachmentPreviewFrame.classList.add("hidden");
+    attachmentPreviewFrame.onload = null;
+    attachmentPreviewFrame.onerror = null;
     attachmentPreviewFrame.removeAttribute("src");
   }
   if (attachmentPreviewText) {
     attachmentPreviewText.classList.add("hidden");
     attachmentPreviewText.textContent = "";
+  }
+  if (attachmentPreviewFallback) {
+    attachmentPreviewFallback.classList.add("hidden");
+    attachmentPreviewFallback.textContent = "";
+  }
+  if (attachmentPreviewActions) {
+    attachmentPreviewActions.classList.add("hidden");
+  }
+  if (attachmentPreviewOpenLink) {
+    attachmentPreviewOpenLink.removeAttribute("href");
+  }
+  if (attachmentPreviewDownloadLink) {
+    attachmentPreviewDownloadLink.removeAttribute("href");
   }
 }
 
@@ -5399,6 +5900,23 @@ function closeAttachmentPreview() {
   attachmentPreviewModal.setAttribute("aria-hidden", "true");
   resetAttachmentPreviewContent();
   document.body.classList.remove("modal-open");
+}
+
+function showAttachmentPreviewFallback(message, previewUrl, downloadUrl) {
+  if (attachmentPreviewFallback) {
+    attachmentPreviewFallback.textContent = message;
+    attachmentPreviewFallback.classList.remove("hidden");
+  }
+
+  if (attachmentPreviewOpenLink) {
+    attachmentPreviewOpenLink.href = previewUrl;
+  }
+  if (attachmentPreviewDownloadLink) {
+    attachmentPreviewDownloadLink.href = downloadUrl;
+  }
+  if (attachmentPreviewActions) {
+    attachmentPreviewActions.classList.remove("hidden");
+  }
 }
 
 async function handleAttachmentPreview(attachmentId, attachmentName, mimeType) {
@@ -5419,10 +5937,27 @@ async function handleAttachmentPreview(attachmentId, attachmentName, mimeType) {
   document.body.classList.add("modal-open");
 
   const previewUrl = `/events/attachments/${attachmentId}/preview`;
+  const downloadUrl = `/events/attachments/${attachmentId}/download`;
+  if (attachmentPreviewOpenLink) {
+    attachmentPreviewOpenLink.href = previewUrl;
+  }
+  if (attachmentPreviewDownloadLink) {
+    attachmentPreviewDownloadLink.href = downloadUrl;
+  }
+  if (attachmentPreviewActions) {
+    attachmentPreviewActions.classList.remove("hidden");
+  }
 
   if (normalizedMime.startsWith("image/")) {
     if (attachmentPreviewImage) {
       attachmentPreviewImage.src = previewUrl;
+      attachmentPreviewImage.onerror = () => {
+        showAttachmentPreviewFallback(
+          "No se puede previsualizar este adjunto en el navegador.",
+          previewUrl,
+          downloadUrl
+        );
+      };
       attachmentPreviewImage.classList.remove("hidden");
     }
     return;
@@ -5431,7 +5966,39 @@ async function handleAttachmentPreview(attachmentId, attachmentName, mimeType) {
   if (normalizedMime === "application/pdf") {
     if (attachmentPreviewFrame) {
       attachmentPreviewFrame.src = previewUrl;
+      attachmentPreviewFrame.onload = () => {
+        if (attachmentPreviewFallback) {
+          attachmentPreviewFallback.classList.add("hidden");
+          attachmentPreviewFallback.textContent = "";
+        }
+      };
+      attachmentPreviewFrame.onerror = () => {
+        showAttachmentPreviewFallback(
+          "No se puede previsualizar este PDF en el visor embebido.",
+          previewUrl,
+          downloadUrl
+        );
+      };
       attachmentPreviewFrame.classList.remove("hidden");
+
+      window.setTimeout(() => {
+        if (!attachmentPreviewFrame || attachmentPreviewFrame.classList.contains("hidden")) {
+          return;
+        }
+        let frameLocation = "";
+        try {
+          frameLocation = String(attachmentPreviewFrame.contentWindow?.location?.href || "");
+        } catch (_error) {
+          frameLocation = "";
+        }
+        if (!frameLocation || frameLocation === "about:blank") {
+          showAttachmentPreviewFallback(
+            "No se puede previsualizar este PDF en el visor embebido.",
+            previewUrl,
+            downloadUrl
+          );
+        }
+      }, 1300);
     }
     return;
   }
@@ -5439,8 +6006,11 @@ async function handleAttachmentPreview(attachmentId, attachmentName, mimeType) {
   if (normalizedMime === "text/plain") {
     const { response, networkError } = await apiAuth(previewUrl, { method: "GET" });
     if (networkError || !response?.ok) {
-      showToast("No se pudo cargar el preview del adjunto.", "error");
-      closeAttachmentPreview();
+      showAttachmentPreviewFallback(
+        "No se puede previsualizar este archivo en este momento.",
+        previewUrl,
+        downloadUrl
+      );
       return;
     }
 
@@ -5452,8 +6022,11 @@ async function handleAttachmentPreview(attachmentId, attachmentName, mimeType) {
     return;
   }
 
-  showToast("Tipo de adjunto no soportado para preview.", "error");
-  closeAttachmentPreview();
+  showAttachmentPreviewFallback(
+    "No se puede previsualizar este tipo de archivo.",
+    previewUrl,
+    downloadUrl
+  );
 }
 
 function handleForgotPasswordHint() {
@@ -5898,11 +6471,51 @@ async function bootstrap() {
 
   mfaEnableForm.addEventListener("submit", handleMfaEnable);
   eventForm.addEventListener("submit", handleCreateEvent);
+  if (registroNewEventBtn) {
+    registroNewEventBtn.addEventListener("click", () => {
+      if (state.registroComposerOpen) {
+        closeRegistroComposer();
+      } else {
+        openRegistroComposer();
+        if (fechaInput instanceof HTMLInputElement) {
+          fechaInput.focus();
+        }
+      }
+    });
+  }
   if (eventCancelBtn) {
     eventCancelBtn.addEventListener("click", handleCancelEventEdit);
   }
   attachmentForm.addEventListener("submit", handleAttachmentSubmit);
   attachmentList.addEventListener("click", handleAttachmentListClick);
+  if (attachmentsRepoBody) {
+    attachmentsRepoBody.addEventListener("click", handleAttachmentsRepoClick);
+  }
+  if (attachmentsRepoFiltersForm) {
+    attachmentsRepoFiltersForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      state.attachmentsRepo.page = 1;
+      await loadAttachmentsRepository({ keepPage: true });
+    });
+  }
+  if (attachmentsRepoPrevBtn) {
+    attachmentsRepoPrevBtn.addEventListener("click", async () => {
+      if (state.attachmentsRepo.page <= 1) {
+        return;
+      }
+      state.attachmentsRepo.page -= 1;
+      await loadAttachmentsRepository({ keepPage: true });
+    });
+  }
+  if (attachmentsRepoNextBtn) {
+    attachmentsRepoNextBtn.addEventListener("click", async () => {
+      if (state.attachmentsRepo.page >= state.attachmentsRepo.totalPages) {
+        return;
+      }
+      state.attachmentsRepo.page += 1;
+      await loadAttachmentsRepository({ keepPage: true });
+    });
+  }
   filterForm.addEventListener("submit", handleFilterSubmit);
   openReportBtn.addEventListener("click", handleOpenReportClick);
   reportBody.addEventListener("click", handleReportTableClick);
@@ -5915,7 +6528,7 @@ async function bootstrap() {
   if (notificationsBtn) {
     notificationsBtn.addEventListener("click", async (event) => {
       event.preventDefault();
-      const nextOpen = !Boolean(state.notifications?.open);
+      const nextOpen = !state.notifications?.open;
       setNotificationsOpen(nextOpen);
       if (nextOpen) {
         await loadNotifications({ silent: true });
@@ -6085,6 +6698,7 @@ async function bootstrap() {
 }
 
 bootstrap();
+
 
 
 

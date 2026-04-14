@@ -133,6 +133,16 @@ const attachmentDownloadSchema = z.object({
   attachmentId: z.coerce.number().int().positive()
 });
 
+const attachmentRepositoryQuerySchema = z.object({
+  q: z.string().trim().max(180).optional(),
+  mimeType: z.string().trim().max(160).optional(),
+  ownerId: z.coerce.number().int().positive().optional(),
+  from: z.string().date().optional(),
+  to: z.string().date().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(5).max(200).default(20)
+});
+
 const updateAttachmentSchema = z
   .object({
     originalName: z.string().trim().min(1).max(180)
@@ -1726,6 +1736,135 @@ router.get("/:id/attachments", authenticate, async (req, res, next) => {
   }
 });
 
+router.get("/attachments", authenticate, async (req, res, next) => {
+  try {
+    if (!canUserAccessPanel(req.user, "adjuntos")) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    const query = attachmentRepositoryQuerySchema.parse(req.query);
+    const actorId = Number(req.user?.sub);
+    const canViewAnyAttachments = canUserViewFile(req.user, { ownerId: -1 });
+
+    if (!canViewAnyAttachments && (!Number.isInteger(actorId) || actorId <= 0)) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    if (
+      query.ownerId &&
+      Number.isInteger(actorId) &&
+      query.ownerId !== actorId &&
+      !canViewAnyAttachments &&
+      !canUserFilterByUser(req.user)
+    ) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    const conditions = [];
+    const values = [];
+    const addCondition = (sql, value) => {
+      values.push(value);
+      conditions.push(sql.replace("?", `$${values.length}`));
+    };
+
+    if (!canViewAnyAttachments) {
+      addCondition("ea.owner_id = ?", actorId);
+    }
+
+    if (query.q) {
+      addCondition("LOWER(ea.original_name) LIKE LOWER(?)", `%${query.q}%`);
+    }
+
+    if (query.mimeType) {
+      addCondition("ea.mime_type = ?", query.mimeType);
+    }
+
+    if (query.ownerId) {
+      addCondition("ea.owner_id = ?", query.ownerId);
+    }
+
+    if (query.from) {
+      addCondition("ea.created_at::date >= ?", query.from);
+    }
+
+    if (query.to) {
+      addCondition("ea.created_at::date <= ?", query.to);
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const page = query.page;
+    const pageSize = query.pageSize;
+    const offset = (page - 1) * pageSize;
+
+    const countResult = await pool.query(
+      `
+        SELECT COUNT(*)::int AS total
+        FROM event_attachments ea
+        ${whereClause}
+      `,
+      values
+    );
+    const total = Number(countResult.rows[0]?.total || 0);
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+    const rowsResult = await pool.query(
+      `
+        SELECT
+          ea.id,
+          ea.event_id AS "eventId",
+          ea.owner_id AS "ownerId",
+          ea.uploaded_by AS "uploadedBy",
+          ea.original_name AS "originalName",
+          ea.mime_type AS "mimeType",
+          ea.size_bytes AS "sizeBytes",
+          ea.created_at AS "createdAt",
+          e.fecha AS "eventDate",
+          owner_user.name AS "ownerName",
+          owner_user.email AS "ownerEmail",
+          uploaded_user.name AS "uploadedByName",
+          uploaded_user.email AS "uploadedByEmail"
+        FROM event_attachments ea
+        JOIN events e ON e.id = ea.event_id
+        LEFT JOIN users owner_user ON owner_user.id = ea.owner_id
+        LEFT JOIN users uploaded_user ON uploaded_user.id = ea.uploaded_by
+        ${whereClause}
+        ORDER BY ea.created_at DESC, ea.id DESC
+        LIMIT $${values.length + 1}
+        OFFSET $${values.length + 2}
+      `,
+      [...values, pageSize, offset]
+    );
+
+    const items = rowsResult.rows
+      .filter((item) => canUserViewFile(req.user, item))
+      .map((item) => ({
+        ...item,
+        relationType: "bitacora",
+        relationLabel: `Bitacora #${item.eventId}`,
+        permissions: {
+          canView: canUserViewFile(req.user, item),
+          canEdit: canUserEditFile(req.user, item),
+          canDelete: canUserDeleteFile(req.user, item)
+        }
+      }));
+
+    return res.json({
+      items,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages
+      }
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error" });
+    }
+    return next(error);
+  }
+});
+
 router.get("/attachments/:attachmentId/download", authenticate, async (req, res, next) => {
   try {
     if (!canUserAccessPanel(req.user, "adjuntos")) {
@@ -1808,6 +1947,11 @@ router.get("/attachments/:attachmentId/preview", authenticate, async (req, res, 
 
     res.setHeader("Content-Type", attachment.mimeType);
     res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    res.setHeader(
+      "Content-Security-Policy",
+      "default-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'"
+    );
     res.setHeader("Content-Disposition", `inline; filename="${previewName.replace(/"/g, "")}"`);
     return res.sendFile(filePath);
   } catch (error) {

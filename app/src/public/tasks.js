@@ -18,6 +18,7 @@
   }
 
   const tasksSummary = document.getElementById("tasksSummary");
+  const tasksLayout = section.querySelector(".tasks-layout");
   const taskForm = document.getElementById("taskForm");
   const taskFormTitle = document.getElementById("taskFormTitle");
   const taskTitle = document.getElementById("taskTitle");
@@ -32,6 +33,7 @@
   const taskSaveBtn = document.getElementById("taskSaveBtn");
   const taskCancelBtn = document.getElementById("taskCancelBtn");
   const tasksNewTaskBtn = document.getElementById("tasksNewTaskBtn");
+  const tasksComposerPanel = document.getElementById("tasksComposerPanel");
 
   const taskDetail = document.getElementById("taskDetail");
   const taskDetailTitle = document.getElementById("taskDetailTitle");
@@ -102,6 +104,7 @@
     totalPages: 1,
     editingTaskId: null,
     editingTaskPermissions: null,
+    tasksComposerOpen: false,
     activeRows: []
   };
 
@@ -405,6 +408,47 @@
     }
     syncSharedEditControl(null);
     syncTaskDateConstraints();
+  }
+
+  function syncTaskComposerState() {
+    const canCreate = canCreateTask();
+    const isEditMode = Number.isInteger(state.editingTaskId) && state.editingTaskId > 0;
+    const shouldShow = isEditMode || (canCreate && state.tasksComposerOpen);
+
+    if (tasksComposerPanel) {
+      tasksComposerPanel.classList.toggle("hidden", !shouldShow);
+    }
+    if (tasksLayout) {
+      tasksLayout.classList.toggle("tasks-layout--single", !shouldShow);
+    }
+
+    if (tasksNewTaskBtn) {
+      tasksNewTaskBtn.disabled = !canCreate;
+      tasksNewTaskBtn.setAttribute("aria-expanded", shouldShow ? "true" : "false");
+      tasksNewTaskBtn.textContent = shouldShow && !isEditMode ? "Cerrar panel" : "+ Nueva tarea";
+    }
+  }
+
+  function openTaskComposer() {
+    if (!canCreateTask()) {
+      showToast("No tienes permisos para crear tareas.", "error");
+      return;
+    }
+    state.tasksComposerOpen = true;
+    resetTaskForm();
+    renderTaskDetail(null);
+    syncTaskComposerState();
+    if (taskTitle instanceof HTMLInputElement) {
+      taskTitle.focus();
+    }
+  }
+
+  function closeTaskComposer() {
+    if (Number.isInteger(state.editingTaskId) && state.editingTaskId > 0) {
+      return;
+    }
+    state.tasksComposerOpen = false;
+    syncTaskComposerState();
   }
 
   function renderTaskDetail(task) {
@@ -948,6 +992,8 @@
     setSelectedAssigneeIds(task.assignedUserIds || []);
     syncSharedEditControl(task);
     syncTaskDateConstraints();
+    state.tasksComposerOpen = true;
+    syncTaskComposerState();
     renderTaskDetail(task);
   }
 
@@ -1013,8 +1059,11 @@
       return;
     }
 
-    showToast(state.editingTaskId ? "Tarea actualizada correctamente." : "Tarea creada correctamente.", "success");
+    const wasEditing = Boolean(state.editingTaskId);
+    showToast(wasEditing ? "Tarea actualizada correctamente." : "Tarea creada correctamente.", "success");
     resetTaskForm();
+    state.tasksComposerOpen = false;
+    syncTaskComposerState();
     await loadTasks();
   }
 
@@ -1213,12 +1262,15 @@
     if (!canCreateTask()) {
       taskForm.classList.add("hidden");
       taskFormTitle.textContent = "Sin permisos para crear tareas";
+      state.tasksComposerOpen = false;
     } else {
       taskForm.classList.remove("hidden");
+      state.tasksComposerOpen = false;
     }
 
     await loadUsers();
     resetTaskForm();
+    syncTaskComposerState();
     syncAdvancedFiltersState();
     await loadTasks();
   }
@@ -1229,14 +1281,16 @@
   taskCancelBtn.addEventListener("click", () => {
     resetTaskForm();
     renderTaskDetail(null);
+    closeTaskComposer();
   });
 
   if (tasksNewTaskBtn) {
     tasksNewTaskBtn.addEventListener("click", () => {
-      resetTaskForm();
-      renderTaskDetail(null);
-      if (taskTitle instanceof HTMLInputElement) {
-        taskTitle.focus();
+      const isEditMode = Number.isInteger(state.editingTaskId) && state.editingTaskId > 0;
+      if (!isEditMode && state.tasksComposerOpen) {
+        closeTaskComposer();
+      } else {
+        openTaskComposer();
       }
     });
   }

@@ -461,8 +461,14 @@
 
               <section id="mainWorkspaceSection" class="grid-main">
                 <article id="registroSection" class="card">
-                  <h3 id="registroTitle">Nueva bitacora</h3>
-                  <p id="registroModeHint" class="help-text hidden"></p>
+                  <div class="composer-headline">
+                    <div>
+                      <h3 id="registroTitle">Nueva bitacora</h3>
+                      <p id="registroModeHint" class="help-text hidden"></p>
+                    </div>
+                    <button id="registroNewEventBtn" type="button" class="btn btn-primary">+ Nueva bitacora</button>
+                  </div>
+                  <div id="registroComposerPanel" class="composer-panel hidden">
                   <form id="eventForm" class="form">
                     <label>
                       Encargado
@@ -516,6 +522,7 @@
                       </button>
                     </div>
                   </form>
+                  </div>
                 </article>
 
                 <article id="informeSection" class="card">
@@ -636,8 +643,8 @@
 
                 <article id="resumenOpsSection" class="card collapsible-card hidden" data-collapsible-id="resumen-ops">
   <button type="button" class="collapsible-toggle" data-collapsible-target="resumenOpsBody" aria-expanded="true">
-    <span>Bloques secundarios</span>
-    <span class="collapsible-chevron" aria-hidden="true">?</span>
+    <span>Accesos rapidos</span>
+    <span class="collapsible-chevron" aria-hidden="true">&#9662;</span>
   </button>
   <div id="resumenOpsBody" class="collapsible-body">
     <div class="resumen-quick-actions">
@@ -647,20 +654,80 @@
     </div>
     <p class="help-text">El modulo de Bitacoras ahora muestra solo dominio de bitacoras. El detalle de tareas vive exclusivamente en la vista Tasks y en el dashboard agregado.</p>
   </div>
-</article>
+                </article>
 
                 <article id="attachmentsCard" class="card attachments-card">
-                  <h3>Adjuntos de registro</h3>
-                  <p id="selectedEventLabel" class="help-text">Selecciona un registro para ver o subir adjuntos.</p>
-                  <form id="attachmentForm" class="form">
-                    <input id="attachmentEventId" type="hidden" />
+                  <h3>Repositorio de adjuntos</h3>
+                  <p class="help-text">Gestion centralizada de archivos con filtros, preview y controles por permisos.</p>
+                  <form id="attachmentsRepoFilters" class="report-filters attachments-repo-filters">
                     <label>
-                      Archivo
-                      <input id="attachmentFile" type="file" />
+                      Buscar
+                      <input id="attachmentsFilterQuery" type="text" maxlength="180" placeholder="Nombre del archivo" />
                     </label>
-                    <button type="submit" class="btn btn-secondary">Subir adjunto</button>
+                    <label>
+                      Tipo
+                      <select id="attachmentsFilterType">
+                        <option value="">Todos</option>
+                        <option value="application/pdf">PDF</option>
+                        <option value="image/png">PNG</option>
+                        <option value="image/jpeg">JPG/JPEG</option>
+                        <option value="image/webp">WEBP</option>
+                        <option value="text/plain">Texto</option>
+                      </select>
+                    </label>
+                    <label>
+                      Usuario
+                      <select id="attachmentsFilterOwner">
+                        <option value="">Todos</option>
+                      </select>
+                    </label>
+                    <label>
+                      Desde
+                      <input id="attachmentsFilterFrom" type="date" />
+                    </label>
+                    <label>
+                      Hasta
+                      <input id="attachmentsFilterTo" type="date" />
+                    </label>
+                    <div class="report-actions">
+                      <button id="attachmentsRepoApplyBtn" type="submit" class="btn btn-secondary">Filtrar</button>
+                    </div>
                   </form>
-                  <div id="attachmentList" class="attachment-list"></div>
+                  <div class="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Archivo</th>
+                          <th>Tipo</th>
+                          <th>Tamano</th>
+                          <th>Usuario</th>
+                          <th>Fecha</th>
+                          <th>Relacion</th>
+                          <th>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody id="attachmentsRepoBody"></tbody>
+                    </table>
+                  </div>
+                  <div class="pagination">
+                    <button id="attachmentsRepoPrev" type="button" class="btn btn-ghost">Anterior</button>
+                    <p id="attachmentsRepoPageInfo">Pagina 1 de 1</p>
+                    <button id="attachmentsRepoNext" type="button" class="btn btn-ghost">Siguiente</button>
+                  </div>
+                  <p id="attachmentsRepoMeta" class="help-text">Cargando adjuntos...</p>
+                  <div id="attachmentsContext" class="attachments-context hidden">
+                    <h4>Adjuntos del registro seleccionado</h4>
+                    <p id="selectedEventLabel" class="help-text">Selecciona un registro para ver o subir adjuntos.</p>
+                    <form id="attachmentForm" class="form">
+                      <input id="attachmentEventId" type="hidden" />
+                      <label>
+                        Archivo
+                        <input id="attachmentFile" type="file" />
+                      </label>
+                      <button type="submit" class="btn btn-secondary">Subir adjunto</button>
+                    </form>
+                    <div id="attachmentList" class="attachment-list"></div>
+                  </div>
                 </article>
               </section>
 
@@ -673,7 +740,7 @@
                   <button id="tasksNewTaskBtn" type="button" class="btn btn-primary">+ Nueva tarea</button>
                 </div>
                 <div class="tasks-layout">
-                  <article class="tasks-panel">
+                  <article id="tasksComposerPanel" class="tasks-panel tasks-composer-panel hidden">
                     <h4 id="taskFormTitle">Nueva tarea</h4>
                     <form id="taskForm" class="form">
                       <label>
@@ -1220,6 +1287,11 @@
         <img id="attachmentPreviewImage" class="attachment-preview-media hidden" alt="Preview de imagen" />
         <iframe id="attachmentPreviewFrame" class="attachment-preview-media hidden" title="Preview de archivo"></iframe>
         <pre id="attachmentPreviewText" class="attachment-preview-text hidden"></pre>
+        <p id="attachmentPreviewFallback" class="help-text attachment-preview-fallback hidden"></p>
+        <div id="attachmentPreviewActions" class="attachment-preview-actions hidden">
+          <a id="attachmentPreviewOpenLink" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">Abrir en nueva ventana</a>
+          <a id="attachmentPreviewDownloadLink" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">Descargar</a>
+        </div>
       </section>
     </div>
     <div id="toast" class="toast hidden" aria-live="polite"></div>
