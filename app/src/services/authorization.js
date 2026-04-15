@@ -892,16 +892,26 @@ function canUserCreateTask(user) {
 }
 
 function canUserViewAnyTasks(user) {
-  const capabilities = getSessionCapabilities(user?.role);
-  return Boolean(capabilities.actions.tasks.viewAny);
+  const scope = getTaskViewScope(user);
+  return scope.canViewAny;
 }
 
 function getTaskViewScope(user) {
-  const capabilities = getSessionCapabilities(user?.role);
+  const actorId = resolveActorId(user);
+  if (!Number.isInteger(actorId) || actorId <= 0) {
+    return {
+      canViewAny: false,
+      canViewOwnCreated: false,
+      canViewAssigned: false
+    };
+  }
+
+  // Regla de negocio final: todo usuario autenticado puede visualizar tareas.
+  // Mantiene "edit/delete" separados para no relajar acciones destructivas.
   return {
-    canViewAny: Boolean(capabilities.actions.tasks.viewAny),
-    canViewOwnCreated: Boolean(capabilities.actions.tasks.viewOwnCreated),
-    canViewAssigned: Boolean(capabilities.actions.tasks.viewAssigned)
+    canViewAny: true,
+    canViewOwnCreated: true,
+    canViewAssigned: true
   };
 }
 
@@ -931,8 +941,8 @@ function canUserDeleteAnyTask(user) {
 }
 
 function canUserViewTask(user, task) {
-  const capabilities = getSessionCapabilities(user?.role);
-  if (capabilities.actions.tasks.viewAny) {
+  const viewScope = getTaskViewScope(user);
+  if (viewScope.canViewAny) {
     return true;
   }
 
@@ -942,11 +952,11 @@ function canUserViewTask(user, task) {
   }
 
   const { createdById, assignedToId, assignedUserIds } = resolveTaskUserIds(task);
-  if (capabilities.actions.tasks.viewOwnCreated && actorId === createdById) {
+  if (viewScope.canViewOwnCreated && actorId === createdById) {
     return true;
   }
 
-  if (!capabilities.actions.tasks.viewAssigned) {
+  if (!viewScope.canViewAssigned) {
     return false;
   }
 
@@ -1090,12 +1100,18 @@ function buildSessionUser(user) {
   }
 
   const normalizedRole = normalizeRole(user.role);
+  const capabilities = getSessionCapabilities(normalizedRole);
+  capabilities.panels.tareas = true;
+  capabilities.actions.tasks.viewAny = true;
+  capabilities.actions.tasks.viewOwnCreated = true;
+  capabilities.actions.tasks.viewAssigned = true;
+
   return {
     id: Number(user.id),
     name: user.name,
     email: user.email,
     role: normalizedRole,
-    capabilities: getSessionCapabilities(normalizedRole)
+    capabilities
   };
 }
 
