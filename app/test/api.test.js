@@ -12,6 +12,7 @@ const { validatePasswordPolicy } = require("../src/services/passwordPolicy");
 const app = createApp();
 const {
   canUserEditEvent,
+  canUserViewBitacora,
   canUserUploadEventAttachment,
   canUserViewFile,
   canUserEditFile,
@@ -34,6 +35,12 @@ test("GET /events/report sin autenticacion devuelve 401", async () => {
 
 test("GET /tasks sin autenticacion devuelve 401", async () => {
   const response = await request(app).get("/tasks?page=1&pageSize=20");
+  assert.equal(response.status, 401);
+  assert.equal(response.body.error, "unauthorized");
+});
+
+test("GET /realtime/stream sin autenticacion devuelve 401", async () => {
+  const response = await request(app).get("/realtime/stream");
   assert.equal(response.status, 401);
   assert.equal(response.body.error, "unauthorized");
 });
@@ -258,6 +265,14 @@ test("Permisos: usuario normal no puede editar registros ajenos", () => {
 test("Permisos: administrador puede editar cualquier registro", () => {
   const canEditAny = canUserEditEvent({ sub: 1, role: "admin" }, 9999);
   assert.equal(canEditAny, true);
+});
+
+test("Permisos bitacora: funcionario puede ver bitacoras del panel", () => {
+  const canView = canUserViewBitacora(
+    { sub: 10, role: "funcionario" },
+    { id: 55, encargado_id: 11 }
+  );
+  assert.equal(canView, true);
 });
 
 test("Permisos adjuntos: administrador puede subir adjuntos a cualquier registro", () => {

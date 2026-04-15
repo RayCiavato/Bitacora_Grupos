@@ -9,8 +9,10 @@ const {
   canUserAssignTasks,
   canUserExportTasks,
   canUserViewAnyTasks,
+  canUserViewTask,
   resolveActorId
 } = require("../services/authorization");
+const { publishRealtimeEvent } = require("../services/realtime");
 const {
   TASK_STATUSES,
   TASK_PRIORITIES,
@@ -293,6 +295,32 @@ async function auditTaskAccessDenied(req, details = {}) {
       method: req.method
     },
     req
+  });
+}
+
+function normalizeRealtimeActorId(req) {
+  const actorId = Number(req?.user?.sub || req?.user?.id || 0);
+  if (!Number.isInteger(actorId) || actorId <= 0) {
+    return null;
+  }
+  return actorId;
+}
+
+function emitTaskRealtimeEvent(kind, req, { after = null, before = null, extraPayload = {} } = {}) {
+  const taskId = Number(after?.id || before?.id || extraPayload?.taskId || extraPayload?.entityId || 0);
+  const safeTaskId = Number.isInteger(taskId) && taskId > 0 ? taskId : null;
+
+  publishRealtimeEvent({
+    kind,
+    payload: {
+      entity: "task",
+      taskId: safeTaskId,
+      entityId: safeTaskId,
+      actorId: normalizeRealtimeActorId(req),
+      ...extraPayload
+    },
+    visibility: (viewer) =>
+      (after && canUserViewTask(viewer, after)) || (before && canUserViewTask(viewer, before))
   });
 }
 
@@ -602,6 +630,10 @@ router.post("/", authenticate, async (req, res, next) => {
       });
     }
 
+    emitTaskRealtimeEvent("task.created", req, {
+      after: created
+    });
+
     return res.status(201).json(created);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -729,6 +761,16 @@ router.patch("/:id", authenticate, async (req, res, next) => {
       });
     }
 
+    emitTaskRealtimeEvent("task.updated", req, {
+      before: result.before,
+      after: result.after,
+      extraPayload: {
+        statusChanged: Boolean(result.statusChanged),
+        assignedChanged: Boolean(result.assignedChanged),
+        sharedEditChanged: Boolean(result.sharedEditChanged)
+      }
+    });
+
     return res.json(result.after);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -776,6 +818,15 @@ router.patch("/:id/status", authenticate, async (req, res, next) => {
       req
     });
 
+    emitTaskRealtimeEvent("task.status_changed", req, {
+      before: result.before,
+      after: result.after,
+      extraPayload: {
+        beforeStatus: result.before?.status || null,
+        afterStatus: result.after?.status || null
+      }
+    });
+
     return res.json(result.after);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -818,6 +869,10 @@ router.delete("/:id", authenticate, async (req, res, next) => {
         before: sanitizeTaskForAudit(result.before)
       },
       req
+    });
+
+    emitTaskRealtimeEvent("task.deleted", req, {
+      before: result.before
     });
 
     return res.json({

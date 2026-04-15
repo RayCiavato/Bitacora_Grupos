@@ -177,6 +177,12 @@ async function ensureDatabaseSchema() {
         AND (assignee_ids IS NULL OR cardinality(assignee_ids) = 0)
     `,
     `
+      UPDATE tasks
+      SET assignee_ids = array_append(assignee_ids, assigned_to)
+      WHERE assigned_to IS NOT NULL
+        AND NOT (assigned_to = ANY(assignee_ids))
+    `,
+    `
       UPDATE event_attachments
       SET owner_id = uploaded_by
       WHERE owner_id IS NULL

@@ -124,7 +124,7 @@ function buildTaskFilters(query, user) {
         visibilityClauses.push(`t.created_by = $${actorIndex}`);
       }
       if (viewScope.canViewAssigned) {
-        visibilityClauses.push(`$${actorIndex} = ANY(t.assignee_ids)`);
+        visibilityClauses.push(`(t.assigned_to = $${actorIndex} OR $${actorIndex} = ANY(t.assignee_ids))`);
       }
 
       if (visibilityClauses.length === 0) {
@@ -152,7 +152,7 @@ function buildTaskFilters(query, user) {
 
   if (query.assignedToId) {
     const assignedToIndex = params.push(query.assignedToId);
-    whereParts.push(`$${assignedToIndex} = ANY(t.assignee_ids)`);
+    whereParts.push(`(t.assigned_to = $${assignedToIndex} OR $${assignedToIndex} = ANY(t.assignee_ids))`);
   }
 
   if (query.startFrom) {
@@ -767,7 +767,10 @@ async function getTaskDashboardSummary({ user, dueSoonDays = 7, recentLimit = 5 
             AND t.due_date <= CURRENT_DATE + $${dueSoonIndex}::int
             AND t.status NOT IN ('completada', 'cancelada')
         )::int AS proximas_vencer,
-        COUNT(*) FILTER (WHERE $${actorIndex} = ANY(t.assignee_ids))::int AS asignadas_a_mi,
+        COUNT(*) FILTER (
+          WHERE t.assigned_to = $${actorIndex}
+            OR $${actorIndex} = ANY(t.assignee_ids)
+        )::int AS asignadas_a_mi,
         COUNT(*) FILTER (WHERE t.created_by = $${actorIndex})::int AS creadas_por_mi
       FROM tasks t
       WHERE ${whereSql}

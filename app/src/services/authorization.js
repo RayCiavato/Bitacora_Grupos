@@ -509,10 +509,13 @@ function applyRolePolicyToCapabilities(role, policy) {
   base.actions.attachments.deleteOwn =
     base.actions.attachments.deleteOwn && normalizedPolicy.adjuntos.delete;
 
-  base.actions.tasks.viewAny = base.actions.tasks.viewAny && normalizedPolicy.tareas.view;
+  // Regla de negocio final: la visualizacion de tareas es global para cualquier
+  // usuario autenticado con permiso de lectura de tareas.
+  const canViewTasksModule = Boolean(base.panels.tareas && normalizedPolicy.tareas.view);
+  base.actions.tasks.viewAny = canViewTasksModule;
   base.actions.tasks.viewOwnCreated =
-    base.actions.tasks.viewOwnCreated && normalizedPolicy.tareas.view;
-  base.actions.tasks.viewAssigned = base.actions.tasks.viewAssigned && normalizedPolicy.tareas.view;
+    canViewTasksModule && base.actions.tasks.viewOwnCreated;
+  base.actions.tasks.viewAssigned = canViewTasksModule && base.actions.tasks.viewAssigned;
   base.actions.tasks.create = base.actions.tasks.create && normalizedPolicy.tareas.create;
   base.actions.tasks.assignAny = base.actions.tasks.assignAny && normalizedPolicy.tareas.administer;
   base.actions.tasks.editAny = base.actions.tasks.editAny && normalizedPolicy.tareas.edit;
@@ -723,6 +726,69 @@ function canUserEditEvent(user, ownerId) {
 function canUserDeleteAnyEvent(user) {
   const capabilities = getSessionCapabilities(user?.role);
   return Boolean(capabilities.actions.events.deleteAny);
+}
+
+function getBitacoraViewScope(user) {
+  const canViewBitacoraPanels =
+    canUserAccessPanel(user, "resumen") ||
+    canUserAccessPanel(user, "informes") ||
+    canUserAccessPanel(user, "adjuntos") ||
+    canUserAccessPanel(user, "dashboard");
+
+  if (!canViewBitacoraPanels) {
+    return {
+      canViewAny: false,
+      canViewOwnCreated: false
+    };
+  }
+
+  // La matriz actual no separa "viewAny/viewOwn" para bitacoras; mantenemos
+  // visibilidad equivalente al acceso de panel sin relajar permisos de edicion.
+  return {
+    canViewAny: true,
+    canViewOwnCreated: true
+  };
+}
+
+function canUserViewBitacoras(user) {
+  const scope = getBitacoraViewScope(user);
+  return scope.canViewAny || scope.canViewOwnCreated;
+}
+
+function resolveBitacoraOwnerId(bitacora) {
+  const ownerCandidate =
+    bitacora?.encargadoId ??
+    bitacora?.encargado_id ??
+    bitacora?.ownerId ??
+    bitacora?.owner_id ??
+    bitacora?.createdById ??
+    bitacora?.created_by ??
+    null;
+
+  const ownerId = Number(ownerCandidate);
+  if (!Number.isInteger(ownerId) || ownerId <= 0) {
+    return null;
+  }
+  return ownerId;
+}
+
+function canUserViewBitacora(user, bitacora) {
+  const scope = getBitacoraViewScope(user);
+  if (scope.canViewAny) {
+    return true;
+  }
+
+  if (!scope.canViewOwnCreated) {
+    return false;
+  }
+
+  const actorId = resolveActorId(user);
+  const ownerId = resolveBitacoraOwnerId(bitacora);
+  if (!Number.isInteger(actorId) || actorId <= 0 || !Number.isInteger(ownerId) || ownerId <= 0) {
+    return false;
+  }
+
+  return actorId === ownerId;
 }
 
 function canUserUploadEventAttachment(user, ownerId) {
@@ -1082,6 +1148,9 @@ module.exports = {
   canUserEditAnyEvent,
   canUserEditEvent,
   canUserDeleteAnyEvent,
+  getBitacoraViewScope,
+  canUserViewBitacoras,
+  canUserViewBitacora,
   canUserUploadEventAttachment,
   canUserViewEventAttachments,
   canUserCreateTask,

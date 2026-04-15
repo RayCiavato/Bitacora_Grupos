@@ -46,7 +46,7 @@ function buildTaskScopeWhere(user, firstParamIndex = 1) {
   }
 
   return {
-    clause: `t.deleted_at IS NULL AND (t.created_by = $${firstParamIndex} OR $${firstParamIndex} = ANY(t.assignee_ids))`,
+    clause: `t.deleted_at IS NULL AND (t.created_by = $${firstParamIndex} OR t.assigned_to = $${firstParamIndex} OR $${firstParamIndex} = ANY(t.assignee_ids))`,
     params: [actorId]
   };
 }

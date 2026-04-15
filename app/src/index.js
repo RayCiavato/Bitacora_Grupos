@@ -17,6 +17,7 @@ const { auditRouter } = require("./routes/audit");
 const { rolesPermissionsRouter } = require("./routes/rolesPermissions");
 const { settingsRouter } = require("./routes/settings");
 const { notificationsRouter } = require("./routes/notifications");
+const { realtimeRouter } = require("./routes/realtime");
 const { healthRouter } = require("./routes/health");
 const { startReminderScheduler } = require("./services/reminders");
 const { ensureRolePermissionPoliciesLoaded, seedMissingRolePolicies } = require("./services/rolePoliciesStore");
@@ -140,7 +141,8 @@ function createApp() {
       "/audit",
       "/roles-permissions",
       "/settings",
-      "/notifications"
+      "/notifications",
+      "/realtime"
     ];
     return apiPrefixes.some((prefix) => pathname.startsWith(prefix));
   };
@@ -155,7 +157,8 @@ function createApp() {
       req.path.startsWith("/audit") ||
       req.path.startsWith("/roles-permissions") ||
       req.path.startsWith("/settings") ||
-      req.path.startsWith("/notifications")
+      req.path.startsWith("/notifications") ||
+      req.path.startsWith("/realtime")
     ) {
       res.set("Cache-Control", "no-store");
     }
@@ -352,6 +355,7 @@ function createApp() {
   app.use("/roles-permissions", rolesPermissionsRouter);
   app.use("/settings", settingsRouter);
   app.use("/notifications", notificationsRouter);
+  app.use("/realtime", realtimeRouter);
   app.use("/templates", templatesRouter);
   app.use("/events", eventsRouter);
   app.use("/tasks", tasksRouter);

@@ -117,6 +117,7 @@
 
   const APP_TIMEZONE_OFFSET_MINUTES = 240;
   let filtersDebounceTimer = null;
+  let realtimeTasksReloadTimer = null;
 
   function showToast(message, type = "info") {
     if (!toast) {
@@ -375,6 +376,34 @@
       syncAdvancedFiltersState();
       await loadTasks();
     }, Math.max(0, Number(delayMs) || 0));
+  }
+
+  function scheduleRealtimeReload(payload) {
+    const kind = String(payload?.kind || "").toLowerCase();
+    if (!kind.startsWith("task.")) {
+      return;
+    }
+
+    window.clearTimeout(realtimeTasksReloadTimer);
+    realtimeTasksReloadTimer = window.setTimeout(async () => {
+      const editingTaskId = Number(state.editingTaskId || 0);
+      const payloadTaskId = Number(payload?.taskId || payload?.entityId || 0);
+      const shouldRefreshDetail =
+        Number.isInteger(payloadTaskId) &&
+        payloadTaskId > 0 &&
+        payloadTaskId !== editingTaskId &&
+        payloadTaskId === Number(state.pendingFocusTaskId || 0);
+
+      await loadTasks();
+
+      if (shouldRefreshDetail) {
+        await loadTaskDetail(payloadTaskId);
+      }
+    }, 240);
+  }
+
+  function handleRealtimeEvent(event) {
+    scheduleRealtimeReload(event?.detail || null);
   }
 
   function openTaskDetailModal(task) {
@@ -1429,6 +1458,12 @@
   });
   tasksExportPdf.addEventListener("click", async () => {
     await downloadExport("pdf");
+  });
+
+  window.addEventListener("bitacora:realtime", handleRealtimeEvent);
+  window.addEventListener("beforeunload", () => {
+    window.clearTimeout(realtimeTasksReloadTimer);
+    window.removeEventListener("bitacora:realtime", handleRealtimeEvent);
   });
 
   init().catch(() => {

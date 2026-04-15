@@ -20,6 +20,9 @@ const {
   canUserEditAnyEvent,
   canUserEditEvent,
   canUserDeleteAnyEvent,
+  getBitacoraViewScope,
+  canUserViewBitacoras,
+  canUserViewBitacora,
   canUserUploadEventAttachment,
   canUserViewEventAttachments,
   canUserViewFile,
@@ -29,6 +32,7 @@ const {
   getTaskViewScope,
   buildEventPermissions
 } = require("../services/authorization");
+const { publishRealtimeEvent } = require("../services/realtime");
 
 const router = express.Router();
 
@@ -115,11 +119,7 @@ function getRuntimeSystemSettings() {
 }
 
 function canViewEventsReportModule(user) {
-  return (
-    canUserAccessPanel(user, "resumen") ||
-    canUserAccessPanel(user, "informes") ||
-    canUserAccessPanel(user, "adjuntos")
-  );
+  return canUserViewBitacoras(user);
 }
 
 const attachmentParamsSchema = z.object({
@@ -493,11 +493,56 @@ function buildReportFilters(query) {
 }
 
 function getScopedEncargadoId(req, requestedEncargadoId) {
+  const scope = getBitacoraViewScope(req.user);
+  if (!scope.canViewAny && scope.canViewOwnCreated) {
+    const actorId = Number(req.user?.sub || req.user?.id || 0);
+    if (Number.isInteger(actorId) && actorId > 0) {
+      return actorId;
+    }
+    return undefined;
+  }
+
   if (!canUserFilterByUser(req.user)) {
     return undefined;
   }
 
   return requestedEncargadoId || undefined;
+}
+
+function normalizeRealtimeActorId(req) {
+  const actorId = Number(req?.user?.sub || req?.user?.id || 0);
+  if (!Number.isInteger(actorId) || actorId <= 0) {
+    return null;
+  }
+  return actorId;
+}
+
+function emitBitacoraRealtimeEvent(kind, req, bitacora, extraPayload = {}) {
+  const bitacoraId = Number(
+    bitacora?.id ?? bitacora?.eventId ?? bitacora?.event_id ?? extraPayload?.eventId ?? 0
+  );
+  const ownerId = Number(
+    bitacora?.encargadoId ?? bitacora?.encargado_id ?? bitacora?.ownerId ?? bitacora?.owner_id ?? 0
+  );
+  const safeBitacoraId = Number.isInteger(bitacoraId) && bitacoraId > 0 ? bitacoraId : null;
+  const safeOwnerId = Number.isInteger(ownerId) && ownerId > 0 ? ownerId : null;
+
+  publishRealtimeEvent({
+    kind,
+    payload: {
+      entity: "bitacora",
+      eventId: safeBitacoraId,
+      entityId: safeBitacoraId,
+      ownerId: safeOwnerId,
+      actorId: normalizeRealtimeActorId(req),
+      ...extraPayload
+    },
+    visibility: (viewer) =>
+      canUserViewBitacora(viewer, {
+        id: safeBitacoraId,
+        encargadoId: safeOwnerId
+      })
+  });
 }
 
 function escapeCsvValue(value) {
@@ -900,6 +945,8 @@ router.post("/", authenticate, async (req, res, next) => {
       },
       req
     });
+
+    emitBitacoraRealtimeEvent("event.created", req, event);
 
     return res.status(201).json(event);
   } catch (error) {
@@ -1304,7 +1351,9 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
             taskVisibilityClauses.push(`t.created_by = $${actorIndex}`);
           }
           if (taskViewScope.canViewAssigned) {
-            taskVisibilityClauses.push(`$${actorIndex} = ANY(t.assignee_ids)`);
+            taskVisibilityClauses.push(
+              `(t.assigned_to = $${actorIndex} OR $${actorIndex} = ANY(t.assignee_ids))`
+            );
           }
         }
       }
@@ -1536,6 +1585,10 @@ router.patch("/:id", authenticate, async (req, res, next) => {
       req
     });
 
+    emitBitacoraRealtimeEvent("event.updated", req, updatedEvent, {
+      changedFields: fields.map((field) => String(field).split("=")[0].trim())
+    });
+
     return res.json(updatedEvent);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -1598,6 +1651,8 @@ router.delete("/:id", authenticate, async (req, res, next) => {
       },
       req
     });
+
+    emitBitacoraRealtimeEvent("event.deleted", req, event);
 
     return res.json({ message: "Registro eliminado correctamente" });
   } catch (error) {
@@ -1682,6 +1737,11 @@ router.post("/:id/attachments", authenticate, async (req, res, next) => {
         bytes: req.file.size
       },
       req
+    });
+
+    emitBitacoraRealtimeEvent("attachment.created", req, {
+      id: params.id,
+      encargado_id: event.encargado_id
     });
 
     return res.status(201).json(insertResult.rows[0]);
@@ -2075,6 +2135,11 @@ router.patch("/attachments/:attachmentId", authenticate, async (req, res, next) 
       req
     });
 
+    emitBitacoraRealtimeEvent("attachment.updated", req, {
+      id: attachment.eventId,
+      encargadoId: attachment.encargadoId
+    });
+
     const updated = result.rows[0];
     return res.json({
       ...updated,
@@ -2123,6 +2188,11 @@ router.delete("/attachments/:attachmentId", authenticate, async (req, res, next)
         fileName: attachment.originalName
       },
       req
+    });
+
+    emitBitacoraRealtimeEvent("attachment.deleted", req, {
+      id: attachment.eventId,
+      encargadoId: attachment.encargadoId
     });
 
     return res.json({ message: "Adjunto eliminado correctamente" });

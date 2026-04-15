@@ -193,28 +193,40 @@ function createFakeTasksDb() {
       filtered = [];
     }
 
-    const visibilityCreatedMatch = whereSql.match(
-      /\(\s*t\.created_by\s*=\s*\$(\d+)(?:\s+or\s+\$\d+\s*=\s*any\(t\.assignee_ids\))?\s*\)/i
-    );
-    const visibilityAssignedMatch = whereSql.match(
-      /\(\s*(?:t\.created_by\s*=\s*\$\d+\s+or\s+)?\$(\d+)\s*=\s*any\(t\.assignee_ids\)\s*\)/i
-    );
-    if (visibilityCreatedMatch || visibilityAssignedMatch) {
+    const visibilityCreatedMatches = [
+      ...whereSql.matchAll(/t\.created_by\s*=\s*\$(\d+)/gi)
+    ];
+    const visibilityAssignedDirectMatches = [
+      ...whereSql.matchAll(/t\.assigned_to\s*=\s*\$(\d+)/gi)
+    ];
+    const visibilityAssignedArrayMatches = [
+      ...whereSql.matchAll(/\$(\d+)\s*=\s*any\(t\.assignee_ids\)/gi)
+    ];
+    if (
+      visibilityCreatedMatches.length > 0 ||
+      visibilityAssignedDirectMatches.length > 0 ||
+      visibilityAssignedArrayMatches.length > 0
+    ) {
       const allowedCreatorIds = new Set();
       const allowedAssigneeIds = new Set();
 
-      if (visibilityCreatedMatch) {
-        allowedCreatorIds.add(Number(getParam(params, visibilityCreatedMatch[1])));
-      }
-      if (visibilityAssignedMatch) {
-        allowedAssigneeIds.add(Number(getParam(params, visibilityAssignedMatch[1])));
-      }
+      visibilityCreatedMatches.forEach((match) => {
+        allowedCreatorIds.add(Number(getParam(params, match[1])));
+      });
+      visibilityAssignedDirectMatches.forEach((match) => {
+        allowedAssigneeIds.add(Number(getParam(params, match[1])));
+      });
+      visibilityAssignedArrayMatches.forEach((match) => {
+        allowedAssigneeIds.add(Number(getParam(params, match[1])));
+      });
 
       filtered = filtered.filter((task) => {
         const isCreatedByAllowed = allowedCreatorIds.has(Number(task.created_by));
-        const isAssignedToAllowed = Array.isArray(task.assignee_ids)
-          ? task.assignee_ids.some((assigneeId) => allowedAssigneeIds.has(Number(assigneeId)))
-          : false;
+        const isAssignedToAllowed =
+          allowedAssigneeIds.has(Number(task.assigned_to)) ||
+          (Array.isArray(task.assignee_ids)
+            ? task.assignee_ids.some((assigneeId) => allowedAssigneeIds.has(Number(assigneeId)))
+            : false);
         return isCreatedByAllowed || isAssignedToAllowed;
       });
     }
@@ -237,11 +249,16 @@ function createFakeTasksDb() {
       filtered = filtered.filter((task) => Number(task.created_by) === expected);
     }
 
-    const assignedToFilterMatch = whereSql.match(/and \$(\d+) = any\(t\.assignee_ids\)/i);
+    const assignedToFilterMatch =
+      whereSql.match(/and\s+\(t\.assigned_to\s*=\s*\$(\d+)\s+or\s+\$\d+\s*=\s*any\(t\.assignee_ids\)\)/i) ||
+      whereSql.match(/and\s+t\.assigned_to\s*=\s*\$(\d+)/i) ||
+      whereSql.match(/and\s+\$(\d+)\s*=\s*any\(t\.assignee_ids\)/i);
     if (assignedToFilterMatch) {
       const expected = Number(getParam(params, assignedToFilterMatch[1]));
       filtered = filtered.filter(
-        (task) => Array.isArray(task.assignee_ids) && task.assignee_ids.includes(expected)
+        (task) =>
+          Number(task.assigned_to) === expected ||
+          (Array.isArray(task.assignee_ids) && task.assignee_ids.includes(expected))
       );
     }
 
@@ -749,7 +766,7 @@ test("TASKS module: QA, AppSec y hardening", async (t) => {
     assert.equal(noCsrf.body.error, "invalid_csrf_token");
   });
 
-  await t.test("funcionario solo ve tareas propias/asignadas y no soft deleted", async () => {
+  await t.test("funcionario ve todas las tareas visibles del sistema y no soft deleted", async () => {
     fakeDb.reset();
     const app = createApp();
 
@@ -761,18 +778,18 @@ test("TASKS module: QA, AppSec y hardening", async (t) => {
 
     assert.equal(response.status, 200);
     const ids = response.body.items.map((item) => Number(item.id)).sort((a, b) => a - b);
-    assert.deepEqual(ids, [101, 102]);
+    assert.deepEqual(ids, [101, 102, 103, 104]);
   });
 
-  await t.test("IDOR: funcionario no puede ver, editar ni borrar tareas de terceros", async () => {
+  await t.test("funcionario puede ver detalle de terceros pero no editar ni borrar", async () => {
     fakeDb.reset();
     const app = createApp();
 
     const viewOther = await attachSession(request(app).get("/tasks/103"), funcionario, {
       includeCsrfHeader: false
     });
-    assert.equal(viewOther.status, 404);
-    assert.equal(viewOther.body.error, "task_not_found");
+    assert.equal(viewOther.status, 200);
+    assert.equal(Number(viewOther.body.id), 103);
 
     const editOther = await attachSession(request(app).patch("/tasks/103"), funcionario).send({
       title: "Intento no autorizado"
@@ -983,7 +1000,7 @@ test("TASKS module: QA, AppSec y hardening", async (t) => {
     assert.equal(stats.body.total, 4);
   });
 
-  await t.test("dashboard summary de tareas respeta scope y limite de recientes", async () => {
+  await t.test("dashboard summary de tareas usa visibilidad global y limite de recientes", async () => {
     fakeDb.reset();
     const app = createApp();
 
@@ -1004,9 +1021,11 @@ test("TASKS module: QA, AppSec y hardening", async (t) => {
       { includeCsrfHeader: false }
     );
     assert.equal(funcionarioSummary.status, 200);
-    assert.equal(funcionarioSummary.body.totals.total, 2);
+    assert.equal(funcionarioSummary.body.totals.total, 4);
     assert.ok(Array.isArray(funcionarioSummary.body.recent));
-    assert.ok(funcionarioSummary.body.recent.every((item) => [101, 102].includes(Number(item.id))));
+    assert.ok(
+      funcionarioSummary.body.recent.every((item) => [101, 102, 103, 104].includes(Number(item.id)))
+    );
 
     const supervisorSummary = await attachSession(
       request(app).get("/tasks/dashboard-summary?days=7&recentLimit=5"),
@@ -1021,7 +1040,7 @@ test("TASKS module: QA, AppSec y hardening", async (t) => {
     );
   });
 
-  await t.test("listado de tareas aplica filtros de alerta usados por dashboard", async () => {
+  await t.test("listado de tareas aplica filtros de alerta sobre el universo visible", async () => {
     fakeDb.reset();
     const app = createApp();
 
@@ -1044,7 +1063,7 @@ test("TASKS module: QA, AppSec y hardening", async (t) => {
     assert.equal(funcionarioOverdue.status, 200);
     assert.deepEqual(
       funcionarioOverdue.body.items.map((item) => Number(item.id)).sort((a, b) => a - b),
-      [101, 102]
+      [101, 102, 103]
     );
 
     const supervisorCritical = await attachSession(
@@ -1064,7 +1083,7 @@ test("TASKS module: QA, AppSec y hardening", async (t) => {
     assert.equal(contradictoryFilter.body.items.length, 0);
   });
 
-  await t.test("export XLSX/PDF respeta permisos, scope y soft delete", async () => {
+  await t.test("export XLSX/PDF respeta permisos y excluye soft delete", async () => {
     fakeDb.reset();
     const app = createApp();
 
@@ -1096,7 +1115,7 @@ test("TASKS module: QA, AppSec y hardening", async (t) => {
     assert.equal(scopeXlsx.status, 200);
     const scopedRows = await parseXlsxTaskRows(scopeXlsx.body);
     const scopedIds = scopedRows.map((row) => row.id).sort((a, b) => a - b);
-    assert.deepEqual(scopedIds, [101, 102]);
+    assert.deepEqual(scopedIds, [101, 102, 103, 104]);
 
     const pdf = await attachSession(request(app).get("/tasks/export/pdf"), admin, {
       includeCsrfHeader: false

@@ -444,12 +444,21 @@ const CARACAS_DATETIME_FORMATTER = new Intl.DateTimeFormat("es-VE", {
 const SIDEBAR_GROUPS_STORAGE_KEY = "bitacora_sidebar_groups_v2";
 const SIDEBAR_OPEN_STORAGE_KEY = "bitacora_sidebar_open_v1";
 const REPORT_FILTER_DEBOUNCE_MS = 420;
+const REALTIME_ROUTE_REFRESH_DEBOUNCE_MS = 260;
+const REALTIME_RECONNECT_BASE_MS = 1500;
+const REALTIME_RECONNECT_MAX_MS = 30000;
 const sessionActivityEvents = ["mousemove", "click", "keydown", "scroll", "touchstart"];
 let sessionWarningTimer = null;
 let sessionExpiryTimer = null;
 let sessionKeepAliveTimer = null;
 let sessionLastRescheduleAt = 0;
 let notificationsPollTimer = null;
+let realtimeEventSource = null;
+let realtimeReconnectTimer = null;
+let realtimeReconnectDelayMs = REALTIME_RECONNECT_BASE_MS;
+let realtimeRouteRefreshTimer = null;
+let realtimeLastPayload = null;
+let realtimeManualClose = false;
 let reportFiltersDebounceTimer = null;
 let reportLoadAbortController = null;
 let reportLoadRequestId = 0;
@@ -1640,6 +1649,7 @@ function clearSession() {
 
   stopSessionRuntimeHandlers();
   stopNotificationsPolling();
+  stopRealtimeStream();
   setNotificationsOpen(false);
 
   setKpi({});
@@ -3559,6 +3569,7 @@ function renderDashboardView() {
     startSessionRuntimeHandlers();
   });
   startNotificationsPolling();
+  startRealtimeStream();
 }
 
 function buildReportParams(includePagination = true) {
@@ -4561,6 +4572,170 @@ function stopNotificationsPolling() {
     notificationsPollTimer = null;
   }
 }
+
+function clearRealtimeReconnectTimer() {
+  if (realtimeReconnectTimer) {
+    window.clearTimeout(realtimeReconnectTimer);
+    realtimeReconnectTimer = null;
+  }
+}
+
+function stopRealtimeStream(options = {}) {
+  const manual = options.manual !== false;
+  realtimeManualClose = manual;
+  clearRealtimeReconnectTimer();
+
+  if (realtimeRouteRefreshTimer) {
+    window.clearTimeout(realtimeRouteRefreshTimer);
+    realtimeRouteRefreshTimer = null;
+  }
+  realtimeLastPayload = null;
+
+  if (!realtimeEventSource) {
+    return;
+  }
+
+  realtimeEventSource.onopen = null;
+  realtimeEventSource.onerror = null;
+  realtimeEventSource.onmessage = null;
+  realtimeEventSource.close();
+  realtimeEventSource = null;
+}
+
+function scheduleRealtimeReconnect() {
+  if (realtimeManualClose || realtimeReconnectTimer || !state.user) {
+    return;
+  }
+
+  const delayMs = realtimeReconnectDelayMs;
+  realtimeReconnectTimer = window.setTimeout(() => {
+    realtimeReconnectTimer = null;
+    startRealtimeStream();
+  }, delayMs);
+  realtimeReconnectDelayMs = Math.min(
+    REALTIME_RECONNECT_MAX_MS,
+    Math.round(realtimeReconnectDelayMs * 1.7)
+  );
+}
+
+function dispatchRealtimePayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    return;
+  }
+
+  try {
+    window.dispatchEvent(
+      new CustomEvent("bitacora:realtime", {
+        detail: payload
+      })
+    );
+  } catch (_error) {
+    // No-op: no romper flujo principal por eventos de UI auxiliares.
+  }
+}
+
+async function refreshRouteFromRealtime(payload) {
+  if (!payload || typeof payload !== "object") {
+    return;
+  }
+
+  const route = getCurrentPanelPath();
+  const kind = String(payload.kind || "").toLowerCase();
+  const isTaskEvent = kind.startsWith("task.");
+  const isBitacoraEvent = kind.startsWith("event.");
+  const isAttachmentEvent = kind.startsWith("attachment.");
+
+  if (route === "/dashboard") {
+    const tasksPromise = isTaskEvent ? loadDashboardTasksSummary() : Promise.resolve();
+    await Promise.all([loadSocDashboard(), tasksPromise]);
+    return;
+  }
+
+  if (isTaskEvent) {
+    return;
+  }
+
+  if (route === "/resumen" || route === "/informes") {
+    await loadReport();
+  }
+
+  if (route === "/resumen" || route === "/tendencias") {
+    await loadTrends();
+  }
+
+  if (route === "/adjuntos") {
+    await loadAttachmentsRepository({ keepPage: true });
+  }
+
+  if (state.selectedEventId && (isBitacoraEvent || isAttachmentEvent)) {
+    const payloadEventId = Number(payload.eventId || payload.entityId || 0);
+    if (!payloadEventId || payloadEventId === Number(state.selectedEventId)) {
+      await loadAttachments(Number(state.selectedEventId));
+    }
+  }
+}
+
+function scheduleRouteRealtimeRefresh(payload) {
+  realtimeLastPayload = payload;
+  if (realtimeRouteRefreshTimer) {
+    window.clearTimeout(realtimeRouteRefreshTimer);
+  }
+  realtimeRouteRefreshTimer = window.setTimeout(() => {
+    realtimeRouteRefreshTimer = null;
+    const currentPayload = realtimeLastPayload;
+    realtimeLastPayload = null;
+    void refreshRouteFromRealtime(currentPayload);
+  }, REALTIME_ROUTE_REFRESH_DEBOUNCE_MS);
+}
+
+function handleRealtimeRawMessage(rawData) {
+  if (!rawData) {
+    return;
+  }
+
+  let payload = null;
+  try {
+    payload = JSON.parse(String(rawData || "{}"));
+  } catch (_error) {
+    return;
+  }
+
+  dispatchRealtimePayload(payload);
+  scheduleRouteRealtimeRefresh(payload);
+}
+
+function startRealtimeStream() {
+  if (!window.EventSource || !state.user) {
+    return;
+  }
+  if (realtimeEventSource) {
+    return;
+  }
+
+  realtimeManualClose = false;
+  const source = new EventSource("/realtime/stream", { withCredentials: true });
+  realtimeEventSource = source;
+
+  source.onopen = () => {
+    realtimeReconnectDelayMs = REALTIME_RECONNECT_BASE_MS;
+  };
+
+  source.onmessage = (event) => {
+    handleRealtimeRawMessage(event?.data);
+  };
+
+  source.onerror = () => {
+    if (realtimeManualClose) {
+      return;
+    }
+
+    if (source.readyState === EventSource.CLOSED) {
+      stopRealtimeStream({ manual: false });
+      scheduleRealtimeReconnect();
+    }
+  };
+}
+
 async function loadDashboardData() {
   const route = getCurrentPanelPath();
 
@@ -6943,6 +7118,10 @@ async function bootstrap() {
         });
     });
   }
+
+  window.addEventListener("beforeunload", () => {
+    stopRealtimeStream();
+  });
 
   const currentPath = getCurrentPanelPath();
   const hasSession = await loadCurrentSession();
