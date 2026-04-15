@@ -221,6 +221,7 @@ const notificationsDropdown = document.getElementById("notificationsDropdown");
 const notificationsList = document.getElementById("notificationsList");
 const notificationsEmpty = document.getElementById("notificationsEmpty");
 const notificationsMarkAllBtn = document.getElementById("notificationsMarkAllBtn");
+const notificationsOverlayRoot = document.getElementById("notificationsOverlayRoot");
 
 const PRIORITY_VALUES = ["baja", "media", "alta", "observacion"];
 const PRIORITY_LABELS = {
@@ -4109,6 +4110,16 @@ function normalizeNotificationsPayload(payload) {
   };
 }
 
+function mountNotificationsOverlay() {
+  if (!notificationsDropdown || !notificationsOverlayRoot) {
+    return;
+  }
+
+  if (!notificationsOverlayRoot.contains(notificationsDropdown)) {
+    notificationsOverlayRoot.appendChild(notificationsDropdown);
+  }
+}
+
 function positionNotificationsDropdown() {
   if (!notificationsDropdown || !notificationsBtn || !state.notifications?.open) {
     return;
@@ -4118,7 +4129,6 @@ function positionNotificationsDropdown() {
   const maxWidth = Math.max(260, Math.min(420, window.innerWidth - 16));
   notificationsDropdown.style.width = `${maxWidth}px`;
   notificationsDropdown.style.position = "fixed";
-  notificationsDropdown.style.zIndex = "1200";
 
   const leftCandidate = triggerRect.right - maxWidth;
   const safeLeft = Math.max(8, Math.min(leftCandidate, window.innerWidth - maxWidth - 8));
@@ -4142,6 +4152,7 @@ function handleNotificationsViewportChange() {
 function setNotificationsOpen(isOpen) {
   const open = Boolean(isOpen);
   state.notifications.open = open;
+  mountNotificationsOverlay();
 
   if (notificationsDropdown) {
     notificationsDropdown.classList.toggle("hidden", !open);
@@ -4153,6 +4164,10 @@ function setNotificationsOpen(isOpen) {
   }
   if (notificationsBtn) {
     notificationsBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  if (notificationsOverlayRoot) {
+    notificationsOverlayRoot.classList.toggle("is-open", open);
+    notificationsOverlayRoot.setAttribute("aria-hidden", open ? "false" : "true");
   }
 
   if (open) {
@@ -6386,6 +6401,7 @@ async function bootstrap() {
   state.authView = getRequestedAuthView();
   state.authPopup = getAuthPopupMode();
   applyPerformanceProfile();
+  mountNotificationsOverlay();
   setAuthView(state.authView);
   setDateDefaults();
   initializeSidebarGroups();

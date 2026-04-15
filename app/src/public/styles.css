@@ -2310,6 +2310,13 @@ th {
   overflow: visible;
 }
 
+.notifications-overlay-root {
+  position: fixed;
+  inset: 0;
+  z-index: 2200;
+  pointer-events: none;
+}
+
 .notifications-btn {
   position: relative;
   display: inline-flex;
@@ -2344,7 +2351,7 @@ th {
   backdrop-filter: blur(10px);
   box-shadow: 0 18px 28px rgba(0, 0, 0, 0.35);
   padding: 0.65rem;
-  z-index: 1200;
+  pointer-events: auto;
 }
 
 .notifications-head {
