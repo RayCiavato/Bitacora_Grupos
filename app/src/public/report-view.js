@@ -118,6 +118,14 @@ function normalizePriority(value) {
     : "media";
 }
 
+function resolveTooManyRequestsMessage(payload) {
+  const retry = Number(payload?.retryAfterSeconds || payload?.details?.retryAfterSeconds || 0);
+  if (Number.isFinite(retry) && retry > 0) {
+    return `Demasiadas solicitudes. Intenta en ${Math.ceil(retry)}s.`;
+  }
+  return "Demasiadas solicitudes. Intenta en unos segundos.";
+}
+
 function getEventPermissions(eventId) {
   return state.eventPermissionsById[String(eventId)] || null;
 }
@@ -241,6 +249,22 @@ async function loadPage() {
   }
 
   if (!response.ok) {
+    let errorPayload = null;
+    try {
+      errorPayload = await response.json();
+    } catch (_error) {
+      errorPayload = null;
+    }
+
+    if (response.status === 429) {
+      const rateMessage = resolveTooManyRequestsMessage(errorPayload);
+      security.setSafeText(summaryEl, rateMessage);
+      renderEmpty(rateMessage);
+      prevBtn.disabled = true;
+      nextBtn.disabled = true;
+      return;
+    }
+
     security.setSafeText(summaryEl, "No se pudo cargar la vista completa.");
     renderEmpty("Error al cargar informacion.");
     prevBtn.disabled = true;

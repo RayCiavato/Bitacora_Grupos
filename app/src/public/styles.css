@@ -1103,6 +1103,11 @@ textarea {
   background: rgba(214, 234, 253, 0.8);
 }
 
+.sidebar-link.is-loading {
+  opacity: 0.62;
+  pointer-events: none;
+}
+
 .dashboard.sidebar-collapsed .dashboard-layout {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -2313,7 +2318,7 @@ th {
 .notifications-overlay-root {
   position: fixed;
   inset: 0;
-  z-index: 2200;
+  z-index: 10050;
   pointer-events: none;
 }
 

@@ -21,6 +21,7 @@ const { healthRouter } = require("./routes/health");
 const { startReminderScheduler } = require("./services/reminders");
 const { ensureRolePermissionPoliciesLoaded, seedMissingRolePolicies } = require("./services/rolePoliciesStore");
 const { ensureSystemSettingsLoaded } = require("./services/systemSettingsStore");
+const { verifyAccessToken } = require("./services/tokens");
 const {
   hardenPathExposure,
   notFoundHandler,
@@ -59,6 +60,46 @@ function buildHelmetConfig() {
   };
 }
 
+function parseBearerToken(headerValue) {
+  const normalized = String(headerValue || "");
+  if (!normalized.startsWith("Bearer ")) {
+    return null;
+  }
+  return normalized.slice("Bearer ".length).trim() || null;
+}
+
+function getRateLimitIdentityToken(req) {
+  const bearerToken = parseBearerToken(req?.headers?.authorization);
+  if (bearerToken) {
+    return bearerToken;
+  }
+
+  const cookieToken = req?.cookies?.[config.authCookieName];
+  if (typeof cookieToken === "string" && cookieToken.trim()) {
+    return cookieToken.trim();
+  }
+
+  return null;
+}
+
+function getRateLimitIdentity(req) {
+  const token = getRateLimitIdentityToken(req);
+  if (token) {
+    try {
+      const payload = verifyAccessToken(token);
+      const userId = Number(payload?.sub);
+      if (Number.isInteger(userId) && userId > 0) {
+        return `user:${userId}`;
+      }
+    } catch (_error) {
+      // Fallback a identidad por IP cuando no se puede validar token.
+    }
+  }
+
+  const ip = String(req?.ip || req?.headers?.["x-forwarded-for"] || req?.socket?.remoteAddress || "unknown");
+  return `ip:${ip}`;
+}
+
 function createApp() {
   const app = express();
   app.set("trust proxy", 1);
@@ -88,6 +129,21 @@ function createApp() {
     }
     return next();
   });
+
+  const isRateLimitedApiPath = (pathname) => {
+    const apiPrefixes = [
+      "/auth",
+      "/users",
+      "/events",
+      "/tasks",
+      "/templates",
+      "/audit",
+      "/roles-permissions",
+      "/settings",
+      "/notifications"
+    ];
+    return apiPrefixes.some((prefix) => pathname.startsWith(prefix));
+  };
 
   app.use((req, res, next) => {
     if (
@@ -202,6 +258,7 @@ function createApp() {
       max,
       standardHeaders: true,
       legacyHeaders: false,
+      keyGenerator: (req) => getRateLimitIdentity(req),
       skip: skipFn,
       handler: (req, res, _next, options) => {
         const resetTime = req.rateLimit?.resetTime;
@@ -210,19 +267,25 @@ function createApp() {
             ? Math.max(1, Math.ceil((resetTime.getTime() - Date.now()) / 1000))
             : undefined;
 
+        const details = {};
+        if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+          details.retryAfterSeconds = retryAfterSeconds;
+        }
+
         return res.status(options.statusCode).json({
           error: "too_many_requests",
           message,
-          retryAfterSeconds
+          retryAfterSeconds,
+          details
         });
       }
     });
 
   const globalLimiter = buildLimiter(
     15 * 60 * 1000,
-    300,
-    "Demasiadas solicitudes. Intenta nuevamente en unos minutos.",
-    (req) => isObservabilityPath(req.path)
+    900,
+    "Demasiadas solicitudes. Intenta en unos segundos.",
+    (req) => isObservabilityPath(req.path) || !isRateLimitedApiPath(req.path)
   );
   app.use(globalLimiter);
 
@@ -254,6 +317,12 @@ function createApp() {
     40,
     "Demasiadas exportaciones de reportes."
   );
+  const reportReadLimiter = buildLimiter(
+    60 * 1000,
+    60,
+    "Demasiadas solicitudes. Intenta en unos segundos.",
+    (req) => String(req.path || "").startsWith("/export")
+  );
   const attachmentsLimiter = buildLimiter(
     15 * 60 * 1000,
     90,
@@ -271,6 +340,7 @@ function createApp() {
   app.use("/auth/register", registerLimiter);
   app.use("/auth/refresh", refreshLimiter);
   app.use("/auth/password/recover", recoverLimiter);
+  app.use("/events/report", reportReadLimiter);
   app.use("/events/report/export", reportExportLimiter);
   app.use("/tasks/export", tasksExportLimiter);
   app.use("/events/:id/attachments", attachmentsLimiter);

@@ -108,6 +108,7 @@ const searchTextInput = document.getElementById("searchText");
 const priorityFilterInput = document.getElementById("priorityFilter");
 const userFilterInput = document.getElementById("userFilter");
 const pageSizeInput = document.getElementById("pageSize");
+const resumenNewEventBtn = document.getElementById("resumenNewEventBtn");
 
 const eventTemplateSelect = document.getElementById("eventTemplateSelect");
 const eventFilesInput = document.getElementById("eventFiles");
@@ -221,7 +222,8 @@ const notificationsDropdown = document.getElementById("notificationsDropdown");
 const notificationsList = document.getElementById("notificationsList");
 const notificationsEmpty = document.getElementById("notificationsEmpty");
 const notificationsMarkAllBtn = document.getElementById("notificationsMarkAllBtn");
-const notificationsOverlayRoot = document.getElementById("notificationsOverlayRoot");
+const notificationsOverlayRoot =
+  document.getElementById("overlay-root") || document.getElementById("notificationsOverlayRoot");
 
 const PRIORITY_VALUES = ["baja", "media", "alta", "observacion"];
 const PRIORITY_LABELS = {
@@ -364,7 +366,8 @@ const state = {
   report: {
     page: 1,
     pageSize: 20,
-    totalPages: 1
+    totalPages: 1,
+    loading: false
   },
   sessionCapabilities: null,
   eventPayloadById: {},
@@ -440,12 +443,18 @@ const CARACAS_DATETIME_FORMATTER = new Intl.DateTimeFormat("es-VE", {
 });
 const SIDEBAR_GROUPS_STORAGE_KEY = "bitacora_sidebar_groups_v2";
 const SIDEBAR_OPEN_STORAGE_KEY = "bitacora_sidebar_open_v1";
-const sessionActivityEvents = ["mousemove", "mousedown", "keydown", "scroll", "touchstart"];
+const REPORT_FILTER_DEBOUNCE_MS = 420;
+const sessionActivityEvents = ["mousemove", "click", "keydown", "scroll", "touchstart"];
 let sessionWarningTimer = null;
 let sessionExpiryTimer = null;
 let sessionKeepAliveTimer = null;
 let sessionLastRescheduleAt = 0;
 let notificationsPollTimer = null;
+let reportFiltersDebounceTimer = null;
+let reportLoadAbortController = null;
+let reportLoadRequestId = 0;
+let sidebarNavigationInFlight = false;
+let reportWindowLaunchInFlight = false;
 
 function clearElement(node) {
   if (!node) {
@@ -730,8 +739,9 @@ function resolveErrorMessage(errorCode, details) {
   if (errorCode === "too_many_requests") {
     const retry = Number(details?.retryAfterSeconds || details?.retryAfter || 0);
     if (Number.isFinite(retry) && retry > 0) {
-      return `Demasiados intentos. Espera ${retry}s e intenta de nuevo.`;
+      return `Demasiadas solicitudes. Intenta en ${retry}s.`;
     }
+    return "Demasiadas solicitudes. Intenta en unos segundos.";
   }
   return ERROR_MESSAGES[errorCode] || errorCode;
 }
@@ -1519,6 +1529,12 @@ function syncRegistroComposerState() {
     registroNewEventBtn.setAttribute("aria-expanded", shouldShow ? "true" : "false");
     registroNewEventBtn.textContent = shouldShow && !isEditMode ? "Cerrar panel" : "+ Nueva bitacora";
   }
+
+  if (resumenNewEventBtn) {
+    resumenNewEventBtn.disabled = isEditMode;
+    resumenNewEventBtn.setAttribute("aria-expanded", shouldShow ? "true" : "false");
+    resumenNewEventBtn.textContent = shouldShow && !isEditMode ? "Cerrar panel" : "+ Nueva bitacora";
+  }
 }
 
 function openRegistroComposer() {
@@ -1529,6 +1545,10 @@ function openRegistroComposer() {
   setDateDefaults();
   setEventEditorMode("create");
   syncRegistroComposerState();
+  const currentRoute = getCurrentPanelPath();
+  if (currentRoute === "/resumen" || currentRoute === "/informes") {
+    applyRouteMode();
+  }
 }
 
 function closeRegistroComposer() {
@@ -1538,6 +1558,10 @@ function closeRegistroComposer() {
   }
   state.registroComposerOpen = false;
   syncRegistroComposerState();
+  const currentRoute = getCurrentPanelPath();
+  if (currentRoute === "/resumen" || currentRoute === "/informes") {
+    applyRouteMode();
+  }
 }
 
 function refreshAttachmentUploadState() {
@@ -2441,15 +2465,6 @@ async function loadDashboardTasksSummary() {
   }
 
   renderDashboardTasksSummary(data);
-}
-
-async function loadResumenOps() {
-  if (!resumenOpsSection) {
-    return;
-  }
-
-  const shouldShow = getCurrentPanelPath() === "/resumen";
-  setElementVisible(resumenOpsSection, shouldShow);
 }
 
 function resolveAuditEventAppearance(action) {
@@ -3377,7 +3392,6 @@ function applyRouteMode() {
     Number.isInteger(state.editingEventId) && Number(state.editingEventId) > 0;
   const showDashboard = route === "/dashboard";
   const showResumen = route === "/resumen";
-  const showRegistro = route === "/registro/nuevo" || isEditingRecord;
   const showInformes = route === "/informes" && !isEditingRecord;
   const showTendencias = route === "/tendencias" && !isEditingRecord;
   const showAdjuntos = route === "/adjuntos";
@@ -3388,6 +3402,10 @@ function applyRouteMode() {
   const showAuditoria = route === "/auditoria";
   const showConfiguracion = route === "/configuracion";
   const showBitacoraReport = showInformes || showResumen;
+  const showRegistro =
+    route === "/registro/nuevo" ||
+    isEditingRecord ||
+    (showBitacoraReport && Boolean(state.registroComposerOpen));
 
   if (!showRegistro) {
     state.registroComposerOpen = false;
@@ -3406,7 +3424,7 @@ function applyRouteMode() {
   setElementVisible(tendenciasSection, showTendencias || showResumen);
   setElementVisible(attachmentsCard, showAdjuntos);
   setElementVisible(tasksSection, showTareas);
-  setElementVisible(resumenOpsSection, showResumen);
+  setElementVisible(resumenOpsSection, false);
   setElementVisible(mainWorkspaceSection, showRegistro || showBitacoraReport);
   setElementVisible(secondaryWorkspaceSection, showTendencias || showAdjuntos || showResumen);
   setElementVisible(adminTools, showUsuarios && canManageUsers());
@@ -3640,10 +3658,19 @@ function addCsrfHeaderIfNeeded(headers = {}, method = "GET") {
 }
 
 async function api(path, options = {}) {
-  const { timeoutMs = 20000, ...fetchOptions } = options;
+  const { timeoutMs = 20000, signal: externalSignal, ...fetchOptions } = options;
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
   const method = String(fetchOptions.method || "GET").toUpperCase();
+  const forwardAbort = () => controller.abort();
+
+  if (externalSignal && typeof externalSignal === "object" && "aborted" in externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener("abort", forwardAbort, { once: true });
+    }
+  }
 
   const requestOptions = {
     credentials: "same-origin",
@@ -3670,6 +3697,9 @@ async function api(path, options = {}) {
     };
   } finally {
     window.clearTimeout(timeoutId);
+    if (externalSignal && typeof externalSignal === "object" && "removeEventListener" in externalSignal) {
+      externalSignal.removeEventListener("abort", forwardAbort);
+    }
   }
 }
 
@@ -3708,6 +3738,8 @@ async function apiAuth(path, options = {}, allowRetry = true) {
 }
 
 function handleUnauthorized(shouldNotify = true) {
+  clearReportReloadDebounce();
+  cancelPendingReportLoad();
   clearSession();
   renderAuthView();
   if (shouldNotify) {
@@ -3763,6 +3795,68 @@ async function loadTemplates() {
   renderTemplates();
 }
 
+function setReportLoading(isLoading) {
+  state.report.loading = Boolean(isLoading);
+
+  const submitButton = filterForm?.querySelector('button[type="submit"]');
+  if (submitButton instanceof HTMLButtonElement) {
+    setButtonBusy(submitButton, state.report.loading, "Consultando...");
+  }
+
+  if (reportPrev instanceof HTMLButtonElement) {
+    reportPrev.disabled = state.report.loading || state.report.page <= 1;
+  }
+
+  if (reportNext instanceof HTMLButtonElement) {
+    reportNext.disabled = state.report.loading || state.report.page >= state.report.totalPages;
+  }
+
+  if (openReportBtn instanceof HTMLButtonElement) {
+    openReportBtn.disabled = state.report.loading;
+  }
+
+  if (pageSizeInput instanceof HTMLSelectElement) {
+    pageSizeInput.disabled = state.report.loading;
+  }
+
+  exportButtons.forEach((button) => {
+    if (button instanceof HTMLButtonElement) {
+      button.disabled = state.report.loading;
+    }
+  });
+}
+
+function clearReportReloadDebounce() {
+  if (!reportFiltersDebounceTimer) {
+    return;
+  }
+  window.clearTimeout(reportFiltersDebounceTimer);
+  reportFiltersDebounceTimer = null;
+}
+
+function scheduleReportReload() {
+  clearReportReloadDebounce();
+  reportFiltersDebounceTimer = window.setTimeout(() => {
+    reportFiltersDebounceTimer = null;
+    const route = getCurrentPanelPath();
+    if (route !== "/resumen" && route !== "/informes" && route !== "/tendencias") {
+      return;
+    }
+    state.report.page = 1;
+    void loadReport();
+    if (route === "/resumen" || route === "/tendencias") {
+      void loadTrends();
+    }
+  }, REPORT_FILTER_DEBOUNCE_MS);
+}
+
+function cancelPendingReportLoad() {
+  if (reportLoadAbortController) {
+    reportLoadAbortController.abort();
+    reportLoadAbortController = null;
+  }
+}
+
 async function loadReport() {
   const from = fromDateInput.value;
   const to = toDateInput.value;
@@ -3782,26 +3876,50 @@ async function loadReport() {
 
   reportRange.textContent = `Rango: ${formatDate(from)} - ${formatDate(to)}`;
 
-  const { response, data, networkError } = await apiAuth(`/events/report?${params.toString()}`);
+  cancelPendingReportLoad();
+  const currentController = new AbortController();
+  reportLoadAbortController = currentController;
+  const requestId = ++reportLoadRequestId;
+  setReportLoading(true);
 
-  if (networkError) {
-    showToast("No hay conexion con el servidor.", "error");
-    return;
-  }
+  try {
+    const { response, data, networkError, timedOut } = await apiAuth(`/events/report?${params.toString()}`, {
+      signal: currentController.signal
+    });
 
-  if (!response.ok) {
-    if (response.status === 401) {
-      handleUnauthorized();
+    if (requestId !== reportLoadRequestId) {
       return;
     }
-    showToast(resolveErrorMessage(data?.error, data?.details), "error");
-    return;
-  }
 
-  setKpi(data);
-  renderSummaryChips(data);
-  renderReportRows(data);
-  renderPagination(data.pagination);
+    if (networkError) {
+      if (currentController.signal.aborted || timedOut) {
+        return;
+      }
+      showToast("No hay conexion con el servidor.", "error");
+      return;
+    }
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      showToast(resolveErrorMessage(data?.error, data?.details || data), "error");
+      return;
+    }
+
+    setKpi(data);
+    renderSummaryChips(data);
+    renderReportRows(data);
+    renderPagination(data.pagination);
+  } finally {
+    if (requestId === reportLoadRequestId) {
+      if (reportLoadAbortController === currentController) {
+        reportLoadAbortController = null;
+      }
+      setReportLoading(false);
+    }
+  }
 }
 
 async function loadTrends() {
@@ -4401,7 +4519,7 @@ async function loadDashboardData() {
     if (pageSizeInput) {
       pageSizeInput.value = "10";
     }
-    await Promise.all([loadUsers(), loadReport(), loadTrends(), loadResumenOps()]);
+    await Promise.all([loadUsers(), loadReport(), loadTrends()]);
     return;
   }
 
@@ -4464,7 +4582,6 @@ async function loadDashboardData() {
     loadTemplates(),
     loadReport(),
     loadTrends(),
-    loadResumenOps(),
     loadRolePermissionsPanel(),
     loadSystemSettingsPanel()
   ]);
@@ -5713,6 +5830,7 @@ async function handleLogout() {
 
 async function handleFilterSubmit(event) {
   event.preventDefault();
+  clearReportReloadDebounce();
   state.report.page = 1;
   await loadReport();
   if (getCurrentPanelPath() === "/resumen" || getCurrentPanelPath() === "/tendencias") {
@@ -5721,10 +5839,18 @@ async function handleFilterSubmit(event) {
 }
 
 function handleOpenReportClick() {
+  if (state.report.loading || reportWindowLaunchInFlight) {
+    return;
+  }
+
+  reportWindowLaunchInFlight = true;
   const opened = openReportWindow();
   if (!opened) {
     showToast("Tu navegador bloqueo la nueva ventana. Habilita popups para este sitio.", "error");
   }
+  window.setTimeout(() => {
+    reportWindowLaunchInFlight = false;
+  }, 900);
 }
 
 function handleAuthLaunchClick(event) {
@@ -6129,6 +6255,32 @@ function handleSidebarToggle() {
   setSidebarOpen(!state.sidebarOpen);
 }
 
+function handleSidebarLinkNavigation(event) {
+  const target = event.currentTarget;
+  if (!(target instanceof HTMLAnchorElement)) {
+    return;
+  }
+
+  if (sidebarNavigationInFlight) {
+    event.preventDefault();
+    return;
+  }
+
+  const targetUrl = new URL(target.href, window.location.origin);
+  const currentUrl = new URL(window.location.href);
+  if (targetUrl.pathname === currentUrl.pathname && targetUrl.search === currentUrl.search) {
+    event.preventDefault();
+    return;
+  }
+
+  sidebarNavigationInFlight = true;
+  target.classList.add("is-loading");
+  window.setTimeout(() => {
+    sidebarNavigationInFlight = false;
+    target.classList.remove("is-loading");
+  }, 5000);
+}
+
 async function handleReportTableClick(event) {
   const target = event.target;
   if (!(target instanceof HTMLElement)) {
@@ -6180,19 +6332,27 @@ async function handleReportTableClick(event) {
 }
 
 async function handlePrevPage() {
+  if (state.report.loading) {
+    return;
+  }
   if (state.report.page <= 1) {
     return;
   }
 
+  clearReportReloadDebounce();
   state.report.page -= 1;
   await loadReport();
 }
 
 async function handleNextPage() {
+  if (state.report.loading) {
+    return;
+  }
   if (state.report.page >= state.report.totalPages) {
     return;
   }
 
+  clearReportReloadDebounce();
   state.report.page += 1;
   await loadReport();
 }
@@ -6398,6 +6558,11 @@ function _startMatrixRain(options = {}) {
 }
 
 async function bootstrap() {
+  if (window.__BITACORA_APP_BOOTSTRAPPED__) {
+    return;
+  }
+  window.__BITACORA_APP_BOOTSTRAPPED__ = true;
+
   state.authView = getRequestedAuthView();
   state.authPopup = getAuthPopupMode();
   applyPerformanceProfile();
@@ -6487,6 +6652,18 @@ async function bootstrap() {
 
   mfaEnableForm.addEventListener("submit", handleMfaEnable);
   eventForm.addEventListener("submit", handleCreateEvent);
+  if (resumenNewEventBtn) {
+    resumenNewEventBtn.addEventListener("click", () => {
+      if (state.registroComposerOpen) {
+        closeRegistroComposer();
+      } else {
+        openRegistroComposer();
+        if (fechaInput instanceof HTMLInputElement) {
+          fechaInput.focus();
+        }
+      }
+    });
+  }
   if (registroNewEventBtn) {
     registroNewEventBtn.addEventListener("click", () => {
       if (state.registroComposerOpen) {
@@ -6540,6 +6717,13 @@ async function bootstrap() {
   logoutBtn.addEventListener("click", handleLogout);
   if (sidebarToggleBtn) {
     sidebarToggleBtn.addEventListener("click", handleSidebarToggle);
+  }
+  if (sidebarLinks?.length) {
+    sidebarLinks.forEach((link) => {
+      if (link instanceof HTMLAnchorElement) {
+        link.addEventListener("click", handleSidebarLinkNavigation);
+      }
+    });
   }
   if (notificationsBtn) {
     notificationsBtn.addEventListener("click", async (event) => {
@@ -6637,7 +6821,23 @@ async function bootstrap() {
 
   fromDateInput.addEventListener("change", syncDateConstraints);
   toDateInput.addEventListener("change", syncDateConstraints);
+  [searchTextInput, priorityFilterInput, userFilterInput].forEach((input) => {
+    if (input instanceof HTMLInputElement) {
+      input.addEventListener("input", scheduleReportReload);
+      return;
+    }
+    if (input instanceof HTMLSelectElement) {
+      input.addEventListener("change", scheduleReportReload);
+    }
+  });
+  if (fromDateInput instanceof HTMLInputElement) {
+    fromDateInput.addEventListener("change", scheduleReportReload);
+  }
+  if (toDateInput instanceof HTMLInputElement) {
+    toDateInput.addEventListener("change", scheduleReportReload);
+  }
   pageSizeInput.addEventListener("change", async () => {
+    clearReportReloadDebounce();
     state.report.page = 1;
     await loadReport();
   });

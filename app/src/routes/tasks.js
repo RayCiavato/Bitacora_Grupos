@@ -41,31 +41,18 @@ const taskIdSchema = z.object({
   id: z.coerce.number().int().positive()
 });
 
-function resolveClientTimezoneOffsetMinutes(req) {
-  const rawOffset = req?.get("x-client-timezone-offset");
-  if (rawOffset === undefined || rawOffset === null || rawOffset === "") {
-    return null;
-  }
-
-  const parsed = Number(rawOffset);
-  if (!Number.isInteger(parsed) || parsed < -840 || parsed > 840) {
-    return null;
-  }
-
-  return parsed;
+function toISODateCaracas(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Caracas",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+  return formatter.format(date);
 }
 
-function toISODateWithTimezoneOffset(date, timezoneOffsetMinutes) {
-  const tzOffsetMs = Number(timezoneOffsetMinutes) * 60000;
-  return new Date(date.getTime() - tzOffsetMs).toISOString().slice(0, 10);
-}
-
-function resolveCurrentISODate(req) {
-  const clientOffset = resolveClientTimezoneOffsetMinutes(req);
-  if (clientOffset !== null) {
-    return toISODateWithTimezoneOffset(new Date(), clientOffset);
-  }
-  return toISODateWithTimezoneOffset(new Date(), new Date().getTimezoneOffset());
+function resolveCurrentISODate() {
+  return toISODateCaracas(new Date());
 }
 
 function hasPastTaskDates(payload, currentDateIso) {
@@ -843,5 +830,4 @@ router.delete("/:id", authenticate, async (req, res, next) => {
 });
 
 module.exports = { tasksRouter: router };
-
 

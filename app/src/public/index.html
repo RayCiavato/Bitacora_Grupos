@@ -526,7 +526,13 @@
                 </article>
 
                 <article id="informeSection" class="card">
-                  <h3>Reportes de bitacora</h3>
+                  <div class="tasks-headline">
+                    <div>
+                      <h3>Bitacoras operativas</h3>
+                      <p class="help-text">Vista unificada de filtros, tabla, paginacion y tendencias.</p>
+                    </div>
+                    <button id="resumenNewEventBtn" type="button" class="btn btn-primary">+ Nueva bitacora</button>
+                  </div>
                   <form id="filterForm" class="report-filters">
                     <label>
                       Desde
@@ -639,21 +645,6 @@
                       <div id="trendTopUsers" class="bars"></div>
                     </div>
                   </div>
-                </article>
-
-                <article id="resumenOpsSection" class="card collapsible-card hidden" data-collapsible-id="resumen-ops">
-  <button type="button" class="collapsible-toggle" data-collapsible-target="resumenOpsBody" aria-expanded="true">
-    <span>Accesos rapidos</span>
-    <span class="collapsible-chevron" aria-hidden="true">&#9662;</span>
-  </button>
-  <div id="resumenOpsBody" class="collapsible-body">
-    <div class="resumen-quick-actions">
-      <a href="/registro/nuevo" class="btn btn-ghost">+ Nueva bitacora</a>
-      <a href="/informes" class="btn btn-ghost">Reportes detallados</a>
-      <a href="/tareas" class="btn btn-ghost">Ir a Tasks</a>
-    </div>
-    <p class="help-text">El modulo de Bitacoras ahora muestra solo dominio de bitacoras. El detalle de tareas vive exclusivamente en la vista Tasks y en el dashboard agregado.</p>
-  </div>
                 </article>
 
                 <article id="attachmentsCard" class="card attachments-card">
@@ -1294,7 +1285,7 @@
         </div>
       </section>
     </div>
-    <div id="notificationsOverlayRoot" class="notifications-overlay-root" aria-hidden="true"></div>
+    <div id="overlay-root" class="notifications-overlay-root" aria-hidden="true"></div>
     <div id="toast" class="toast hidden" aria-live="polite"></div>
     <script src="/assets/security.min.js?asset=sec" defer></script>
     <script src="/assets/app.min.js?asset=web" defer></script>

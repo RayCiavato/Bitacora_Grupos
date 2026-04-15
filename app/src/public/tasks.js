@@ -108,6 +108,7 @@
     activeRows: []
   };
 
+  const APP_TIMEZONE_OFFSET_MINUTES = 240;
   let filtersDebounceTimer = null;
 
   function showToast(message, type = "info") {
@@ -174,13 +175,9 @@
   }
 
   function addClientTimezoneHeader(headers = {}) {
-    const tzOffsetMinutes = Number(new Date().getTimezoneOffset());
-    if (!Number.isInteger(tzOffsetMinutes) || tzOffsetMinutes < -840 || tzOffsetMinutes > 840) {
-      return headers;
-    }
     return {
       ...headers,
-      "x-client-timezone-offset": String(tzOffsetMinutes)
+      "x-client-timezone-offset": String(APP_TIMEZONE_OFFSET_MINUTES)
     };
   }
 

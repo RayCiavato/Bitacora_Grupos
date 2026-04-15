@@ -438,34 +438,16 @@ const upload = multer({
 });
 
 function toISODate(date) {
-  const tzOffsetMs = date.getTimezoneOffset() * 60000;
-  return new Date(date.getTime() - tzOffsetMs).toISOString().slice(0, 10);
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Caracas",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+  return formatter.format(date);
 }
 
-function resolveClientTimezoneOffsetMinutes(req) {
-  const rawOffset = req?.get("x-client-timezone-offset");
-  if (rawOffset === undefined || rawOffset === null || rawOffset === "") {
-    return null;
-  }
-
-  const parsed = Number(rawOffset);
-  if (!Number.isInteger(parsed) || parsed < -840 || parsed > 840) {
-    return null;
-  }
-
-  return parsed;
-}
-
-function toISODateWithTimezoneOffset(date, timezoneOffsetMinutes) {
-  const tzOffsetMs = Number(timezoneOffsetMinutes) * 60000;
-  return new Date(date.getTime() - tzOffsetMs).toISOString().slice(0, 10);
-}
-
-function resolveCurrentISODate(req) {
-  const clientOffset = resolveClientTimezoneOffsetMinutes(req);
-  if (clientOffset !== null) {
-    return toISODateWithTimezoneOffset(new Date(), clientOffset);
-  }
+function resolveCurrentISODate() {
   return toISODate(new Date());
 }
 

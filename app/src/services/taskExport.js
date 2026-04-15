@@ -1,6 +1,24 @@
 const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit");
 
+const APP_TIMEZONE = "America/Caracas";
+const DATE_ONLY_FORMATTER = new Intl.DateTimeFormat("es-VE", {
+  timeZone: APP_TIMEZONE,
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric"
+});
+const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("es-VE", {
+  timeZone: APP_TIMEZONE,
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false
+});
+
 const STATUS_LABELS = Object.freeze({
   sin_realizar: "Sin realizar",
   en_proceso: "En proceso",
@@ -24,11 +42,7 @@ function formatDateOnly(value) {
   if (Number.isNaN(date.getTime())) {
     return normalized;
   }
-  return date.toLocaleDateString("es-ES", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric"
-  });
+  return DATE_ONLY_FORMATTER.format(date);
 }
 
 function formatTimestamp(value) {
@@ -39,7 +53,7 @@ function formatTimestamp(value) {
   if (Number.isNaN(date.getTime())) {
     return String(value);
   }
-  return date.toLocaleString("es-ES");
+  return DATE_TIME_FORMATTER.format(date);
 }
 
 function labelStatus(value) {
@@ -65,9 +79,15 @@ function sanitizeExcelCell(value) {
 
 function buildTaskExportFileName(prefix, extension) {
   const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: APP_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(now);
+  const y = parts.find((part) => part.type === "year")?.value || "0000";
+  const m = parts.find((part) => part.type === "month")?.value || "01";
+  const d = parts.find((part) => part.type === "day")?.value || "01";
   return `${prefix}-${y}${m}${d}.${extension}`;
 }
 
@@ -124,7 +144,7 @@ async function buildTasksPdfBuffer(tasks, options = {}) {
 
     const title = String(options.title || "Reporte de tareas");
     const generatedBy = String(options.generatedBy || "");
-    const generatedAt = new Date().toLocaleString("es-ES");
+    const generatedAt = formatTimestamp(new Date());
 
     doc.fontSize(18).text(title, { align: "left" });
     doc.moveDown(0.4);
