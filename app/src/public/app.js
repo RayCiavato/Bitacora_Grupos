@@ -876,6 +876,11 @@ function canManageUsers() {
   return Boolean(state.sessionCapabilities?.actions?.users?.manage);
 }
 
+function canViewTasksScope() {
+  const taskActions = state.sessionCapabilities?.actions?.tasks;
+  return Boolean(taskActions?.viewAny || taskActions?.viewOwnCreated || taskActions?.viewAssigned);
+}
+
 function canChangeOwnPassword() {
   return Boolean(state.sessionCapabilities?.actions?.users?.changeOwnPassword);
 }
@@ -2123,29 +2128,72 @@ function renderDashboardAlerts(alerts = {}) {
   }
 
   clearElement(dashboardAlertsList);
+  if (!canViewTasksScope()) {
+    const empty = document.createElement("article");
+    empty.className = "dashboard-alert-empty";
+    empty.textContent = "No tienes permisos para visualizar tareas.";
+    dashboardAlertsList.appendChild(empty);
+    return;
+  }
+
   const items = [
     {
       label: "Tareas vencidas",
       value: Number(alerts.tareasVencidas || 0),
       className: "alert-critical",
-      route: "/tareas"
+      route: "/tareas?alert=vencidas"
     },
     {
       label: "Tareas criticas",
       value: Number(alerts.tareasCriticas || 0),
+      className: "alert-critical",
+      route: "/tareas?alert=criticas&priority=alta"
+    },
+    {
+      label: "Tareas prioridad alta",
+      value: Number(alerts.tareasAlta || alerts.tareasCriticas || 0),
       className: "alert-high",
       route: "/tareas?priority=alta"
     },
     {
+      label: "Tareas prioridad media",
+      value: Number(alerts.tareasMedia || 0),
+      className: "alert-medium",
+      route: "/tareas?priority=media"
+    },
+    {
+      label: "Tareas prioridad baja",
+      value: Number(alerts.tareasBaja || 0),
+      className: "alert-low",
+      route: "/tareas?priority=baja"
+    },
+    {
+      label: "Pendientes de revision",
+      value: Number(alerts.tareasPendienteRevision || 0),
+      className: "alert-medium",
+      route: "/tareas?status=pendiente_revision"
+    },
+    {
+      label: "En proceso",
+      value: Number(alerts.tareasEnProceso || 0),
+      className: "alert-neutral",
+      route: "/tareas?status=en_proceso"
+    },
+    {
+      label: "Sin realizar",
+      value: Number(alerts.tareasSinRealizar || 0),
+      className: "alert-neutral",
+      route: "/tareas?status=sin_realizar"
+    },
+    {
       label: "Bitacoras criticas (7 dias)",
       value: Number(alerts.bitacorasCriticas || 0),
-      className: "alert-medium",
+      className: "alert-neutral",
       route: "/resumen"
     }
   ];
 
-  const activeItems = items.filter((item) => Number(item.value) > 0);
-  if (!activeItems.length) {
+  if (!items.length) {
     const empty = document.createElement("article");
     empty.className = "dashboard-alert-empty";
     empty.textContent = "No hay alertas operativas";
@@ -2153,9 +2201,12 @@ function renderDashboardAlerts(alerts = {}) {
     return;
   }
 
-  activeItems.forEach((item) => {
+  items.forEach((item) => {
     const chip = document.createElement("article");
     chip.className = `dashboard-alert-chip ${item.className} dashboard-alert-chip-clickable`;
+    if (Number(item.value) === 0) {
+      chip.classList.add("is-zero");
+    }
     chip.tabIndex = 0;
     chip.setAttribute("role", "button");
     chip.setAttribute("aria-label", `Abrir ${item.label}`);
@@ -2167,6 +2218,10 @@ function renderDashboardAlerts(alerts = {}) {
     const value = document.createElement("strong");
     value.className = "dashboard-alert-value";
     security.setSafeText(value, item.value);
+
+    const meta = document.createElement("p");
+    meta.className = "dashboard-alert-meta";
+    security.setSafeText(meta, Number(item.value) > 0 ? "Requiere atencion" : "Sin pendientes");
 
     chip.addEventListener("click", () => {
       if (item.route) {
@@ -2182,6 +2237,7 @@ function renderDashboardAlerts(alerts = {}) {
 
     chip.appendChild(title);
     chip.appendChild(value);
+    chip.appendChild(meta);
     dashboardAlertsList.appendChild(chip);
   });
 }
@@ -2440,7 +2496,7 @@ function renderDashboardTasksSummary(summary) {
 }
 
 async function loadDashboardTasksSummary() {
-  if (!dashboardTasksSummaryCard || !canAccessPanel("/tareas")) {
+  if (!dashboardTasksSummaryCard || !canViewTasksScope()) {
     return;
   }
 
@@ -3417,7 +3473,7 @@ function applyRouteMode() {
   }
 
   setElementVisible(socDashboardSection, showDashboard);
-  setElementVisible(dashboardTasksSummaryCard, showDashboard && canAccessPanel("/tareas"));
+  setElementVisible(dashboardTasksSummaryCard, showDashboard && canViewTasksScope());
   setElementVisible(kpiSection, showResumen);
   setElementVisible(registroSection, showRegistro);
   setElementVisible(informeSection, showBitacoraReport);

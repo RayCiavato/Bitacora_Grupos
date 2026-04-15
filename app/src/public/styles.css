@@ -1011,6 +1011,7 @@ textarea {
   padding: 0.56rem 0.62rem;
   display: grid;
   gap: 0.22rem;
+  min-height: 84px;
 }
 
 .dashboard-alert-chip-clickable {
@@ -1037,6 +1038,12 @@ textarea {
   font-size: 1.26rem;
 }
 
+.dashboard-alert-meta {
+  margin: 0;
+  color: #9bb3d6;
+  font-size: 0.72rem;
+}
+
 .dashboard-alert-chip.alert-critical .dashboard-alert-value {
   color: #ff8f9f;
 }
@@ -1047,6 +1054,20 @@ textarea {
 
 .dashboard-alert-chip.alert-medium .dashboard-alert-value {
   color: #8ce4ff;
+}
+
+.dashboard-alert-chip.alert-low .dashboard-alert-value {
+  color: #8ebdff;
+}
+
+.dashboard-alert-chip.alert-neutral .dashboard-alert-value {
+  color: #c8d8f0;
+}
+
+.dashboard-alert-chip.is-zero {
+  border-style: dashed;
+  border-color: rgba(126, 156, 199, 0.35);
+  background: rgba(9, 21, 45, 0.54);
 }
 
 .dashboard-alert-empty {

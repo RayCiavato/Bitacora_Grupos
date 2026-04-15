@@ -25,7 +25,8 @@ const {
   canUserViewFile,
   canUserEditFile,
   canUserDeleteFile,
-  canUserViewAnyTasks,
+  canUserViewTasks,
+  getTaskViewScope,
   buildEventPermissions
 } = require("../services/authorization");
 
@@ -1278,29 +1279,92 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
       byDateParams
     );
 
-    const canViewAnyTaskScope = canUserViewAnyTasks(req.user);
     const actorId = Number(req.user?.sub || req.user?.id || 0);
-    const taskAlertsWhere = canViewAnyTaskScope
-      ? "WHERE t.deleted_at IS NULL"
-      : "WHERE t.deleted_at IS NULL AND (t.created_by = $1 OR $1 = ANY(t.assignee_ids))";
-    const taskAlertsParams = canViewAnyTaskScope ? [] : [actorId];
-    const taskAlertsResult = await pool.query(
-      `
-        SELECT
-          COUNT(*) FILTER (
-            WHERE t.due_date IS NOT NULL
-              AND t.due_date < CURRENT_DATE
-              AND t.status NOT IN ('completada', 'cancelada')
-          )::int AS tareas_vencidas,
-          COUNT(*) FILTER (
-            WHERE t.priority = 'alta'
-              AND t.status NOT IN ('completada', 'cancelada')
-          )::int AS tareas_criticas
-        FROM tasks t
-        ${taskAlertsWhere}
-      `,
-      taskAlertsParams
-    );
+    const taskViewScope = getTaskViewScope(req.user);
+    const canViewTaskScope = canUserViewTasks(req.user);
+    const emptyTaskAlerts = {
+      tareas_vencidas: 0,
+      tareas_criticas: 0,
+      tareas_alta: 0,
+      tareas_media: 0,
+      tareas_baja: 0,
+      tareas_pendiente_revision: 0,
+      tareas_en_proceso: 0,
+      tareas_sin_realizar: 0
+    };
+
+    let taskAlertsRow = emptyTaskAlerts;
+    if (canViewTaskScope) {
+      const taskAlertsParams = [];
+      const taskVisibilityClauses = [];
+      if (!taskViewScope.canViewAny) {
+        if (Number.isInteger(actorId) && actorId > 0) {
+          const actorIndex = taskAlertsParams.push(actorId);
+          if (taskViewScope.canViewOwnCreated) {
+            taskVisibilityClauses.push(`t.created_by = $${actorIndex}`);
+          }
+          if (taskViewScope.canViewAssigned) {
+            taskVisibilityClauses.push(`$${actorIndex} = ANY(t.assignee_ids)`);
+          }
+        }
+      }
+
+      const taskAlertsWhere = (() => {
+        const baseClauses = ["t.deleted_at IS NULL"];
+        if (!taskViewScope.canViewAny) {
+          if (taskVisibilityClauses.length === 0) {
+            baseClauses.push("1 = 0");
+          } else {
+            baseClauses.push(`(${taskVisibilityClauses.join(" OR ")})`);
+          }
+        }
+        return `WHERE ${baseClauses.join(" AND ")}`;
+      })();
+
+      const taskAlertsResult = await pool.query(
+        `
+          SELECT
+            COUNT(*) FILTER (
+              WHERE t.due_date IS NOT NULL
+                AND t.due_date < CURRENT_DATE
+                AND t.status NOT IN ('completada', 'cancelada')
+            )::int AS tareas_vencidas,
+            COUNT(*) FILTER (
+              WHERE t.priority = 'alta'
+                AND t.status NOT IN ('completada', 'cancelada')
+            )::int AS tareas_criticas,
+            COUNT(*) FILTER (
+              WHERE t.priority = 'alta'
+                AND t.status NOT IN ('completada', 'cancelada')
+            )::int AS tareas_alta,
+            COUNT(*) FILTER (
+              WHERE t.priority = 'media'
+                AND t.status NOT IN ('completada', 'cancelada')
+            )::int AS tareas_media,
+            COUNT(*) FILTER (
+              WHERE t.priority = 'baja'
+                AND t.status NOT IN ('completada', 'cancelada')
+            )::int AS tareas_baja,
+            COUNT(*) FILTER (
+              WHERE t.status = 'pendiente_revision'
+                AND t.status NOT IN ('completada', 'cancelada')
+            )::int AS tareas_pendiente_revision,
+            COUNT(*) FILTER (
+              WHERE t.status = 'en_proceso'
+                AND t.status NOT IN ('completada', 'cancelada')
+            )::int AS tareas_en_proceso,
+            COUNT(*) FILTER (
+              WHERE t.status = 'sin_realizar'
+                AND t.status NOT IN ('completada', 'cancelada')
+            )::int AS tareas_sin_realizar
+          FROM tasks t
+          ${taskAlertsWhere}
+        `,
+        taskAlertsParams
+      );
+
+      taskAlertsRow = taskAlertsResult.rows[0] || emptyTaskAlerts;
+    }
 
     const criticalEventsResult = await pool.query(
       `
@@ -1332,7 +1396,6 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
       privilegedActivity ? [] : [actorId]
     );
 
-    const alertsRow = taskAlertsResult.rows[0] || {};
     const eventsAlertRow = criticalEventsResult.rows[0] || {};
 
     return res.json({
@@ -1349,8 +1412,14 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
         baja: 0
       },
       alerts: {
-        tareasVencidas: Number(alertsRow.tareas_vencidas || 0),
-        tareasCriticas: Number(alertsRow.tareas_criticas || 0),
+        tareasVencidas: Number(taskAlertsRow.tareas_vencidas || 0),
+        tareasCriticas: Number(taskAlertsRow.tareas_criticas || 0),
+        tareasAlta: Number(taskAlertsRow.tareas_alta || 0),
+        tareasMedia: Number(taskAlertsRow.tareas_media || 0),
+        tareasBaja: Number(taskAlertsRow.tareas_baja || 0),
+        tareasPendienteRevision: Number(taskAlertsRow.tareas_pendiente_revision || 0),
+        tareasEnProceso: Number(taskAlertsRow.tareas_en_proceso || 0),
+        tareasSinRealizar: Number(taskAlertsRow.tareas_sin_realizar || 0),
         bitacorasCriticas: Number(eventsAlertRow.bitacoras_criticas || 0)
       },
       recentActivity: activityResult.rows,

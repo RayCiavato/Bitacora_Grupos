@@ -463,6 +463,16 @@ test("RBAC y Configuracion: seguridad, validaciones, auditoria e integridad", as
     assert.equal(adminBreakResponse.body.error, "validation_error");
     assert.equal(adminBreakResponse.body.details.reason, "admin_policy_required");
 
+    const removeTaskViewAttempt = clone(initialRead.body.policies.funcionario);
+    removeTaskViewAttempt.tareas.view = false;
+    const removeTaskViewResponse = await attachSession(
+      request(app).patch("/roles-permissions/funcionario"),
+      admin
+    ).send({ permissions: removeTaskViewAttempt });
+    assert.equal(removeTaskViewResponse.status, 400);
+    assert.equal(removeTaskViewResponse.body.error, "validation_error");
+    assert.equal(removeTaskViewResponse.body.details.reason, "authenticated_policy_required");
+
     const validUpdate = clone(initialRead.body.policies.funcionario);
     validUpdate.informes.export = false;
     validUpdate.tareas.export = false;

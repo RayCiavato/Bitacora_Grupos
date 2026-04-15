@@ -82,6 +82,11 @@
     alta: "Alta"
   });
 
+  const ALERT_LABELS = Object.freeze({
+    vencidas: "Vencidas",
+    criticas: "Criticas"
+  });
+
   const ERROR_MESSAGES = Object.freeze({
     unauthorized: "Acceso no autorizado. Inicia sesion.",
     invalid_token: "Sesion invalida. Inicia sesion nuevamente.",
@@ -105,7 +110,9 @@
     editingTaskId: null,
     editingTaskPermissions: null,
     tasksComposerOpen: false,
-    activeRows: []
+    activeRows: [],
+    activeAlertFilter: "",
+    pendingFocusTaskId: 0
   };
 
   const APP_TIMEZONE_OFFSET_MINUTES = 240;
@@ -309,6 +316,11 @@
     return Boolean(state.capabilities?.actions?.tasks?.export);
   }
 
+  function canViewTasks() {
+    const actions = state.capabilities?.actions?.tasks;
+    return Boolean(actions?.viewAny || actions?.viewOwnCreated || actions?.viewAssigned);
+  }
+
   function clearNode(node) {
     if (!node) {
       return;
@@ -337,6 +349,7 @@
       (Boolean(tasksFilterCreatedBy?.value) || Boolean(tasksFilterAssignedTo?.value));
 
     return (
+      Boolean(state.activeAlertFilter) ||
       hasScopeFilters ||
       Boolean(tasksFilterStartFrom?.value) ||
       Boolean(tasksFilterStartTo?.value) ||
@@ -573,6 +586,9 @@
           };
 
     const params = new URLSearchParams();
+    if (state.activeAlertFilter) {
+      params.set("alert", state.activeAlertFilter);
+    }
 
     const q = String(tasksFilterSearch?.value || "").trim();
     if (q) {
@@ -819,6 +835,10 @@
       `Pagina ${page}/${totalPages}`
     ];
 
+    if (state.activeAlertFilter && ALERT_LABELS[state.activeAlertFilter]) {
+      metrics.splice(metrics.length - 1, 0, `Alerta ${ALERT_LABELS[state.activeAlertFilter]}`);
+    }
+
     metrics.forEach((label, index) => {
       const chip = document.createElement("span");
       chip.className = "tasks-summary-chip";
@@ -846,11 +866,70 @@
 
     state.user = data;
     state.capabilities = data.capabilities || null;
-    if (!state.capabilities?.panels?.tareas) {
+    if (!canViewTasks()) {
       window.location.href = "/dashboard";
       return false;
     }
     return true;
+  }
+
+  function toYesterdayISO() {
+    const date = new Date();
+    date.setDate(date.getDate() - 1);
+    return toLocalISODate(date);
+  }
+
+  function normalizeAlertFilter(value) {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (normalized === "vencidas" || normalized === "criticas") {
+      return normalized;
+    }
+    return "";
+  }
+
+  function applyRouteFiltersFromQuery() {
+    const params = new URLSearchParams(window.location.search);
+    state.activeAlertFilter = normalizeAlertFilter(params.get("alert"));
+    state.pendingFocusTaskId = Number(params.get("focus") || 0);
+
+    if (tasksFilterSearch) {
+      tasksFilterSearch.value = String(params.get("q") || "").trim();
+    }
+    if (tasksFilterStatus && STATUS_LABELS[String(params.get("status") || "")]) {
+      tasksFilterStatus.value = String(params.get("status"));
+    }
+    if (tasksFilterPriority && PRIORITY_LABELS[String(params.get("priority") || "")]) {
+      tasksFilterPriority.value = String(params.get("priority"));
+    }
+    if (tasksFilterStartFrom) {
+      tasksFilterStartFrom.value = String(params.get("startFrom") || "");
+    }
+    if (tasksFilterStartTo) {
+      tasksFilterStartTo.value = String(params.get("startTo") || "");
+    }
+    if (tasksFilterDueFrom) {
+      tasksFilterDueFrom.value = String(params.get("dueFrom") || "");
+    }
+    if (tasksFilterDueTo) {
+      tasksFilterDueTo.value = String(params.get("dueTo") || "");
+    }
+
+    if (tasksFilterSortBy && params.get("sortBy")) {
+      tasksFilterSortBy.value = String(params.get("sortBy"));
+    }
+    if (tasksFilterSortOrder && params.get("sortOrder")) {
+      tasksFilterSortOrder.value = String(params.get("sortOrder"));
+    }
+
+    if (state.activeAlertFilter === "vencidas") {
+      if (tasksFilterDueTo && !tasksFilterDueTo.value) {
+        tasksFilterDueTo.value = toYesterdayISO();
+      }
+    } else if (state.activeAlertFilter === "criticas") {
+      if (tasksFilterPriority && !tasksFilterPriority.value) {
+        tasksFilterPriority.value = "alta";
+      }
+    }
   }
 
   async function loadUsers() {
@@ -925,6 +1004,12 @@
       const stats = await loadTaskStats();
       if (stats) {
         renderSummary(stats, data?.pagination || {});
+      }
+
+      if (Number.isInteger(state.pendingFocusTaskId) && state.pendingFocusTaskId > 0) {
+        const focusTaskId = state.pendingFocusTaskId;
+        state.pendingFocusTaskId = 0;
+        await loadTaskDetail(focusTaskId);
       }
     } finally {
       setTasksLoading(false);
@@ -1255,6 +1340,8 @@
     if (!sessionReady) {
       return;
     }
+
+    applyRouteFiltersFromQuery();
 
     if (!canCreateTask()) {
       taskForm.classList.add("hidden");

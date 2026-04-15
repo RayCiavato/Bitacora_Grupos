@@ -264,6 +264,11 @@ const ADMIN_REQUIRED_POLICY_ACTIONS = Object.freeze([
   ["configuracion", "administer"]
 ]);
 
+// Regla de negocio base: cualquier usuario autenticado debe conservar visibilidad de tareas.
+const AUTHENTICATED_REQUIRED_POLICY_ACTIONS = Object.freeze([
+  ["tareas", "view"]
+]);
+
 function normalizeRole(role) {
   const rawRole = String(role || "").trim().toLowerCase();
   if (Object.hasOwn(BASE_ROLE_CAPABILITIES, rawRole)) {
@@ -426,6 +431,16 @@ function validateRolePolicy(role, policy, options = {}) {
           };
         }
       }
+    }
+  }
+
+  for (const [moduleKey, actionKey] of AUTHENTICATED_REQUIRED_POLICY_ACTIONS) {
+    if (!normalizedPolicy[moduleKey][actionKey]) {
+      return {
+        valid: false,
+        reason: "authenticated_policy_required",
+        detail: { module: moduleKey, action: actionKey }
+      };
     }
   }
 
@@ -815,6 +830,20 @@ function canUserViewAnyTasks(user) {
   return Boolean(capabilities.actions.tasks.viewAny);
 }
 
+function getTaskViewScope(user) {
+  const capabilities = getSessionCapabilities(user?.role);
+  return {
+    canViewAny: Boolean(capabilities.actions.tasks.viewAny),
+    canViewOwnCreated: Boolean(capabilities.actions.tasks.viewOwnCreated),
+    canViewAssigned: Boolean(capabilities.actions.tasks.viewAssigned)
+  };
+}
+
+function canUserViewTasks(user) {
+  const scope = getTaskViewScope(user);
+  return scope.canViewAny || scope.canViewOwnCreated || scope.canViewAssigned;
+}
+
 function canUserAssignTasks(user) {
   const capabilities = getSessionCapabilities(user?.role);
   return Boolean(capabilities.actions.tasks.assignAny);
@@ -1061,6 +1090,8 @@ module.exports = {
   canUserExportTasks,
   canUserEditAnyTask,
   canUserDeleteAnyTask,
+  getTaskViewScope,
+  canUserViewTasks,
   canUserViewTask,
   canUserEditTask,
   canUserDeleteTask,

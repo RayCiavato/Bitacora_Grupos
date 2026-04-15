@@ -180,41 +180,64 @@ function createFakeTasksDb() {
 
   function applyTaskWhere(sql, params) {
     let filtered = tasks.slice();
+    const normalizedSql = String(sql);
+    const fromTasksIndex = normalizedSql.indexOf("from tasks t");
+    const whereIndex = fromTasksIndex >= 0 ? normalizedSql.indexOf(" where ", fromTasksIndex) : -1;
+    const whereSql = whereIndex >= 0 ? normalizedSql.slice(whereIndex + 7) : normalizedSql;
 
-    if (/t\.deleted_at is null/i.test(sql)) {
+    if (/t\.deleted_at is null/i.test(whereSql)) {
       filtered = filtered.filter((task) => !task.deleted_at);
     }
 
-    const visibilityMatch = sql.match(/\(t\.created_by = \$(\d+) or \$(\d+) = any\(t\.assignee_ids\)\)/i);
-    if (visibilityMatch) {
-      const createdBy = Number(getParam(params, visibilityMatch[1]));
-      const assignedTo = Number(getParam(params, visibilityMatch[2]));
-      filtered = filtered.filter(
-        (task) =>
-          Number(task.created_by) === createdBy ||
-          (Array.isArray(task.assignee_ids) && task.assignee_ids.includes(assignedTo))
-      );
+    if (/1\s*=\s*0/i.test(whereSql)) {
+      filtered = [];
     }
 
-    const statusMatch = sql.match(/t\.status = \$(\d+)/i);
+    const visibilityCreatedMatch = whereSql.match(
+      /\(\s*t\.created_by\s*=\s*\$(\d+)(?:\s+or\s+\$\d+\s*=\s*any\(t\.assignee_ids\))?\s*\)/i
+    );
+    const visibilityAssignedMatch = whereSql.match(
+      /\(\s*(?:t\.created_by\s*=\s*\$\d+\s+or\s+)?\$(\d+)\s*=\s*any\(t\.assignee_ids\)\s*\)/i
+    );
+    if (visibilityCreatedMatch || visibilityAssignedMatch) {
+      const allowedCreatorIds = new Set();
+      const allowedAssigneeIds = new Set();
+
+      if (visibilityCreatedMatch) {
+        allowedCreatorIds.add(Number(getParam(params, visibilityCreatedMatch[1])));
+      }
+      if (visibilityAssignedMatch) {
+        allowedAssigneeIds.add(Number(getParam(params, visibilityAssignedMatch[1])));
+      }
+
+      filtered = filtered.filter((task) => {
+        const isCreatedByAllowed = allowedCreatorIds.has(Number(task.created_by));
+        const isAssignedToAllowed = Array.isArray(task.assignee_ids)
+          ? task.assignee_ids.some((assigneeId) => allowedAssigneeIds.has(Number(assigneeId)))
+          : false;
+        return isCreatedByAllowed || isAssignedToAllowed;
+      });
+    }
+
+    const statusMatch = whereSql.match(/t\.status = \$(\d+)/i);
     if (statusMatch) {
       const expected = String(getParam(params, statusMatch[1]));
       filtered = filtered.filter((task) => task.status === expected);
     }
 
-    const priorityMatch = sql.match(/t\.priority = \$(\d+)/i);
+    const priorityMatch = whereSql.match(/t\.priority = \$(\d+)/i);
     if (priorityMatch) {
       const expected = String(getParam(params, priorityMatch[1]));
       filtered = filtered.filter((task) => task.priority === expected);
     }
 
-    const createdByFilterMatch = sql.match(/and t\.created_by = \$(\d+)/i);
+    const createdByFilterMatch = whereSql.match(/and t\.created_by = \$(\d+)/i);
     if (createdByFilterMatch) {
       const expected = Number(getParam(params, createdByFilterMatch[1]));
       filtered = filtered.filter((task) => Number(task.created_by) === expected);
     }
 
-    const assignedToFilterMatch = sql.match(/and \$(\d+) = any\(t\.assignee_ids\)/i);
+    const assignedToFilterMatch = whereSql.match(/and \$(\d+) = any\(t\.assignee_ids\)/i);
     if (assignedToFilterMatch) {
       const expected = Number(getParam(params, assignedToFilterMatch[1]));
       filtered = filtered.filter(
@@ -222,31 +245,51 @@ function createFakeTasksDb() {
       );
     }
 
-    const startFromMatch = sql.match(/t\.start_date >= \$(\d+)/i);
+    const startFromMatch = whereSql.match(/t\.start_date >= \$(\d+)/i);
     if (startFromMatch) {
       const expected = String(getParam(params, startFromMatch[1]));
       filtered = filtered.filter((task) => task.start_date && task.start_date >= expected);
     }
 
-    const startToMatch = sql.match(/t\.start_date <= \$(\d+)/i);
+    const startToMatch = whereSql.match(/t\.start_date <= \$(\d+)/i);
     if (startToMatch) {
       const expected = String(getParam(params, startToMatch[1]));
       filtered = filtered.filter((task) => task.start_date && task.start_date <= expected);
     }
 
-    const dueFromMatch = sql.match(/t\.due_date >= \$(\d+)/i);
+    const dueFromMatch = whereSql.match(/t\.due_date >= \$(\d+)/i);
     if (dueFromMatch) {
       const expected = String(getParam(params, dueFromMatch[1]));
       filtered = filtered.filter((task) => task.due_date && task.due_date >= expected);
     }
 
-    const dueToMatch = sql.match(/t\.due_date <= \$(\d+)/i);
+    const dueToMatch = whereSql.match(/t\.due_date <= \$(\d+)/i);
     if (dueToMatch) {
       const expected = String(getParam(params, dueToMatch[1]));
       filtered = filtered.filter((task) => task.due_date && task.due_date <= expected);
     }
 
-    const searchMatch = sql.match(
+    if (
+      /t\.due_date is not null and t\.due_date < current_date and t\.status not in \('completada', 'cancelada'\)/i.test(
+        whereSql
+      )
+    ) {
+      const today = new Date().toISOString().slice(0, 10);
+      filtered = filtered.filter((task) => {
+        const status = String(task.status || "");
+        const isOpen = !["completada", "cancelada"].includes(status);
+        return Boolean(task.due_date && task.due_date < today && isOpen);
+      });
+    }
+
+    if (/t\.priority = 'alta' and t\.status not in \('completada', 'cancelada'\)/i.test(whereSql)) {
+      filtered = filtered.filter((task) => {
+        const status = String(task.status || "");
+        return task.priority === "alta" && !["completada", "cancelada"].includes(status);
+      });
+    }
+
+    const searchMatch = whereSql.match(
       /\(lower\(t\.title\) like \$(\d+) or lower\(t\.description\) like \$(\d+)\)/i
     );
     if (searchMatch) {
@@ -964,6 +1007,61 @@ test("TASKS module: QA, AppSec y hardening", async (t) => {
     assert.equal(funcionarioSummary.body.totals.total, 2);
     assert.ok(Array.isArray(funcionarioSummary.body.recent));
     assert.ok(funcionarioSummary.body.recent.every((item) => [101, 102].includes(Number(item.id))));
+
+    const supervisorSummary = await attachSession(
+      request(app).get("/tasks/dashboard-summary?days=7&recentLimit=5"),
+      supervisor,
+      { includeCsrfHeader: false }
+    );
+    assert.equal(supervisorSummary.status, 200);
+    assert.equal(supervisorSummary.body.totals.total, 4);
+    assert.ok(Array.isArray(supervisorSummary.body.recent));
+    assert.ok(
+      supervisorSummary.body.recent.every((item) => [101, 102, 103, 104].includes(Number(item.id)))
+    );
+  });
+
+  await t.test("listado de tareas aplica filtros de alerta usados por dashboard", async () => {
+    fakeDb.reset();
+    const app = createApp();
+
+    const adminOverdue = await attachSession(
+      request(app).get("/tasks?alert=vencidas&page=1&pageSize=20"),
+      admin,
+      { includeCsrfHeader: false }
+    );
+    assert.equal(adminOverdue.status, 200);
+    assert.deepEqual(
+      adminOverdue.body.items.map((item) => Number(item.id)).sort((a, b) => a - b),
+      [101, 102, 103]
+    );
+
+    const funcionarioOverdue = await attachSession(
+      request(app).get("/tasks?alert=vencidas&page=1&pageSize=20"),
+      funcionario,
+      { includeCsrfHeader: false }
+    );
+    assert.equal(funcionarioOverdue.status, 200);
+    assert.deepEqual(
+      funcionarioOverdue.body.items.map((item) => Number(item.id)).sort((a, b) => a - b),
+      [101, 102]
+    );
+
+    const supervisorCritical = await attachSession(
+      request(app).get("/tasks?alert=criticas&page=1&pageSize=20"),
+      supervisor,
+      { includeCsrfHeader: false }
+    );
+    assert.equal(supervisorCritical.status, 200);
+    assert.deepEqual(supervisorCritical.body.items.map((item) => Number(item.id)), [102]);
+
+    const contradictoryFilter = await attachSession(
+      request(app).get("/tasks?alert=criticas&status=completada&page=1&pageSize=20"),
+      admin,
+      { includeCsrfHeader: false }
+    );
+    assert.equal(contradictoryFilter.status, 200);
+    assert.equal(contradictoryFilter.body.items.length, 0);
   });
 
   await t.test("export XLSX/PDF respeta permisos, scope y soft delete", async () => {

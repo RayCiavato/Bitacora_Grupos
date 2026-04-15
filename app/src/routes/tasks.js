@@ -4,7 +4,7 @@ const { authenticate } = require("../middleware/auth");
 const { createAuditLog } = require("../services/audit");
 const { getSystemSettings } = require("../services/systemSettings");
 const {
-  canUserAccessPanel,
+  canUserViewTasks,
   canUserCreateTask,
   canUserAssignTasks,
   canUserExportTasks,
@@ -36,6 +36,7 @@ const router = express.Router();
 
 const taskStatusEnum = z.enum(TASK_STATUSES);
 const taskPriorityEnum = z.enum(TASK_PRIORITIES);
+const taskAlertFilterEnum = z.enum(["vencidas", "criticas"]);
 
 const taskIdSchema = z.object({
   id: z.coerce.number().int().positive()
@@ -67,6 +68,7 @@ function hasPastTaskDates(payload, currentDateIso) {
 
 const listQuerySchema = z.object({
   q: z.string().trim().max(200).optional(),
+  alert: taskAlertFilterEnum.optional(),
   status: taskStatusEnum.optional(),
   priority: taskPriorityEnum.optional(),
   createdById: z.coerce.number().int().positive().optional(),
@@ -142,8 +144,8 @@ function getRuntimeTaskSettings() {
   };
 }
 
-function ensureCanAccessTasksPanel(req, res) {
-  if (!canUserAccessPanel(req.user, "tareas")) {
+function ensureCanViewTasks(req, res) {
+  if (!canUserViewTasks(req.user)) {
     res.status(403).json({ error: "forbidden" });
     return false;
   }
@@ -296,7 +298,7 @@ async function auditTaskAccessDenied(req, details = {}) {
 
 router.get("/", authenticate, async (req, res, next) => {
   try {
-    if (!ensureCanAccessTasksPanel(req, res)) {
+    if (!ensureCanViewTasks(req, res)) {
       return;
     }
 
@@ -335,7 +337,7 @@ router.get("/", authenticate, async (req, res, next) => {
 
 router.get("/stats", authenticate, async (req, res, next) => {
   try {
-    if (!ensureCanAccessTasksPanel(req, res)) {
+    if (!ensureCanViewTasks(req, res)) {
       return;
     }
 
@@ -360,7 +362,7 @@ router.get("/stats", authenticate, async (req, res, next) => {
 
 router.get("/dashboard-summary", authenticate, async (req, res, next) => {
   try {
-    if (!ensureCanAccessTasksPanel(req, res)) {
+    if (!ensureCanViewTasks(req, res)) {
       return;
     }
 
@@ -386,7 +388,7 @@ router.get("/dashboard-summary", authenticate, async (req, res, next) => {
 
 router.get("/export/xlsx", authenticate, async (req, res, next) => {
   try {
-    if (!ensureCanAccessTasksPanel(req, res)) {
+    if (!ensureCanViewTasks(req, res)) {
       return;
     }
 
@@ -442,7 +444,7 @@ router.get("/export/xlsx", authenticate, async (req, res, next) => {
 
 router.get("/export/pdf", authenticate, async (req, res, next) => {
   try {
-    if (!ensureCanAccessTasksPanel(req, res)) {
+    if (!ensureCanViewTasks(req, res)) {
       return;
     }
 
@@ -498,7 +500,7 @@ router.get("/export/pdf", authenticate, async (req, res, next) => {
 
 router.get("/:id", authenticate, async (req, res, next) => {
   try {
-    if (!ensureCanAccessTasksPanel(req, res)) {
+    if (!ensureCanViewTasks(req, res)) {
       return;
     }
 
@@ -532,7 +534,7 @@ router.get("/:id", authenticate, async (req, res, next) => {
 
 router.post("/", authenticate, async (req, res, next) => {
   try {
-    if (!ensureCanAccessTasksPanel(req, res)) {
+    if (!ensureCanViewTasks(req, res)) {
       return;
     }
 
@@ -614,7 +616,7 @@ router.post("/", authenticate, async (req, res, next) => {
 
 router.patch("/:id", authenticate, async (req, res, next) => {
   try {
-    if (!ensureCanAccessTasksPanel(req, res)) {
+    if (!ensureCanViewTasks(req, res)) {
       return;
     }
 
@@ -741,7 +743,7 @@ router.patch("/:id", authenticate, async (req, res, next) => {
 
 router.patch("/:id/status", authenticate, async (req, res, next) => {
   try {
-    if (!ensureCanAccessTasksPanel(req, res)) {
+    if (!ensureCanViewTasks(req, res)) {
       return;
     }
 
@@ -788,7 +790,7 @@ router.patch("/:id/status", authenticate, async (req, res, next) => {
 
 router.delete("/:id", authenticate, async (req, res, next) => {
   try {
-    if (!ensureCanAccessTasksPanel(req, res)) {
+    if (!ensureCanViewTasks(req, res)) {
       return;
     }
 
@@ -830,4 +832,3 @@ router.delete("/:id", authenticate, async (req, res, next) => {
 });
 
 module.exports = { tasksRouter: router };
-

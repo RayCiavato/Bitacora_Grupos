@@ -1,7 +1,7 @@
 const { pool } = require("../db");
 const {
   resolveActorId,
-  canUserViewAnyTasks,
+  getTaskViewScope,
   canUserViewTask,
   canUserEditTask,
   canUserDeleteTask,
@@ -112,16 +112,26 @@ function buildTaskFilters(query, user) {
   const whereParts = ["t.deleted_at IS NULL"];
   const params = [];
 
-  if (!canUserViewAnyTasks(user)) {
+  const viewScope = getTaskViewScope(user);
+  if (!viewScope.canViewAny) {
     const actorId = resolveActorId(user);
     if (!Number.isInteger(actorId) || actorId <= 0) {
       whereParts.push("1 = 0");
     } else {
-      const creatorIndex = params.push(actorId);
-      const assigneeArrayIndex = params.push(actorId);
-      whereParts.push(
-        `(t.created_by = $${creatorIndex} OR $${assigneeArrayIndex} = ANY(t.assignee_ids))`
-      );
+      const actorIndex = params.push(actorId);
+      const visibilityClauses = [];
+      if (viewScope.canViewOwnCreated) {
+        visibilityClauses.push(`t.created_by = $${actorIndex}`);
+      }
+      if (viewScope.canViewAssigned) {
+        visibilityClauses.push(`$${actorIndex} = ANY(t.assignee_ids)`);
+      }
+
+      if (visibilityClauses.length === 0) {
+        whereParts.push("1 = 0");
+      } else {
+        whereParts.push(`(${visibilityClauses.join(" OR ")})`);
+      }
     }
   }
 
@@ -168,6 +178,14 @@ function buildTaskFilters(query, user) {
   if (query.q) {
     const searchIndex = params.push(`%${String(query.q).toLowerCase()}%`);
     whereParts.push(`(LOWER(t.title) LIKE $${searchIndex} OR LOWER(t.description) LIKE $${searchIndex})`);
+  }
+
+  if (query.alert === "vencidas") {
+    whereParts.push(
+      "t.due_date IS NOT NULL AND t.due_date < CURRENT_DATE AND t.status NOT IN ('completada', 'cancelada')"
+    );
+  } else if (query.alert === "criticas") {
+    whereParts.push("t.priority = 'alta' AND t.status NOT IN ('completada', 'cancelada')");
   }
 
   return {
