@@ -1,0 +1,30 @@
+cd ~/apps/Bitacora_gestor_tareas
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+git rev-parse --short HEAD   # debe dar: 9acafe8
+
+set -a
+. ./.env
+set +a
+
+# Defensa extra: asegurar tareas.view=true en los 3 roles
+docker exec -i bitacora-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
+UPDATE role_permission_policies
+SET permissions = jsonb_set(
+  COALESCE(permissions, '{}'::jsonb),
+  '{tareas,view}',
+  'true'::jsonb,
+  true
+)
+WHERE role IN ('admin','supervisor','funcionario');
+SQL
+
+docker-compose build app
+docker-compose up -d --no-deps --force-recreate app caddy
+
+docker-compose ps app caddy
+docker-compose logs --tail=120 app
+docker-compose logs --tail=120 caddy
+curl -I http://10.156.99.35/
+curl -sS http://10.156.99.35/health
