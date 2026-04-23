@@ -9,6 +9,13 @@ function readBool(value, defaultValue = false) {
   return String(value).toLowerCase() === "true";
 }
 
+function readCsvList(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 const config = {
   nodeEnv: process.env.NODE_ENV || "development",
   port: Number(process.env.PORT || 3000),
@@ -38,7 +45,7 @@ const config = {
   uploadMaxBytes: Number(process.env.UPLOAD_MAX_BYTES || 10 * 1024 * 1024),
   reminderEnabled: readBool(process.env.REMINDER_ENABLED, false),
   reminderCron: process.env.REMINDER_CRON || "0 17 * * 1-5",
-  reminderTimezone: process.env.REMINDER_TIMEZONE || "America/Bogota",
+  reminderTimezone: process.env.REMINDER_TIMEZONE || "America/Caracas",
   smtpHost: process.env.SMTP_HOST || "",
   smtpPort: Number(process.env.SMTP_PORT || 587),
   smtpSecure: readBool(process.env.SMTP_SECURE, false),
@@ -46,7 +53,19 @@ const config = {
   smtpPass: process.env.SMTP_PASS || "",
   smtpFrom: process.env.SMTP_FROM || "",
   slackWebhookUrl: process.env.SLACK_WEBHOOK_URL || "",
-  teamsWebhookUrl: process.env.TEAMS_WEBHOOK_URL || ""
+  teamsWebhookUrl: process.env.TEAMS_WEBHOOK_URL || "",
+  telegramEnabled: readBool(process.env.TELEGRAM_ENABLED, false),
+  telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || "",
+  telegramChatId: process.env.TELEGRAM_CHAT_ID || "",
+  telegramChatIds: readCsvList(process.env.TELEGRAM_CHAT_IDS || ""),
+  telegramTaskAlertCron: process.env.TELEGRAM_TASK_ALERT_CRON || "*/15 * * * *",
+  telegramBotInteractiveEnabled: readBool(process.env.TELEGRAM_BOT_INTERACTIVE_ENABLED, false),
+  telegramBotWebhookSecret: process.env.TELEGRAM_BOT_WEBHOOK_SECRET || "",
+  telegramWebhookIpLimitPerMinute: Number(process.env.TELEGRAM_WEBHOOK_IP_LIMIT_PER_MINUTE || 60),
+  telegramWebhookChatLimitPerMinute: Number(process.env.TELEGRAM_WEBHOOK_CHAT_LIMIT_PER_MINUTE || 20),
+  telegramUserCooldownMs: Number(process.env.TELEGRAM_USER_COOLDOWN_MS || 2500),
+  telegramUserLimitPerMinute: Number(process.env.TELEGRAM_USER_LIMIT_PER_MINUTE || 30),
+  telegramLinkSessionTtlMinutes: Number(process.env.TELEGRAM_LINK_SESSION_TTL_MINUTES || 0)
 };
 
 function assertConfig() {
@@ -81,6 +100,68 @@ function assertConfig() {
         "REMINDER_ENABLED=true requiere SMTP configurado o webhook de Slack/Teams."
       );
     }
+  }
+
+  if (config.telegramEnabled) {
+    const hasLegacyChat = Boolean(config.telegramChatId);
+    const hasChatList = Array.isArray(config.telegramChatIds) && config.telegramChatIds.length > 0;
+    if (!config.telegramBotToken || (!hasLegacyChat && !hasChatList)) {
+      throw new Error(
+        "TELEGRAM_ENABLED=true requiere TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID o TELEGRAM_CHAT_IDS."
+      );
+    }
+  }
+
+  if (config.telegramBotInteractiveEnabled) {
+    if (!config.telegramEnabled) {
+      throw new Error("TELEGRAM_BOT_INTERACTIVE_ENABLED=true requiere TELEGRAM_ENABLED=true.");
+    }
+
+    if (!config.telegramBotWebhookSecret || config.telegramBotWebhookSecret.length < 16) {
+      throw new Error(
+        "TELEGRAM_BOT_WEBHOOK_SECRET es obligatorio y debe tener al menos 16 caracteres cuando TELEGRAM_BOT_INTERACTIVE_ENABLED=true."
+      );
+    }
+  }
+
+  if (
+    Number.isNaN(config.telegramWebhookIpLimitPerMinute) ||
+    !Number.isFinite(config.telegramWebhookIpLimitPerMinute) ||
+    config.telegramWebhookIpLimitPerMinute < 0
+  ) {
+    throw new Error("TELEGRAM_WEBHOOK_IP_LIMIT_PER_MINUTE debe ser mayor o igual a 0.");
+  }
+
+  if (
+    Number.isNaN(config.telegramWebhookChatLimitPerMinute) ||
+    !Number.isFinite(config.telegramWebhookChatLimitPerMinute) ||
+    config.telegramWebhookChatLimitPerMinute < 0
+  ) {
+    throw new Error("TELEGRAM_WEBHOOK_CHAT_LIMIT_PER_MINUTE debe ser mayor o igual a 0.");
+  }
+
+  if (
+    Number.isNaN(config.telegramUserCooldownMs) ||
+    !Number.isFinite(config.telegramUserCooldownMs) ||
+    config.telegramUserCooldownMs < 0
+  ) {
+    throw new Error("TELEGRAM_USER_COOLDOWN_MS debe ser mayor o igual a 0.");
+  }
+
+  if (
+    Number.isNaN(config.telegramUserLimitPerMinute) ||
+    !Number.isFinite(config.telegramUserLimitPerMinute) ||
+    config.telegramUserLimitPerMinute < 0
+  ) {
+    throw new Error("TELEGRAM_USER_LIMIT_PER_MINUTE debe ser mayor o igual a 0.");
+  }
+
+  if (
+    Number.isNaN(config.telegramLinkSessionTtlMinutes) ||
+    !Number.isFinite(config.telegramLinkSessionTtlMinutes) ||
+    config.telegramLinkSessionTtlMinutes < 0
+  ) {
+    throw new Error("TELEGRAM_LINK_SESSION_TTL_MINUTES debe ser mayor o igual a 0.");
   }
 }
 

@@ -202,6 +202,12 @@ function mapTaskRow(row, user) {
   const taskIdentity = buildTaskIdentityFromRow(row);
   const createdById = taskIdentity.createdById;
   const assignedToId = taskIdentity.assignedToId;
+  const createdByInactive =
+    row.createdByIsActive === false || Boolean(row.createdByDeletedAt);
+  const assignedToInactive =
+    row.assignedToIsActive === false || Boolean(row.assignedToDeletedAt);
+  const createdByName = String(row.createdByName || "").trim();
+  const assignedToName = String(row.assignedToName || "").trim();
 
   return {
     id: toPositiveInteger(row.id),
@@ -218,14 +224,20 @@ function mapTaskRow(row, user) {
     updatedAt: row.updatedAt,
     createdBy: {
       id: createdById,
-      name: String(row.createdByName || ""),
-      email: String(row.createdByEmail || "")
+      name: createdByInactive
+        ? `${createdByName || "Usuario"} (Usuario inactivo)`
+        : createdByName,
+      email: String(row.createdByEmail || ""),
+      isActive: !createdByInactive
     },
     assignedTo: assignedToId
       ? {
           id: assignedToId,
-          name: String(row.assignedToName || ""),
-          email: String(row.assignedToEmail || "")
+          name: assignedToInactive
+            ? `${assignedToName || "Usuario"} (Usuario inactivo)`
+            : assignedToName,
+          email: String(row.assignedToEmail || ""),
+          isActive: !assignedToInactive
         }
       : null,
     permissions: buildTaskPermissions(user, taskIdentity)
@@ -250,9 +262,13 @@ function taskRowSelectSql() {
       creator.id AS "createdById",
       creator.name AS "createdByName",
       creator.email AS "createdByEmail",
+      creator.is_active AS "createdByIsActive",
+      creator.deleted_at AS "createdByDeletedAt",
       assignee.id AS "assignedToId",
       assignee.name AS "assignedToName",
-      assignee.email AS "assignedToEmail"
+      assignee.email AS "assignedToEmail",
+      assignee.is_active AS "assignedToIsActive",
+      assignee.deleted_at AS "assignedToDeletedAt"
     FROM tasks t
     JOIN users creator ON creator.id = t.created_by
     LEFT JOIN users assignee ON assignee.id = t.assigned_to
@@ -270,6 +286,8 @@ async function getUserLiteById(userId) {
       SELECT id, name, email
       FROM users
       WHERE id = $1
+        AND is_active = TRUE
+        AND deleted_at IS NULL
       LIMIT 1
     `,
     [normalizedUserId]
@@ -293,6 +311,8 @@ async function getUsersLiteByIds(userIds) {
       SELECT id, name, email
       FROM users
       WHERE id = ANY($1::bigint[])
+        AND is_active = TRUE
+        AND deleted_at IS NULL
     `,
     [normalizedIds]
   );
@@ -816,6 +836,78 @@ async function getTaskDashboardSummary({ user, dueSoonDays = 7, recentLimit = 5 
   };
 }
 
+async function getTaskOperationalAlerts({ user, dueSoonDays = 7 } = {}) {
+  const safeDueSoonDays = Math.max(1, Math.min(Number(dueSoonDays || 7), 30));
+  const { whereSql, params } = buildTaskFilters({}, user);
+  const dueSoonIndex = params.push(safeDueSoonDays);
+
+  const result = await pool.query(
+    `
+      SELECT
+        COUNT(*) FILTER (
+          WHERE t.due_date IS NOT NULL
+            AND t.due_date < CURRENT_DATE
+            AND t.status NOT IN ('completada', 'cancelada')
+        )::int AS overdue,
+        COUNT(*) FILTER (
+          WHERE t.due_date IS NOT NULL
+            AND t.due_date >= CURRENT_DATE
+            AND t.due_date <= CURRENT_DATE + $${dueSoonIndex}::int
+            AND t.status NOT IN ('completada', 'cancelada')
+        )::int AS due_soon,
+        COUNT(*) FILTER (
+          WHERE t.priority = 'alta'
+            AND t.status NOT IN ('completada', 'cancelada')
+        )::int AS critical,
+        COUNT(*) FILTER (
+          WHERE t.priority = 'alta'
+            AND t.status NOT IN ('completada', 'cancelada')
+        )::int AS high,
+        COUNT(*) FILTER (
+          WHERE t.priority = 'media'
+            AND t.status NOT IN ('completada', 'cancelada')
+        )::int AS medium,
+        COUNT(*) FILTER (
+          WHERE t.priority = 'baja'
+            AND t.status NOT IN ('completada', 'cancelada')
+        )::int AS low,
+        COUNT(*) FILTER (
+          WHERE t.status = 'pendiente_revision'
+            AND t.status NOT IN ('completada', 'cancelada')
+        )::int AS pending_review,
+        COUNT(*) FILTER (
+          WHERE t.status = 'en_proceso'
+            AND t.status NOT IN ('completada', 'cancelada')
+        )::int AS in_progress,
+        COUNT(*) FILTER (
+          WHERE t.status = 'sin_realizar'
+            AND t.status NOT IN ('completada', 'cancelada')
+        )::int AS todo
+      FROM tasks t
+      WHERE ${whereSql}
+    `,
+    params
+  );
+
+  const row = result.rows[0] || {};
+  return {
+    range: {
+      dueSoonDays: safeDueSoonDays
+    },
+    counts: {
+      overdue: Number(row.overdue || 0),
+      dueSoon: Number(row.due_soon || 0),
+      critical: Number(row.critical || 0),
+      high: Number(row.high || 0),
+      medium: Number(row.medium || 0),
+      low: Number(row.low || 0),
+      pendingReview: Number(row.pending_review || 0),
+      inProgress: Number(row.in_progress || 0),
+      todo: Number(row.todo || 0)
+    }
+  };
+}
+
 module.exports = {
   TASK_STATUSES,
   TASK_PRIORITIES,
@@ -830,5 +922,6 @@ module.exports = {
   patchTaskStatus,
   softDeleteTask,
   getTaskStats,
-  getTaskDashboardSummary
+  getTaskDashboardSummary,
+  getTaskOperationalAlerts
 };

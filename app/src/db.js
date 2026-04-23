@@ -32,6 +32,8 @@ async function ensureDatabaseSchema() {
         email CITEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
         role user_role NOT NULL DEFAULT 'funcionario',
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        deleted_at TIMESTAMPTZ,
         token_version INTEGER NOT NULL DEFAULT 0 CHECK (token_version >= 0),
         failed_attempts INTEGER NOT NULL DEFAULT 0 CHECK (failed_attempts >= 0),
         lock_until TIMESTAMPTZ,
@@ -41,6 +43,14 @@ async function ensureDatabaseSchema() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
+    `,
+    `
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE
+    `,
+    `
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ
     `,
     `
       CREATE TABLE IF NOT EXISTS events (
@@ -125,6 +135,51 @@ async function ensureDatabaseSchema() {
         notification_key VARCHAR(160) NOT NULL,
         read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         PRIMARY KEY (user_id, notification_key)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS task_due_notification_log (
+        id BIGSERIAL PRIMARY KEY,
+        task_id BIGINT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        checkpoint_key VARCHAR(32) NOT NULL,
+        due_date DATE NOT NULL,
+        sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+        UNIQUE (task_id, checkpoint_key, due_date)
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS user_telegram_links (
+        user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        telegram_user_id BIGINT NOT NULL UNIQUE,
+        telegram_username VARCHAR(64),
+        telegram_first_name VARCHAR(120),
+        telegram_last_name VARCHAR(120),
+        telegram_private_chat_id BIGINT,
+        telegram_group_chat_id BIGINT,
+        last_used_at TIMESTAMPTZ,
+        session_expires_at TIMESTAMPTZ,
+        verified_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `,
+    `
+      ALTER TABLE user_telegram_links
+      ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ
+    `,
+    `
+      ALTER TABLE user_telegram_links
+      ADD COLUMN IF NOT EXISTS session_expires_at TIMESTAMPTZ
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS telegram_link_tokens (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash VARCHAR(128) NOT NULL UNIQUE,
+        expires_at TIMESTAMPTZ NOT NULL,
+        consumed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `,
     `
@@ -276,6 +331,7 @@ async function ensureDatabaseSchema() {
       END $$;
     `,
     "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)",
+    "CREATE INDEX IF NOT EXISTS idx_users_active_state ON users(is_active, deleted_at)",
     "CREATE INDEX IF NOT EXISTS idx_events_fecha ON events(fecha)",
     "CREATE INDEX IF NOT EXISTS idx_events_encargado ON events(encargado_id)",
     "CREATE INDEX IF NOT EXISTS idx_events_template_id ON events(template_id)",
@@ -286,6 +342,15 @@ async function ensureDatabaseSchema() {
     "CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date)",
     "CREATE INDEX IF NOT EXISTS idx_tasks_deleted_at ON tasks(deleted_at)",
     "CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_task_due_notification_log_task_due ON task_due_notification_log(task_id, due_date)",
+    "CREATE INDEX IF NOT EXISTS idx_task_due_notification_log_sent_at ON task_due_notification_log(sent_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_user_telegram_links_telegram_user ON user_telegram_links(telegram_user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_user_telegram_links_group_chat ON user_telegram_links(telegram_group_chat_id)",
+    "CREATE INDEX IF NOT EXISTS idx_user_telegram_links_last_used_at ON user_telegram_links(last_used_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_user_telegram_links_session_expires_at ON user_telegram_links(session_expires_at)",
+    "CREATE INDEX IF NOT EXISTS idx_telegram_link_tokens_user_id ON telegram_link_tokens(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_telegram_link_tokens_expires_at ON telegram_link_tokens(expires_at)",
+    "CREATE INDEX IF NOT EXISTS idx_telegram_link_tokens_consumed_at ON telegram_link_tokens(consumed_at)",
     "CREATE INDEX IF NOT EXISTS idx_tasks_assignee_ids ON tasks USING GIN (assignee_ids)",
     "CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id)",
     "CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at ON refresh_tokens(expires_at)",
@@ -345,6 +410,15 @@ async function ensureDatabaseSchema() {
         ) THEN
           CREATE TRIGGER tasks_set_updated_at
           BEFORE UPDATE ON tasks
+          FOR EACH ROW
+          EXECUTE FUNCTION set_updated_at();
+        END IF;
+
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_trigger WHERE tgname = 'user_telegram_links_set_updated_at'
+        ) THEN
+          CREATE TRIGGER user_telegram_links_set_updated_at
+          BEFORE UPDATE ON user_telegram_links
           FOR EACH ROW
           EXECUTE FUNCTION set_updated_at();
         END IF;

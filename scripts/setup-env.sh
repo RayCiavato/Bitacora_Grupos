@@ -15,6 +15,12 @@ Opciones:
   --admin-password <valor>   Password del admin (si no se indica, se genera).
   --db-password <valor>      Password de PostgreSQL (usar URL-safe: A-Za-z0-9_-).
   --grafana-password <valor> Password de Grafana (si no se indica, se genera).
+  --telegram-enabled <bool>  Habilita/inhabilita Telegram (true|false).
+  --telegram-bot-token <v>   Token del bot Telegram.
+  --telegram-chat-id <v>     Chat ID destino para alertas.
+  --telegram-alert-cron <v>  Cron para alertas de vencimiento Telegram.
+  --telegram-interactive-enabled <bool>  Habilita panel interactivo Telegram (true|false).
+  --telegram-webhook-secret <v>          Secreto de webhook Telegram (header).
   -h, --help                 Muestra esta ayuda.
 EOF
 }
@@ -27,6 +33,12 @@ ADMIN_NAME_OVERRIDE="Administrador"
 ADMIN_PASSWORD_OVERRIDE=""
 DB_PASSWORD_OVERRIDE=""
 GRAFANA_PASSWORD_OVERRIDE=""
+TELEGRAM_ENABLED_OVERRIDE=""
+TELEGRAM_BOT_TOKEN_OVERRIDE=""
+TELEGRAM_CHAT_ID_OVERRIDE=""
+TELEGRAM_ALERT_CRON_OVERRIDE=""
+TELEGRAM_INTERACTIVE_ENABLED_OVERRIDE=""
+TELEGRAM_WEBHOOK_SECRET_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -88,6 +100,54 @@ while [[ $# -gt 0 ]]; do
         exit 1
       }
       GRAFANA_PASSWORD_OVERRIDE="$2"
+      shift 2
+      ;;
+    --telegram-enabled)
+      [[ $# -ge 2 ]] || {
+        echo "ERROR: --telegram-enabled requiere un valor."
+        exit 1
+      }
+      TELEGRAM_ENABLED_OVERRIDE="$2"
+      shift 2
+      ;;
+    --telegram-bot-token)
+      [[ $# -ge 2 ]] || {
+        echo "ERROR: --telegram-bot-token requiere un valor."
+        exit 1
+      }
+      TELEGRAM_BOT_TOKEN_OVERRIDE="$2"
+      shift 2
+      ;;
+    --telegram-chat-id)
+      [[ $# -ge 2 ]] || {
+        echo "ERROR: --telegram-chat-id requiere un valor."
+        exit 1
+      }
+      TELEGRAM_CHAT_ID_OVERRIDE="$2"
+      shift 2
+      ;;
+    --telegram-alert-cron)
+      [[ $# -ge 2 ]] || {
+        echo "ERROR: --telegram-alert-cron requiere un valor."
+        exit 1
+      }
+      TELEGRAM_ALERT_CRON_OVERRIDE="$2"
+      shift 2
+      ;;
+    --telegram-interactive-enabled)
+      [[ $# -ge 2 ]] || {
+        echo "ERROR: --telegram-interactive-enabled requiere un valor."
+        exit 1
+      }
+      TELEGRAM_INTERACTIVE_ENABLED_OVERRIDE="$2"
+      shift 2
+      ;;
+    --telegram-webhook-secret)
+      [[ $# -ge 2 ]] || {
+        echo "ERROR: --telegram-webhook-secret requiere un valor."
+        exit 1
+      }
+      TELEGRAM_WEBHOOK_SECRET_OVERRIDE="$2"
       shift 2
       ;;
     -h | --help)
@@ -229,6 +289,36 @@ POSTGRES_PASSWORD_VALUE="${DB_PASSWORD_OVERRIDE:-$(generate_db_password 24)}"
 JWT_SECRET_VALUE="$(random_string 64)"
 ADMIN_PASSWORD_VALUE="${ADMIN_PASSWORD_OVERRIDE:-$(generate_password 24)}"
 GRAFANA_PASSWORD_VALUE="${GRAFANA_PASSWORD_OVERRIDE:-$(generate_password 24)}"
+TELEGRAM_ENABLED_VALUE="${TELEGRAM_ENABLED_OVERRIDE:-false}"
+TELEGRAM_ALERT_CRON_VALUE="${TELEGRAM_ALERT_CRON_OVERRIDE:-*/15 * * * *}"
+TELEGRAM_INTERACTIVE_ENABLED_VALUE="${TELEGRAM_INTERACTIVE_ENABLED_OVERRIDE:-false}"
+TELEGRAM_WEBHOOK_SECRET_VALUE="${TELEGRAM_WEBHOOK_SECRET_OVERRIDE:-}"
+
+if [[ "$TELEGRAM_ENABLED_VALUE" != "true" && "$TELEGRAM_ENABLED_VALUE" != "false" ]]; then
+  echo "ERROR: --telegram-enabled debe ser true o false."
+  exit 1
+fi
+
+if [[ "$TELEGRAM_INTERACTIVE_ENABLED_VALUE" != "true" && "$TELEGRAM_INTERACTIVE_ENABLED_VALUE" != "false" ]]; then
+  echo "ERROR: --telegram-interactive-enabled debe ser true o false."
+  exit 1
+fi
+
+if [[ "$TELEGRAM_ENABLED_VALUE" == "true" ]]; then
+  if [[ -z "$TELEGRAM_BOT_TOKEN_OVERRIDE" || -z "$TELEGRAM_CHAT_ID_OVERRIDE" ]]; then
+    echo "ERROR: para habilitar Telegram debes indicar --telegram-bot-token y --telegram-chat-id."
+    exit 1
+  fi
+fi
+
+if [[ "$TELEGRAM_INTERACTIVE_ENABLED_VALUE" == "true" && "$TELEGRAM_ENABLED_VALUE" != "true" ]]; then
+  echo "ERROR: --telegram-interactive-enabled true requiere --telegram-enabled true."
+  exit 1
+fi
+
+if [[ "$TELEGRAM_INTERACTIVE_ENABLED_VALUE" == "true" && -z "$TELEGRAM_WEBHOOK_SECRET_VALUE" ]]; then
+  TELEGRAM_WEBHOOK_SECRET_VALUE="$(random_string 48)"
+fi
 
 if is_ip_or_local_target "$APP_DOMAIN_VALUE"; then
   CADDY_PROFILE_VALUE="http"
@@ -260,6 +350,21 @@ set_env_value "UPLOAD_MAX_BYTES" "10485760"
 set_env_value "REMINDER_ENABLED" "false"
 set_env_value "GRAFANA_ADMIN_USER" "admin"
 set_env_value "GRAFANA_ADMIN_PASSWORD" "$GRAFANA_PASSWORD_VALUE"
+set_env_value "TELEGRAM_ENABLED" "$TELEGRAM_ENABLED_VALUE"
+set_env_value "TELEGRAM_TASK_ALERT_CRON" "$TELEGRAM_ALERT_CRON_VALUE"
+set_env_value "TELEGRAM_BOT_INTERACTIVE_ENABLED" "$TELEGRAM_INTERACTIVE_ENABLED_VALUE"
+
+if [[ -n "$TELEGRAM_BOT_TOKEN_OVERRIDE" ]]; then
+  set_env_value "TELEGRAM_BOT_TOKEN" "$TELEGRAM_BOT_TOKEN_OVERRIDE"
+fi
+
+if [[ -n "$TELEGRAM_CHAT_ID_OVERRIDE" ]]; then
+  set_env_value "TELEGRAM_CHAT_ID" "$TELEGRAM_CHAT_ID_OVERRIDE"
+fi
+
+if [[ "$TELEGRAM_INTERACTIVE_ENABLED_VALUE" == "true" ]]; then
+  set_env_value "TELEGRAM_BOT_WEBHOOK_SECRET" "$TELEGRAM_WEBHOOK_SECRET_VALUE"
+fi
 
 chmod 600 "$ENV_FILE" || true
 
@@ -283,6 +388,12 @@ Valores configurados:
 - POSTGRES_PASSWORD: $POSTGRES_PASSWORD_VALUE
 - GRAFANA_ADMIN_USER: admin
 - GRAFANA_ADMIN_PASSWORD: $GRAFANA_PASSWORD_VALUE
+- TELEGRAM_ENABLED: $TELEGRAM_ENABLED_VALUE
+- TELEGRAM_TASK_ALERT_CRON: $TELEGRAM_ALERT_CRON_VALUE
+- TELEGRAM_BOT_INTERACTIVE_ENABLED: $TELEGRAM_INTERACTIVE_ENABLED_VALUE
+
+$(if [[ "$TELEGRAM_ENABLED_VALUE" == "true" ]]; then printf '%s\n' "- TELEGRAM_CHAT_ID: $TELEGRAM_CHAT_ID_OVERRIDE"; fi)
+$(if [[ "$TELEGRAM_INTERACTIVE_ENABLED_VALUE" == "true" ]]; then printf '%s\n' "- TELEGRAM_BOT_WEBHOOK_SECRET: [generado/establecido]"; fi)
 
 Siguiente paso:
   $NEXT_COMPOSE_CMD up -d --build

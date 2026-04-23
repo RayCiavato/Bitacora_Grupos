@@ -313,6 +313,10 @@
     return Boolean(state.capabilities?.actions?.tasks?.assignAny);
   }
 
+  function canViewUsersList() {
+    return Boolean(state.capabilities?.actions?.users?.viewList);
+  }
+
   function canExportTask() {
     return Boolean(state.capabilities?.actions?.tasks?.export);
   }
@@ -962,13 +966,13 @@
   }
 
   async function loadUsers() {
-    if (!canViewAnyTasks() && !canAssignTask()) {
+    if (!canViewUsersList() && !canAssignTask()) {
       state.users = [];
       renderUserSelectors();
       return;
     }
 
-    const { response, data, networkError } = await apiAuth("/users");
+    const { response, data, networkError } = await apiAuth("/users?activeOnly=true");
     if (networkError) {
       showToast("No hay conexion para cargar usuarios.", "error");
       return;
@@ -976,6 +980,11 @@
     if (!response.ok) {
       if (response.status === 401) {
         handleUnauthorized();
+        return;
+      }
+      if (response.status === 403) {
+        state.users = [];
+        renderUserSelectors();
         return;
       }
       showToast(resolveErrorMessage(data?.error), "error");

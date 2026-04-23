@@ -33,6 +33,11 @@ const {
   buildEventPermissions
 } = require("../services/authorization");
 const { publishRealtimeEvent } = require("../services/realtime");
+const {
+  runDetached,
+  notifyBitacoraCreated,
+  notifyBitacoraUpdated
+} = require("../services/telegramNotifier");
 
 const router = express.Router();
 
@@ -946,6 +951,12 @@ router.post("/", authenticate, async (req, res, next) => {
       req
     });
 
+    runDetached(async () => {
+      const actorId = Number(req.user?.sub || 0) || null;
+      const actorName = req.user?.name || req.user?.email || "Sistema";
+      await notifyBitacoraCreated({ event, actorName, actorId });
+    }, "telegram.bitacora.created");
+
     emitBitacoraRealtimeEvent("event.created", req, event);
 
     return res.status(201).json(event);
@@ -1019,7 +1030,11 @@ router.get("/report", authenticate, async (req, res, next) => {
           e.template_id AS "templateId",
           t.name AS "templateName",
           u.id AS "encargadoId",
-          u.name AS encargado,
+          CASE
+            WHEN u.is_active = FALSE OR u.deleted_at IS NOT NULL
+              THEN CONCAT(u.name, ' (Usuario inactivo)')
+            ELSE u.name
+          END AS encargado,
           u.email AS "encargadoEmail",
           (
             SELECT COUNT(*)::int
@@ -1112,7 +1127,11 @@ async function handleReportExport(req, res, next, source) {
           e.observacion,
           e.prioridad,
           t.name AS "templateName",
-          u.name AS encargado
+          CASE
+            WHEN u.is_active = FALSE OR u.deleted_at IS NOT NULL
+              THEN CONCAT(u.name, ' (Usuario inactivo)')
+            ELSE u.name
+          END AS encargado
         FROM events e
         JOIN users u ON u.id = e.encargado_id
         LEFT JOIN event_templates t ON t.id = e.template_id
@@ -1215,12 +1234,18 @@ router.get("/trends", authenticate, async (req, res, next) => {
 
     const byUserResult = await pool.query(
       `
-        SELECT u.name AS encargado, COUNT(*)::int AS total
+        SELECT
+          CASE
+            WHEN u.is_active = FALSE OR u.deleted_at IS NOT NULL
+              THEN CONCAT(u.name, ' (Usuario inactivo)')
+            ELSE u.name
+          END AS encargado,
+          COUNT(*)::int AS total
         FROM events e
         JOIN users u ON u.id = e.encargado_id
         WHERE ${whereSql}
-        GROUP BY u.name
-        ORDER BY total DESC, u.name ASC
+        GROUP BY u.name, u.is_active, u.deleted_at
+        ORDER BY total DESC, encargado ASC
         LIMIT 8
       `,
       params
@@ -1276,14 +1301,18 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
     const byUserResult = await pool.query(
       `
         SELECT
-          u.name AS encargado,
+          CASE
+            WHEN u.is_active = FALSE OR u.deleted_at IS NOT NULL
+              THEN CONCAT(u.name, ' (Usuario inactivo)')
+            ELSE u.name
+          END AS encargado,
           COUNT(*)::int AS total
         FROM events e
         JOIN users u ON u.id = e.encargado_id
         WHERE e.fecha >= CURRENT_DATE - ($1::int - 1)
         ${hasScope ? "AND e.encargado_id = $2" : ""}
-        GROUP BY u.name
-        ORDER BY total DESC, u.name ASC
+        GROUP BY u.name, u.is_active, u.deleted_at
+        ORDER BY total DESC, encargado ASC
         LIMIT 12
       `,
       byUserParams
@@ -1435,7 +1464,12 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
           a.entity,
           a.entity_id AS "entityId",
           a.created_at AS "createdAt",
-          u.name AS "userName"
+          CASE
+            WHEN u.id IS NULL THEN 'Usuario eliminado'
+            WHEN u.is_active = FALSE OR u.deleted_at IS NOT NULL
+              THEN CONCAT(u.name, ' (Usuario inactivo)')
+            ELSE u.name
+          END AS "userName"
         FROM audit_logs a
         LEFT JOIN users u ON u.id = a.user_id
         ${privilegedActivity ? "" : "WHERE a.user_id = $1"}
@@ -1584,6 +1618,12 @@ router.patch("/:id", authenticate, async (req, res, next) => {
       },
       req
     });
+
+    runDetached(async () => {
+      const actorId = Number(req.user?.sub || 0) || null;
+      const actorName = req.user?.name || req.user?.email || "Sistema";
+      await notifyBitacoraUpdated({ event: updatedEvent, actorName, actorId });
+    }, "telegram.bitacora.updated");
 
     emitBitacoraRealtimeEvent("event.updated", req, updatedEvent, {
       changedFields: fields.map((field) => String(field).split("=")[0].trim())

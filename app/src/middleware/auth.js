@@ -81,6 +81,8 @@ async function authenticate(req, res, next) {
         SELECT id, name, email, role, token_version
         FROM users
         WHERE id = $1
+          AND is_active = TRUE
+          AND deleted_at IS NULL
         LIMIT 1
       `,
       [userId]

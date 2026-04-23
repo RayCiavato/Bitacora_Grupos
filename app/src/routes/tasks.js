@@ -33,6 +33,14 @@ const {
   buildTasksXlsxBuffer,
   buildTasksPdfBuffer
 } = require("../services/taskExport");
+const {
+  runDetached,
+  notifyTaskCreated,
+  notifyTaskAssigned,
+  notifyTaskStatusChanged,
+  notifyTaskPriorityChanged,
+  notifyTaskCompleted
+} = require("../services/telegramNotifier");
 
 const router = express.Router();
 
@@ -630,6 +638,19 @@ router.post("/", authenticate, async (req, res, next) => {
       });
     }
 
+    runDetached(async () => {
+      const actorId = Number(req.user?.sub || 0) || null;
+      const actorName = req.user?.name || req.user?.email || "Sistema";
+
+      await notifyTaskCreated({ task: created, actorName, actorId });
+      if (created.assignedTo) {
+        await notifyTaskAssigned({ task: created, actorName, actorId });
+      }
+      if (String(created.status || "") === "completada") {
+        await notifyTaskCompleted({ task: created, actorName, actorId });
+      }
+    }, "telegram.task.created");
+
     emitTaskRealtimeEvent("task.created", req, {
       after: created
     });
@@ -761,6 +782,29 @@ router.patch("/:id", authenticate, async (req, res, next) => {
       });
     }
 
+    runDetached(async () => {
+      const actorId = Number(req.user?.sub || 0) || null;
+      const actorName = req.user?.name || req.user?.email || "Sistema";
+      const beforeStatus = String(result.before?.status || "");
+      const afterStatus = String(result.after?.status || "");
+      const beforePriority = String(result.before?.priority || "");
+      const afterPriority = String(result.after?.priority || "");
+      const completedNow = beforeStatus !== "completada" && afterStatus === "completada";
+
+      if (result.assignedChanged) {
+        await notifyTaskAssigned({ task: result.after, actorName, actorId });
+      }
+      if (result.statusChanged) {
+        await notifyTaskStatusChanged({ task: result.after, actorName, actorId });
+      }
+      if (beforePriority !== afterPriority) {
+        await notifyTaskPriorityChanged({ task: result.after, actorName, actorId });
+      }
+      if (completedNow) {
+        await notifyTaskCompleted({ task: result.after, actorName, actorId });
+      }
+    }, "telegram.task.updated");
+
     emitTaskRealtimeEvent("task.updated", req, {
       before: result.before,
       after: result.after,
@@ -817,6 +861,18 @@ router.patch("/:id/status", authenticate, async (req, res, next) => {
       },
       req
     });
+
+    runDetached(async () => {
+      const actorId = Number(req.user?.sub || 0) || null;
+      const actorName = req.user?.name || req.user?.email || "Sistema";
+      const beforeStatus = String(result.before?.status || "");
+      const afterStatus = String(result.after?.status || "");
+
+      await notifyTaskStatusChanged({ task: result.after, actorName, actorId });
+      if (beforeStatus !== "completada" && afterStatus === "completada") {
+        await notifyTaskCompleted({ task: result.after, actorName, actorId });
+      }
+    }, "telegram.task.status_changed");
 
     emitTaskRealtimeEvent("task.status_changed", req, {
       before: result.before,

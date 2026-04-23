@@ -105,6 +105,10 @@ bash scripts/install-server-safe.sh \
   --admin-password 'N1njaHack@2026!' \
   --db-password 'BitacoraDB_2026' \
   --grafana-password 'GrafanaAdmin_2026' \
+  --telegram-enabled true \
+  --telegram-bot-token 'REEMPLAZAR_TOKEN_BOT' \
+  --telegram-chat-id 'REEMPLAZAR_CHAT_ID' \
+  --telegram-alert-cron '*/15 * * * *' \
   --force
 ```
 
@@ -123,7 +127,7 @@ docker compose ps
 docker compose logs --tail=150 app
 docker compose logs --tail=100 caddy
 curl -I http://127.0.0.1
-curl -I http://10.156.99.15
+curl -I http://10.156.99.35
 ```
 
 Esperado:
@@ -133,7 +137,25 @@ Esperado:
 
 ---
 
-## 7) Actualizacion segura (sin borrar datos)
+## 7) Activar o actualizar Telegram en servidor ya desplegado (sin borrar datos)
+
+Si el stack ya existe y solo quieres activar Telegram:
+
+```bash
+cd ~/apps/Bitacora_gestor_tareas
+
+grep -q '^TELEGRAM_ENABLED=' .env && sed -i 's/^TELEGRAM_ENABLED=.*/TELEGRAM_ENABLED=true/' .env || echo 'TELEGRAM_ENABLED=true' >> .env
+grep -q '^TELEGRAM_BOT_TOKEN=' .env && sed -i "s|^TELEGRAM_BOT_TOKEN=.*|TELEGRAM_BOT_TOKEN=REEMPLAZAR_TOKEN_BOT|" .env || echo 'TELEGRAM_BOT_TOKEN=REEMPLAZAR_TOKEN_BOT' >> .env
+grep -q '^TELEGRAM_CHAT_ID=' .env && sed -i "s|^TELEGRAM_CHAT_ID=.*|TELEGRAM_CHAT_ID=REEMPLAZAR_CHAT_ID|" .env || echo 'TELEGRAM_CHAT_ID=REEMPLAZAR_CHAT_ID' >> .env
+grep -q '^TELEGRAM_TASK_ALERT_CRON=' .env && sed -i "s|^TELEGRAM_TASK_ALERT_CRON=.*|TELEGRAM_TASK_ALERT_CRON=*/15 * * * *|" .env || echo 'TELEGRAM_TASK_ALERT_CRON=*/15 * * * *' >> .env
+
+docker compose up -d --no-deps --force-recreate app
+docker compose logs --tail=120 app | grep -i telegram || true
+```
+
+---
+
+## 8) Actualizacion segura (sin borrar datos)
 
 Para actualizar version en servidor ya productivo:
 
@@ -162,7 +184,7 @@ docker compose logs --tail=120 app
 
 ---
 
-## 8) Errores comunes y solucion rapida
+## 9) Errores comunes y solucion rapida
 
 ### A) 502 Bad Gateway en navegador
 
@@ -193,11 +215,15 @@ cd ~/apps/Bitacora_gestor_tareas
 docker compose down
 docker volume rm bitacora_gestor_tareas_postgres_data
 bash scripts/install-server-safe.sh \
-  --app-domain 10.156.99.15 \
+  --app-domain 10.156.99.35 \
   --admin-email admin@n1njahack.local \
   --admin-password 'N1njaHack@2026!' \
   --db-password 'BitacoraDB_2026' \
   --grafana-password 'GrafanaAdmin_2026' \
+  --telegram-enabled true \
+  --telegram-bot-token 'REEMPLAZAR_TOKEN_BOT' \
+  --telegram-chat-id 'REEMPLAZAR_CHAT_ID' \
+  --telegram-alert-cron '*/15 * * * *' \
   --force
 ```
 
@@ -243,7 +269,7 @@ Nota:
 
 ---
 
-## 9) Checklist final
+## 10) Checklist final
 
 ```bash
 cd ~/apps/Bitacora_gestor_tareas
@@ -261,7 +287,7 @@ Validar en UI:
 
 ---
 
-## 10) Comandos de operacion diaria
+## 11) Comandos de operacion diaria
 
 ```bash
 cd ~/apps/Bitacora_gestor_tareas

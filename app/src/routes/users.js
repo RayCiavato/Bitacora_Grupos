@@ -1,11 +1,7 @@
-const fs = require("fs/promises");
-const path = require("path");
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const { z } = require("zod");
 const { pool } = require("../db");
-const { config } = require("../config");
-const { logger } = require("../logger");
 const { authenticate, requireRole } = require("../middleware/auth");
 const { validatePasswordPolicy } = require("../services/passwordPolicy");
 const { validateFullName } = require("../services/namePolicy");
@@ -48,46 +44,18 @@ function ensureCanManageUsersOrForbidden(req, res) {
   }
   return true;
 }
+
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
-function resolveStoredAttachmentPath(storedName) {
-  const normalizedStoredName = path.basename(String(storedName || ""));
-  if (!normalizedStoredName || normalizedStoredName !== String(storedName || "")) {
-    return null;
+function parseBooleanQueryFlag(value) {
+  if (value === undefined || value === null || value === "") {
+    return false;
   }
-
-  const uploadsRoot = path.resolve(config.uploadDir);
-  const filePath = path.resolve(uploadsRoot, normalizedStoredName);
-  if (!filePath.startsWith(`${uploadsRoot}${path.sep}`)) {
-    return null;
-  }
-
-  return filePath;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
 }
-
-async function removeStoredFiles(storedNames) {
-  const uniqueNames = Array.from(
-    new Set((Array.isArray(storedNames) ? storedNames : []).map((value) => String(value || "").trim()))
-  ).filter(Boolean);
-
-  for (const storedName of uniqueNames) {
-    const filePath = resolveStoredAttachmentPath(storedName);
-    if (!filePath) {
-      continue;
-    }
-
-    try {
-      await fs.unlink(filePath);
-    } catch (error) {
-      if (error.code !== "ENOENT") {
-        logger.warn({ err: error, storedName }, "No se pudo eliminar adjunto fisico");
-      }
-    }
-  }
-}
-
 router.post("/", authenticate, requireRole(["admin"]), async (req, res, next) => {
   try {
     if (!ensureCanManageUsersOrForbidden(req, res)) {
@@ -148,13 +116,33 @@ router.get("/", authenticate, requireRole(["admin", "supervisor"]), async (req, 
       return;
     }
 
-    const result = await pool.query(
-      `
-        SELECT id, name, email, role, mfa_enabled, created_at
-        FROM users
-        ORDER BY id ASC
-      `
-    );
+    const activeOnly = parseBooleanQueryFlag(req.query?.activeOnly);
+    const sql = activeOnly
+      ? `
+          SELECT
+            id,
+            name,
+            email,
+            role,
+            mfa_enabled,
+            created_at
+          FROM users
+          WHERE is_active = TRUE
+            AND deleted_at IS NULL
+          ORDER BY id ASC
+        `
+      : `
+          SELECT
+            id,
+            name,
+            email,
+            role,
+            mfa_enabled,
+            created_at
+          FROM users
+          ORDER BY id ASC
+        `;
+    const result = await pool.query(sql);
     return res.json(result.rows);
   } catch (error) {
     return next(error);
@@ -170,6 +158,8 @@ router.patch("/me/password", authenticate, requireRole(["admin"]), async (req, r
         SELECT id, name, email, role, password_hash
         FROM users
         WHERE id = $1
+          AND is_active = TRUE
+          AND deleted_at IS NULL
         LIMIT 1
       `,
       [req.user.sub]
@@ -204,6 +194,8 @@ router.patch("/me/password", authenticate, requireRole(["admin"]), async (req, r
             failed_attempts = 0,
             lock_until = NULL
         WHERE id = $1
+          AND is_active = TRUE
+          AND deleted_at IS NULL
       `,
       [currentUser.id, passwordHash]
     );
@@ -248,6 +240,8 @@ router.patch("/:id/password", authenticate, requireRole(["admin"]), async (req, 
         SELECT id, name, email
         FROM users
         WHERE id = $1
+          AND is_active = TRUE
+          AND deleted_at IS NULL
         LIMIT 1
       `,
       [userId]
@@ -277,6 +271,8 @@ router.patch("/:id/password", authenticate, requireRole(["admin"]), async (req, 
             failed_attempts = 0,
             lock_until = NULL
         WHERE id = $1
+          AND is_active = TRUE
+          AND deleted_at IS NULL
         RETURNING id, name, email, role, token_version, updated_at
       `,
       [userId, passwordHash]
@@ -329,7 +325,7 @@ router.patch("/:id/role", authenticate, requireRole(["admin"]), async (req, res,
 
     const targetResult = await pool.query(
       `
-        SELECT id, name, email, role
+        SELECT id, name, email, role, is_active AS "isActive", deleted_at AS "deletedAt"
         FROM users
         WHERE id = $1
         LIMIT 1
@@ -342,6 +338,9 @@ router.patch("/:id/role", authenticate, requireRole(["admin"]), async (req, res,
     }
 
     const targetUser = targetResult.rows[0];
+    if (!targetUser.isActive || targetUser.deletedAt) {
+      return res.status(400).json({ error: "user_inactive" });
+    }
 
     if (userId === actorUserId && payload.role !== "admin") {
       return res.status(400).json({ error: "cannot_change_own_role" });
@@ -349,7 +348,13 @@ router.patch("/:id/role", authenticate, requireRole(["admin"]), async (req, res,
 
     if (targetUser.role === "admin" && payload.role !== "admin") {
       const adminCountResult = await pool.query(
-        "SELECT COUNT(*)::int AS total FROM users WHERE role = 'admin'"
+        `
+          SELECT COUNT(*)::int AS total
+          FROM users
+          WHERE role = 'admin'
+            AND is_active = TRUE
+            AND deleted_at IS NULL
+        `
       );
       const adminTotal = Number(adminCountResult.rows[0]?.total || 0);
       if (adminTotal <= 1) {
@@ -362,6 +367,8 @@ router.patch("/:id/role", authenticate, requireRole(["admin"]), async (req, res,
         UPDATE users
         SET role = $2
         WHERE id = $1
+          AND is_active = TRUE
+          AND deleted_at IS NULL
         RETURNING id, name, email, role, updated_at
       `,
       [userId, payload.role]
@@ -409,6 +416,8 @@ router.post("/:id/unlock", authenticate, requireRole(["admin"]), async (req, res
         SET failed_attempts = 0,
             lock_until = NULL
         WHERE id = $1
+          AND is_active = TRUE
+          AND deleted_at IS NULL
         RETURNING id, name, email, role
       `,
       [userId]
@@ -460,7 +469,7 @@ router.delete("/:id", authenticate, requireRole(["admin"]), async (req, res, nex
 
     const targetResult = await client.query(
       `
-        SELECT id, name, email, role
+        SELECT id, name, email, role, is_active AS "isActive", deleted_at AS "deletedAt"
         FROM users
         WHERE id = $1
         LIMIT 1
@@ -475,9 +484,21 @@ router.delete("/:id", authenticate, requireRole(["admin"]), async (req, res, nex
     }
 
     const targetUser = targetResult.rows[0];
+    if (!targetUser.isActive || targetUser.deletedAt) {
+      await client.query("ROLLBACK");
+      txStarted = false;
+      return res.status(400).json({ error: "user_inactive" });
+    }
+
     if (targetUser.role === "admin") {
       const adminCountResult = await client.query(
-        "SELECT COUNT(*)::int AS total FROM users WHERE role = 'admin'"
+        `
+          SELECT COUNT(*)::int AS total
+          FROM users
+          WHERE role = 'admin'
+            AND is_active = TRUE
+            AND deleted_at IS NULL
+        `
       );
       const adminTotal = Number(adminCountResult.rows[0]?.total || 0);
       if (adminTotal <= 1) {
@@ -487,63 +508,42 @@ router.delete("/:id", authenticate, requireRole(["admin"]), async (req, res, nex
       }
     }
 
-    const attachmentsResult = await client.query(
+    await client.query(
       `
-        SELECT stored_name
-        FROM event_attachments
-        WHERE event_id IN (SELECT id FROM events WHERE encargado_id = $1)
-           OR uploaded_by = $1
+        UPDATE users
+        SET
+          is_active = FALSE,
+          deleted_at = NOW(),
+          token_version = token_version + 1,
+          failed_attempts = 0,
+          lock_until = NULL
+        WHERE id = $1
       `,
       [userId]
     );
 
     await client.query("DELETE FROM refresh_tokens WHERE user_id = $1", [userId]);
 
-    const attachmentsDeleteResult = await client.query(
-      `
-        DELETE FROM event_attachments
-        WHERE event_id IN (SELECT id FROM events WHERE encargado_id = $1)
-           OR uploaded_by = $1
-      `,
-      [userId]
-    );
-
-    const eventsDeleteResult = await client.query("DELETE FROM events WHERE encargado_id = $1", [userId]);
-
-    const userDeleteResult = await client.query(
-      `
-        DELETE FROM users
-        WHERE id = $1
-        RETURNING id, email, role
-      `,
-      [userId]
-    );
-
     await client.query("COMMIT");
     txStarted = false;
 
-    await removeStoredFiles(attachmentsResult.rows.map((row) => row.stored_name));
-
     await createAuditLog({
       userId: req.user.sub,
-      action: "users.deleted",
+      action: "users.deactivated",
       entity: "user",
       entityId: userId,
       metadata: {
-        targetEmail: userDeleteResult.rows[0].email,
-        targetRole: userDeleteResult.rows[0].role,
-        deletedEvents: eventsDeleteResult.rowCount,
-        deletedAttachments: attachmentsDeleteResult.rowCount
+        targetEmail: targetUser.email,
+        targetRole: targetUser.role
       },
       req
     });
 
     return res.json({
-      message: "Usuario eliminado correctamente",
-      deleted: {
-        userId,
-        events: eventsDeleteResult.rowCount,
-        attachments: attachmentsDeleteResult.rowCount
+      message: "Usuario desactivado correctamente",
+      user: {
+        id: userId,
+        isActive: false
       }
     });
   } catch (error) {
@@ -557,13 +557,3 @@ router.delete("/:id", authenticate, requireRole(["admin"]), async (req, res, nex
 });
 
 module.exports = { usersRouter: router };
-
-
-
-
-
-
-
-
-
-

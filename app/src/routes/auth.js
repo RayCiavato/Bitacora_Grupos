@@ -258,6 +258,8 @@ router.post("/login", async (req, res, next) => {
                token_version
         FROM users
         WHERE LOWER(email) = LOWER($1)
+          AND is_active = TRUE
+          AND deleted_at IS NULL
         LIMIT 1
       `,
       [email]
@@ -425,6 +427,8 @@ router.post("/password/recover", async (req, res, next) => {
         SELECT id, name, email, role, mfa_enabled, mfa_secret
         FROM users
         WHERE LOWER(email) = LOWER($1)
+          AND is_active = TRUE
+          AND deleted_at IS NULL
         LIMIT 1
       `,
       [email]
@@ -554,6 +558,8 @@ router.post("/refresh", async (req, res, next) => {
         SELECT id, name, email, role, token_version
         FROM users
         WHERE id = $1
+          AND is_active = TRUE
+          AND deleted_at IS NULL
         LIMIT 1
       `,
       [storedToken.user_id]
@@ -619,6 +625,8 @@ router.get("/me", authenticate, async (req, res, next) => {
         SELECT id, name, email, role
         FROM users
         WHERE id = $1
+          AND is_active = TRUE
+          AND deleted_at IS NULL
         LIMIT 1
       `,
       [req.user.sub]
@@ -652,7 +660,14 @@ router.get("/session-config", authenticate, async (_req, res, next) => {
 router.post("/mfa/setup", authenticate, requirePurpose("mfa_setup"), async (req, res, next) => {
   try {
     const userResult = await pool.query(
-      `SELECT id, email, role, token_version FROM users WHERE id = $1 LIMIT 1`,
+      `
+        SELECT id, email, role, token_version
+        FROM users
+        WHERE id = $1
+          AND is_active = TRUE
+          AND deleted_at IS NULL
+        LIMIT 1
+      `,
       [req.user.sub]
     );
 
@@ -688,6 +703,8 @@ router.post("/mfa/enable", authenticate, requirePurpose("mfa_setup"), async (req
         SELECT id, name, email, role, mfa_temp_secret, token_version
         FROM users
         WHERE id = $1
+          AND is_active = TRUE
+          AND deleted_at IS NULL
         LIMIT 1
       `,
       [req.user.sub]
@@ -739,9 +756,3 @@ router.post("/mfa/enable", authenticate, requirePurpose("mfa_setup"), async (req
 });
 
 module.exports = { authRouter: router };
-
-
-
-
-
-

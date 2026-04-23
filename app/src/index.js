@@ -18,8 +18,10 @@ const { rolesPermissionsRouter } = require("./routes/rolesPermissions");
 const { settingsRouter } = require("./routes/settings");
 const { notificationsRouter } = require("./routes/notifications");
 const { realtimeRouter } = require("./routes/realtime");
+const { telegramIntegrationRouter } = require("./routes/telegramIntegration");
 const { healthRouter } = require("./routes/health");
 const { startReminderScheduler } = require("./services/reminders");
+const { startTelegramDueAlertsScheduler } = require("./services/telegramNotifier");
 const { ensureRolePermissionPoliciesLoaded, seedMissingRolePolicies } = require("./services/rolePoliciesStore");
 const { ensureSystemSettingsLoaded } = require("./services/systemSettingsStore");
 const { verifyAccessToken } = require("./services/tokens");
@@ -142,7 +144,8 @@ function createApp() {
       "/roles-permissions",
       "/settings",
       "/notifications",
-      "/realtime"
+      "/realtime",
+      "/integrations/telegram"
     ];
     return apiPrefixes.some((prefix) => pathname.startsWith(prefix));
   };
@@ -158,7 +161,8 @@ function createApp() {
       req.path.startsWith("/roles-permissions") ||
       req.path.startsWith("/settings") ||
       req.path.startsWith("/notifications") ||
-      req.path.startsWith("/realtime")
+      req.path.startsWith("/realtime") ||
+      req.path.startsWith("/integrations/telegram")
     ) {
       res.set("Cache-Control", "no-store");
     }
@@ -356,6 +360,7 @@ function createApp() {
   app.use("/settings", settingsRouter);
   app.use("/notifications", notificationsRouter);
   app.use("/realtime", realtimeRouter);
+  app.use("/integrations/telegram", telegramIntegrationRouter);
   app.use("/templates", templatesRouter);
   app.use("/events", eventsRouter);
   app.use("/tasks", tasksRouter);
@@ -462,6 +467,7 @@ async function start() {
   await seedMissingRolePolicies();
   await ensureSystemSettingsLoaded();
   startReminderScheduler();
+  startTelegramDueAlertsScheduler();
 
   const app = createApp();
   app.listen(config.port, () => {
@@ -477,10 +483,3 @@ if (require.main === module) {
 }
 
 module.exports = { createApp, start };
-
-
-
-
-
-
-
