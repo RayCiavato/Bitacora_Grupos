@@ -1,0 +1,47 @@
+http://{$INTERNAL_HTTPS_IP:10.156.99.35},
+http://{$INTERNAL_HOSTNAME:bitacora.local},
+http://{$INTERNAL_ALT_HOSTNAME:bitacora.interno},
+http://{$INTERNAL_EXTRA_HOSTNAME:opsbitacora.local} {
+  redir https://{host}{uri}
+}
+
+https://{$INTERNAL_HTTPS_IP:10.156.99.35},
+https://{$INTERNAL_HOSTNAME:bitacora.local},
+https://{$INTERNAL_ALT_HOSTNAME:bitacora.interno},
+https://{$INTERNAL_EXTRA_HOSTNAME:opsbitacora.local} {
+  tls /etc/certs/server.crt /etc/certs/server.key
+  encode zstd gzip
+
+  @blocked_metrics path /metrics
+  respond @blocked_metrics 404
+
+  @blocked_sensitive_path {
+    path_regexp sensitive_path (?i)^/(?:\.|src(?:/|$)|routes?(?:/|$)|controllers?(?:/|$)|uploads(?:/|$)|views?(?:/|$)|configs?(?:/|$)|logs?(?:/|$)|backups?(?:/|$)|scripts?(?:/|$)|node_modules(?:/|$)|db(?:/|$)|infra(?:/|$)|monitoring(?:/|$)|package(?:-lock)?\.json$|docker-compose\.(?:yml|yaml)$|caddyfile(?:\..+)?$)
+  }
+  respond @blocked_sensitive_path 404
+
+  @blocked_sensitive_files {
+    path_regexp sensitive_file (?i)^/.*\.(?:env|ini|conf|log|bak|backup|sql|sqlite|ya?ml|sh|ps1|map)(?:\..*)?$
+  }
+  respond @blocked_sensitive_files 404
+
+  @blocked_source_view {
+    path_regexp js_source ^/.*\.(js|map)$
+    header Accept *text/html*
+  }
+  respond @blocked_source_view 404
+
+  header {
+    -Server
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "strict-origin-when-cross-origin"
+    Permissions-Policy "geolocation=(), camera=(), microphone=()"
+  }
+
+  reverse_proxy app:3000 {
+    flush_interval -1
+    header_up X-Forwarded-Proto {scheme}
+    header_up X-Forwarded-Host {host}
+    header_up X-Forwarded-For {remote_host}
+  }
+}

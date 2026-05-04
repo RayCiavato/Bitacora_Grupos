@@ -22,6 +22,7 @@ const { telegramIntegrationRouter } = require("./routes/telegramIntegration");
 const { healthRouter } = require("./routes/health");
 const { startReminderScheduler } = require("./services/reminders");
 const { startTelegramDueAlertsScheduler } = require("./services/telegramNotifier");
+const { startTelegramPolling, stopTelegramPolling } = require("./services/telegramPolling");
 const { ensureRolePermissionPoliciesLoaded, seedMissingRolePolicies } = require("./services/rolePoliciesStore");
 const { ensureSystemSettingsLoaded } = require("./services/systemSettingsStore");
 const { verifyAccessToken } = require("./services/tokens");
@@ -468,11 +469,30 @@ async function start() {
   await ensureSystemSettingsLoaded();
   startReminderScheduler();
   startTelegramDueAlertsScheduler();
+  startTelegramPolling();
 
   const app = createApp();
-  app.listen(config.port, () => {
+  const server = app.listen(config.port, () => {
     logger.info({ port: config.port }, "Bitacora API running");
   });
+
+  const shutdown = (signal) => {
+    logger.info({ signal }, "Recibida senal de cierre");
+    stopTelegramPolling();
+    server.close(() => {
+      logger.info("Servidor HTTP cerrado");
+      process.exit(0);
+    });
+    setTimeout(() => {
+      logger.warn("Cierre forzado por timeout");
+      process.exit(1);
+    }, 10000).unref();
+  };
+
+  process.once("SIGTERM", () => shutdown("SIGTERM"));
+  process.once("SIGINT", () => shutdown("SIGINT"));
+
+  return server;
 }
 
 if (require.main === module) {

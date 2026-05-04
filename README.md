@@ -9,6 +9,9 @@ Guia principal de despliegue:
 Guia de hardening:
 - [HARDENING_PASO_A_PASO_NOVATOS.md](HARDENING_PASO_A_PASO_NOVATOS.md)
 
+Guia HTTPS interno con CA propia:
+- [docs/HTTPS_INTERNO_CA.md](docs/HTTPS_INTERNO_CA.md)
+
 ---
 
 ## Credenciales por defecto (despliegue inicial)
@@ -62,3 +65,30 @@ git checkout main
 git pull --ff-only origin main
 bash scripts/deploy-safe.sh --pull
 ```
+
+---
+
+## Telegram interactivo sin dominio publico
+
+Para usar `/menu`, botones inline y `/buscar` dentro de un grupo privado sin HTTPS ni dominio publico,
+activa long polling en el `.env` del servidor:
+
+```bash
+TELEGRAM_ENABLED=true
+TELEGRAM_BOT_TOKEN=REEMPLAZAR_TOKEN
+TELEGRAM_CHAT_ID=REEMPLAZAR_CHAT_ID
+TELEGRAM_BOT_INTERACTIVE_ENABLED=true
+TELEGRAM_BOT_MODE=polling
+TELEGRAM_POLLING_TIMEOUT=30
+TELEGRAM_POLLING_INTERVAL_MS=1000
+TELEGRAM_POLLING_ALLOWED_UPDATES=message,callback_query
+```
+
+Antes de iniciar polling, elimina cualquier webhook previo:
+
+```bash
+curl -sS "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/deleteWebhook?drop_pending_updates=false"
+```
+
+En modo `polling`, ejecuta una sola instancia de `app` para evitar doble lectura de updates.
+El modo `webhook` sigue disponible para un futuro dominio HTTPS usando `TELEGRAM_BOT_MODE=webhook`.

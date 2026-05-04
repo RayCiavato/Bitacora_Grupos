@@ -112,6 +112,12 @@ const resumenNewEventBtn = document.getElementById("resumenNewEventBtn");
 
 const eventTemplateSelect = document.getElementById("eventTemplateSelect");
 const eventFilesInput = document.getElementById("eventFiles");
+const eventCorrelationSearchInput = document.getElementById("eventCorrelationSearch");
+const eventCorrelationTypeInput = document.getElementById("eventCorrelationType");
+const eventCorrelationNoteInput = document.getElementById("eventCorrelationNote");
+const eventCorrelationResults = document.getElementById("eventCorrelationResults");
+const eventCorrelationSelected = document.getElementById("eventCorrelationSelected");
+const eventCorrelationsCount = document.getElementById("eventCorrelationsCount");
 const pdfCompanyNameInput = document.getElementById("pdfCompanyName");
 const pdfDocumentTitleInput = document.getElementById("pdfDocumentTitle");
 const pdfCompanyLogoInput = document.getElementById("pdfCompanyLogo");
@@ -232,6 +238,15 @@ const PRIORITY_LABELS = {
   alta: "Alta",
   observacion: "Observacion informativa"
 };
+const EVENT_RELATION_LABELS = Object.freeze({
+  seguimiento: "Seguimiento",
+  reincidencia: "Reincidencia",
+  relacionado: "Relacionado",
+  actualizacion: "Actualizacion",
+  causa_raiz: "Causa raiz",
+  evidencia: "Evidencia",
+  otro: "Otro"
+});
 const TASK_STATUS_LABELS = Object.freeze({
   sin_realizar: "Sin realizar",
   en_proceso: "En proceso",
@@ -339,6 +354,11 @@ const ERROR_MESSAGES = {
   template_not_found: "No se pudo completar la operacion con la plantilla.",
   template_name_exists: "No se pudo completar la operacion con la plantilla.",
   event_not_found: "No se pudo completar la operacion con el registro.",
+  target_event_not_found: "La bitacora relacionada no existe o no esta visible para tu usuario.",
+  correlation_not_found: "La correlacion no existe o no esta visible para tu usuario.",
+  correlation_self_not_allowed: "No puedes correlacionar una bitacora consigo misma.",
+  invalid_relation_type: "Tipo de relacion invalido.",
+  correlation_already_exists: "Esa correlacion ya existe.",
   attachment_not_found: "No se pudo completar la operacion con el adjunto.",
   file_required: "Selecciona un archivo para subir.",
   file_too_large: "El archivo supera el tamano permitido.",
@@ -372,7 +392,11 @@ const state = {
   sessionCapabilities: null,
   eventPayloadById: {},
   eventActionPermissions: {},
+  eventCorrelationDraft: [],
+  eventCorrelationSearchResults: [],
   editingEventId: null,
+  activeEventDetailId: null,
+  activeEventDetailPayload: null,
   selectedEventId: null,
   selectedEventPermissions: null,
   attachmentsRepo: {
@@ -462,6 +486,8 @@ let realtimeManualClose = false;
 let reportFiltersDebounceTimer = null;
 let reportLoadAbortController = null;
 let reportLoadRequestId = 0;
+let eventCorrelationSearchTimer = null;
+let eventCorrelationSearchAbortController = null;
 let sidebarNavigationInFlight = false;
 let reportWindowLaunchInFlight = false;
 
@@ -1213,6 +1239,293 @@ function canDeleteEvent(eventId) {
   return Boolean(getEventActionPermissions(eventId)?.canDelete);
 }
 
+function formatEventRelationLabel(value) {
+  const normalized = String(value || "relacionado").trim().toLowerCase();
+  return EVENT_RELATION_LABELS[normalized] || EVENT_RELATION_LABELS.relacionado;
+}
+
+function getCorrelationDraftKey(eventId, relationType) {
+  return `${Number(eventId || 0)}:${String(relationType || "relacionado")}`;
+}
+
+function cancelEventCorrelationSearch() {
+  if (eventCorrelationSearchTimer) {
+    window.clearTimeout(eventCorrelationSearchTimer);
+    eventCorrelationSearchTimer = null;
+  }
+  if (eventCorrelationSearchAbortController) {
+    eventCorrelationSearchAbortController.abort();
+    eventCorrelationSearchAbortController = null;
+  }
+}
+
+function resetEventCorrelationDraft() {
+  cancelEventCorrelationSearch();
+  state.eventCorrelationDraft = [];
+  state.eventCorrelationSearchResults = [];
+  if (eventCorrelationSearchInput) {
+    eventCorrelationSearchInput.value = "";
+  }
+  if (eventCorrelationNoteInput) {
+    eventCorrelationNoteInput.value = "";
+  }
+  if (eventCorrelationTypeInput) {
+    eventCorrelationTypeInput.value = "relacionado";
+  }
+  renderEventCorrelationResults();
+  renderEventCorrelationSelected();
+}
+
+function renderEventCorrelationResults(message = "") {
+  if (!eventCorrelationResults) {
+    return;
+  }
+
+  clearElement(eventCorrelationResults);
+  if (message) {
+    const status = document.createElement("p");
+    status.className = "help-text";
+    status.textContent = message;
+    eventCorrelationResults.appendChild(status);
+    return;
+  }
+
+  const results = Array.isArray(state.eventCorrelationSearchResults)
+    ? state.eventCorrelationSearchResults
+    : [];
+  if (results.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "help-text";
+    empty.textContent = "Busca por ID, actividad, observacion, usuario o prioridad.";
+    eventCorrelationResults.appendChild(empty);
+    return;
+  }
+
+  results.forEach((item) => {
+    const eventId = Number(item.id || 0);
+    const card = document.createElement("article");
+    card.className = "correlation-result-card";
+
+    const content = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = `BIT-${eventId} - ${item.descripcionActividad || "Sin actividad"}`;
+    const meta = document.createElement("p");
+    meta.className = "help-text";
+    meta.textContent = `${formatDate(item.fecha)} | ${item.encargado || "-"} | ${formatPriorityLabel(item.prioridad)}`;
+    const summary = document.createElement("p");
+    summary.className = "correlation-summary";
+    summary.textContent = item.observacion || "-";
+    content.appendChild(title);
+    content.appendChild(meta);
+    content.appendChild(summary);
+
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className = "btn btn-ghost correlation-add";
+    addButton.dataset.eventId = String(eventId);
+    addButton.textContent = "Relacionar";
+
+    card.appendChild(content);
+    card.appendChild(addButton);
+    eventCorrelationResults.appendChild(card);
+  });
+}
+
+function renderEventCorrelationSelected() {
+  if (!eventCorrelationSelected) {
+    return;
+  }
+
+  clearElement(eventCorrelationSelected);
+  const draft = Array.isArray(state.eventCorrelationDraft) ? state.eventCorrelationDraft : [];
+  if (eventCorrelationsCount) {
+    eventCorrelationsCount.textContent = `${draft.length} seleccionada${draft.length === 1 ? "" : "s"}`;
+  }
+
+  if (draft.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "help-text";
+    empty.textContent = "Sin bitacoras relacionadas seleccionadas.";
+    eventCorrelationSelected.appendChild(empty);
+    return;
+  }
+
+  draft.forEach((item) => {
+    const chip = document.createElement("article");
+    chip.className = "correlation-selected-chip";
+
+    const text = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = `BIT-${item.targetEventId} - ${formatEventRelationLabel(item.relationType)}`;
+    const meta = document.createElement("p");
+    meta.className = "help-text";
+    meta.textContent = `${formatDate(item.fecha)} | ${item.encargado || "-"} | ${formatPriorityLabel(item.prioridad)}`;
+    const note = document.createElement("p");
+    note.className = "correlation-summary";
+    note.textContent = item.note || "Sin nota.";
+    text.appendChild(title);
+    text.appendChild(meta);
+    text.appendChild(note);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "btn btn-ghost correlation-remove";
+    removeButton.dataset.key = getCorrelationDraftKey(item.targetEventId, item.relationType);
+    removeButton.textContent = "Quitar";
+
+    chip.appendChild(text);
+    chip.appendChild(removeButton);
+    eventCorrelationSelected.appendChild(chip);
+  });
+}
+
+async function searchEventCorrelationsNow() {
+  if (!eventCorrelationSearchInput) {
+    return;
+  }
+
+  const query = eventCorrelationSearchInput.value.trim();
+  if (query.length < 2) {
+    state.eventCorrelationSearchResults = [];
+    renderEventCorrelationResults();
+    return;
+  }
+
+  if (eventCorrelationSearchAbortController) {
+    eventCorrelationSearchAbortController.abort();
+  }
+  eventCorrelationSearchAbortController = new AbortController();
+  renderEventCorrelationResults("Buscando bitacoras visibles...");
+
+  const params = new URLSearchParams({
+    q: query,
+    limit: "8"
+  });
+  if (Number.isInteger(state.editingEventId) && Number(state.editingEventId) > 0) {
+    params.set("sourceEventId", String(state.editingEventId));
+  }
+
+  const { response, data, networkError } = await apiAuth(`/events/correlations/search?${params.toString()}`, {
+    signal: eventCorrelationSearchAbortController.signal
+  });
+
+  eventCorrelationSearchAbortController = null;
+
+  if (networkError) {
+    if (networkError.name === "AbortError") {
+      return;
+    }
+    renderEventCorrelationResults("No hay conexion para buscar bitacoras.");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    renderEventCorrelationResults(resolveErrorMessage(data?.error, data?.details));
+    return;
+  }
+
+  state.eventCorrelationSearchResults = Array.isArray(data?.results) ? data.results : [];
+  renderEventCorrelationResults(
+    state.eventCorrelationSearchResults.length === 0 ? "No hay coincidencias visibles." : ""
+  );
+}
+
+function scheduleEventCorrelationSearch() {
+  if (eventCorrelationSearchTimer) {
+    window.clearTimeout(eventCorrelationSearchTimer);
+  }
+  eventCorrelationSearchTimer = window.setTimeout(() => {
+    eventCorrelationSearchTimer = null;
+    void searchEventCorrelationsNow();
+  }, 360);
+}
+
+function addEventCorrelationDraft(eventId) {
+  const targetEventId = Number(eventId || 0);
+  const item = state.eventCorrelationSearchResults.find((candidate) => Number(candidate.id) === targetEventId);
+  if (!item) {
+    return;
+  }
+
+  const relationType = String(eventCorrelationTypeInput?.value || "relacionado");
+  const note = String(eventCorrelationNoteInput?.value || "").trim().slice(0, 500);
+  const key = getCorrelationDraftKey(targetEventId, relationType);
+  const existingIndex = state.eventCorrelationDraft.findIndex(
+    (candidate) => getCorrelationDraftKey(candidate.targetEventId, candidate.relationType) === key
+  );
+
+  const draftItem = {
+    targetEventId,
+    relationType,
+    note,
+    fecha: item.fecha,
+    encargado: item.encargado,
+    prioridad: item.prioridad
+  };
+
+  if (existingIndex >= 0) {
+    state.eventCorrelationDraft[existingIndex] = draftItem;
+  } else {
+    state.eventCorrelationDraft.push(draftItem);
+  }
+
+  renderEventCorrelationSelected();
+  showToast("Bitacora relacionada agregada al borrador.", "success");
+}
+
+function removeEventCorrelationDraft(key) {
+  const normalizedKey = String(key || "");
+  state.eventCorrelationDraft = state.eventCorrelationDraft.filter(
+    (item) => getCorrelationDraftKey(item.targetEventId, item.relationType) !== normalizedKey
+  );
+  renderEventCorrelationSelected();
+}
+
+async function persistEventCorrelationDraft(sourceEventId) {
+  const normalizedSourceId = Number(sourceEventId || 0);
+  const draft = Array.isArray(state.eventCorrelationDraft) ? [...state.eventCorrelationDraft] : [];
+  if (!normalizedSourceId || draft.length === 0) {
+    return { created: 0, skipped: 0, failed: 0 };
+  }
+
+  let created = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const item of draft) {
+    // eslint-disable-next-line no-await-in-loop
+    const { response, data, networkError } = await apiAuth(`/events/${normalizedSourceId}/correlations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        targetEventId: item.targetEventId,
+        relationType: item.relationType,
+        note: item.note || ""
+      })
+    });
+
+    if (networkError) {
+      failed += 1;
+      continue;
+    }
+    if (response.ok) {
+      created += 1;
+      continue;
+    }
+    if (response.status === 409 || data?.error === "correlation_already_exists") {
+      skipped += 1;
+      continue;
+    }
+    failed += 1;
+  }
+
+  return { created, skipped, failed };
+}
+
 function canUploadToSelectedEvent() {
   return Boolean(state.selectedEventPermissions?.canUpload);
 }
@@ -1556,6 +1869,7 @@ function openRegistroComposer() {
   if (eventForm) {
     eventForm.reset();
   }
+  resetEventCorrelationDraft();
   setDateDefaults();
   setEventEditorMode("create");
   syncRegistroComposerState();
@@ -1614,6 +1928,8 @@ function clearSession() {
   state.templates = [];
   state.eventPayloadById = {};
   state.eventActionPermissions = {};
+  state.eventCorrelationDraft = [];
+  state.eventCorrelationSearchResults = [];
   state.setupToken = null;
   state.report = {
     page: 1,
@@ -1621,6 +1937,8 @@ function clearSession() {
     totalPages: 1
   };
   state.editingEventId = null;
+  state.activeEventDetailId = null;
+  state.activeEventDetailPayload = null;
   state.selectedEventId = null;
   state.selectedEventPermissions = null;
   state.attachmentsRepo = { page: 1, pageSize: 20, totalPages: 1, total: 0 };
@@ -1677,6 +1995,7 @@ function clearSession() {
   registerForm.reset();
   mfaEnableForm.reset();
   eventForm.reset();
+  resetEventCorrelationDraft();
   setEventEditorMode("create");
   if (eventFilesInput) {
     eventFilesInput.value = "";
@@ -4644,6 +4963,17 @@ async function refreshRouteFromRealtime(payload) {
   const isTaskEvent = kind.startsWith("task.");
   const isBitacoraEvent = kind.startsWith("event.");
   const isAttachmentEvent = kind.startsWith("attachment.");
+  const activeDetailId = Number(state.activeEventDetailId || 0);
+  if (
+    activeDetailId &&
+    isBitacoraEvent &&
+    !entityModal?.classList.contains("hidden") &&
+    (Number(payload.eventId || 0) === activeDetailId ||
+      Number(payload.sourceEventId || 0) === activeDetailId ||
+      Number(payload.targetEventId || 0) === activeDetailId)
+  ) {
+    await openEventDetailModal(activeDetailId, state.activeEventDetailPayload);
+  }
 
   if (route === "/dashboard") {
     const tasksPromise = isTaskEvent ? loadDashboardTasksSummary() : Promise.resolve();
@@ -5185,6 +5515,7 @@ async function handleCreateEvent(event) {
   const selectedFiles = eventFilesInput?.files ? Array.from(eventFilesInput.files) : [];
   let uploadedFiles = 0;
   let failedUploads = 0;
+  let correlationResult = { created: 0, skipped: 0, failed: 0 };
 
   if (targetEventId && selectedFiles.length > 0) {
     for (const file of selectedFiles) {
@@ -5198,12 +5529,17 @@ async function handleCreateEvent(event) {
     }
   }
 
+  if (targetEventId) {
+    correlationResult = await persistEventCorrelationDraft(targetEventId);
+  }
+
   document.getElementById("descripcionActividad").value = "";
   document.getElementById("observacion").value = "";
   eventTemplateSelect.value = "";
   if (eventFilesInput) {
     eventFilesInput.value = "";
   }
+  resetEventCorrelationDraft();
 
   if (!fromDateInput.value || payload.fecha < fromDateInput.value) {
     fromDateInput.value = payload.fecha;
@@ -5246,6 +5582,12 @@ async function handleCreateEvent(event) {
     );
   } else {
     showToast(isEditMode ? "Registro actualizado correctamente." : "Registro guardado en bitacora.", "success");
+  }
+
+  if (correlationResult.created > 0) {
+    showToast(`${correlationResult.created} correlacion(es) registrada(s).`, "success");
+  } else if (correlationResult.failed > 0) {
+    showToast("El registro se guardo, pero alguna correlacion no pudo crearse.", "error");
   }
 
   await loadReport();
@@ -5465,6 +5807,8 @@ async function handleEventEdit(button) {
     await loadTemplates();
   }
 
+  resetEventCorrelationDraft();
+
   const normalizedDate = normalizeDateInputValue(current.fecha) || toLocalISODate();
   fechaInput.value = normalizedDate;
   document.getElementById("descripcionActividad").value = current.descripcionActividad || "";
@@ -5495,6 +5839,7 @@ function handleCancelEventEdit() {
 
   setEventEditorMode("create");
   eventForm.reset();
+  resetEventCorrelationDraft();
   setDateDefaults();
   closeRegistroComposer();
   applyRouteMode();
@@ -6230,7 +6575,191 @@ function closeEntityModal() {
   entityModal.classList.add("hidden");
   entityModal.setAttribute("aria-hidden", "true");
   state.sessionWarningVisible = false;
+  state.activeEventDetailId = null;
+  state.activeEventDetailPayload = null;
   document.body.classList.remove("modal-open");
+}
+
+function formatCorrelationLine(item) {
+  const related = item?.relatedEvent || {};
+  return [
+    `BIT-${related.id || item?.targetEventId || "-"}`,
+    formatEventRelationLabel(item?.relationType),
+    formatPriorityLabel(related.prioridad),
+    formatDate(related.fecha),
+    item?.createdBy?.name ? `por ${item.createdBy.name}` : "",
+    item?.note ? `Motivo: ${item.note}` : ""
+  ]
+    .filter(Boolean)
+    .join(" - ");
+}
+
+function buildEventDetailBody(payload, correlationData = null) {
+  const lines = [
+    "Actividad:",
+    payload.descripcionActividad || "-",
+    "",
+    "Observacion:",
+    payload.observacion || "-",
+    "",
+    `Plantilla: ${payload.templateName || "-"}`
+  ];
+
+  if (!correlationData) {
+    lines.push("", "Bitacoras relacionadas:", "Cargando relaciones...");
+    return lines.join("\n");
+  }
+
+  const outgoing = Array.isArray(correlationData.outgoing) ? correlationData.outgoing : [];
+  const incoming = Array.isArray(correlationData.incoming) ? correlationData.incoming : [];
+
+  lines.push("", "Esta bitacora esta relacionada con:");
+  if (outgoing.length === 0) {
+    lines.push("- Sin relaciones salientes.");
+  } else {
+    outgoing.forEach((item) => {
+      lines.push(`- ${formatCorrelationLine(item)}`);
+    });
+  }
+
+  lines.push("", "Bitacoras que hacen referencia a esta:");
+  if (incoming.length === 0) {
+    lines.push("- Sin referencias entrantes.");
+  } else {
+    incoming.forEach((item) => {
+      lines.push(`- ${formatCorrelationLine(item)}`);
+    });
+  }
+
+  return lines.join("\n");
+}
+
+async function deleteCorrelationFromDetail(currentEventId, correlationId, payload) {
+  if (!currentEventId || !correlationId) {
+    return;
+  }
+  if (!window.confirm(`Confirma quitar la correlacion #${correlationId}.`)) {
+    return;
+  }
+
+  const { response, data, networkError } = await apiAuth(
+    `/events/${currentEventId}/correlations/${correlationId}`,
+    {
+      method: "DELETE"
+    }
+  );
+
+  if (networkError) {
+    showToast("No hay conexion para quitar la correlacion.", "error");
+    return;
+  }
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  showToast("Correlacion eliminada.", "success");
+  await openEventDetailModal(currentEventId, payload);
+}
+
+function buildCorrelationModalActions(currentEventId, payload, correlationData = null) {
+  const all = Array.isArray(correlationData?.all) ? correlationData.all : [];
+  const openActions = all.slice(0, 4).map((item) => {
+    const related = item.relatedEvent || {};
+    return {
+      label: `Abrir BIT-${related.id}`,
+      onClick: () => {
+        if (!related.id) {
+          return;
+        }
+        state.eventPayloadById[related.id] = {
+          id: Number(related.id),
+          fecha: normalizeDateInputValue(related.fecha),
+          descripcionActividad: related.descripcionActividad || "",
+          observacion: related.observacion || "",
+          prioridad: normalizePriority(related.prioridad),
+          templateName: related.templateName || "-",
+          templateId:
+            related.templateId === null || related.templateId === undefined
+              ? null
+              : Number(related.templateId),
+          encargado: related.encargado || "-"
+        };
+        void openEventDetailModal(Number(related.id), state.eventPayloadById[related.id]);
+      }
+    };
+  });
+
+  const deleteActions = all
+    .filter((item) => item?.permissions?.canDelete)
+    .slice(0, 3)
+    .map((item) => ({
+      label: `Quitar link #${item.id}`,
+      onClick: () => {
+        void deleteCorrelationFromDetail(currentEventId, item.id, payload);
+      }
+    }));
+
+  return [...openActions, ...deleteActions];
+}
+
+async function openEventDetailModal(eventId, payload) {
+  if (!payload) {
+    return;
+  }
+
+  state.activeEventDetailId = Number(eventId || 0) || null;
+  state.activeEventDetailPayload = payload;
+
+  const modalMeta = `${payload.encargado || "-"} | ${formatDate(payload.fecha)} | ${formatPriorityLabel(
+    payload.prioridad
+  )}`;
+  openEntityModal({
+    title: `Bitacora #${eventId}`,
+    meta: modalMeta,
+    body: buildEventDetailBody(payload, null)
+  });
+
+  const { response, data, networkError } = await apiAuth(`/events/${eventId}/correlations`);
+  if (networkError) {
+    openEntityModal({
+      title: `Bitacora #${eventId}`,
+      meta: modalMeta,
+      body: `${buildEventDetailBody(payload, {
+        outgoing: [],
+        incoming: [],
+        all: []
+      })}\n\nNo se pudieron cargar relaciones por falta de conexion.`
+    });
+    return;
+  }
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    openEntityModal({
+      title: `Bitacora #${eventId}`,
+      meta: modalMeta,
+      body: `${buildEventDetailBody(payload, {
+        outgoing: [],
+        incoming: [],
+        all: []
+      })}\n\nRelaciones no disponibles: ${resolveErrorMessage(data?.error, data?.details)}`
+    });
+    return;
+  }
+
+  openEntityModal({
+    title: `Bitacora #${eventId}`,
+    meta: modalMeta,
+    body: buildEventDetailBody(payload, data),
+    actions: buildCorrelationModalActions(eventId, payload, data)
+  });
 }
 
 function resetAttachmentPreviewContent() {
@@ -6523,11 +7052,7 @@ async function handleReportTableClick(event) {
     const eventId = Number(viewButton.dataset.eventId || 0);
     const payload = state.eventPayloadById[eventId];
     if (payload) {
-      openEntityModal({
-        title: `Bitacora #${eventId}`,
-        meta: `${payload.encargado || "-"} | ${formatDate(payload.fecha)} | ${formatPriorityLabel(payload.prioridad)}`,
-        body: `Actividad:\n${payload.descripcionActividad || "-"}\n\nObservacion:\n${payload.observacion || "-"}\n\nPlantilla: ${payload.templateName || "-"}`
-      });
+      await openEventDetailModal(eventId, payload);
     }
     return;
   }
@@ -6909,6 +7434,35 @@ async function bootstrap() {
   }
   if (eventCancelBtn) {
     eventCancelBtn.addEventListener("click", handleCancelEventEdit);
+  }
+  if (eventCorrelationSearchInput) {
+    eventCorrelationSearchInput.addEventListener("input", scheduleEventCorrelationSearch);
+  }
+  if (eventCorrelationResults) {
+    eventCorrelationResults.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      const button = target.closest(".correlation-add");
+      if (!(button instanceof HTMLButtonElement)) {
+        return;
+      }
+      addEventCorrelationDraft(Number(button.dataset.eventId || 0));
+    });
+  }
+  if (eventCorrelationSelected) {
+    eventCorrelationSelected.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      const button = target.closest(".correlation-remove");
+      if (!(button instanceof HTMLButtonElement)) {
+        return;
+      }
+      removeEventCorrelationDraft(button.dataset.key || "");
+    });
   }
   attachmentForm.addEventListener("submit", handleAttachmentSubmit);
   attachmentList.addEventListener("click", handleAttachmentListClick);

@@ -305,3 +305,5 @@ test("Permisos archivos: solo owner o admin puede editar/eliminar", () => {
 require("./tasks.module.test");
 require("./rbac.settings.test");
 require("./attachments.preview.test");
+require("./eventCorrelations.test");
+require("./telegramPolling.test");

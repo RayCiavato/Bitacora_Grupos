@@ -124,9 +124,24 @@ function isTelegramInteractiveEnabled() {
   return Boolean(
     config.telegramEnabled &&
       config.telegramBotToken &&
-      config.telegramBotInteractiveEnabled &&
+      config.telegramBotInteractiveEnabled
+  );
+}
+
+function getTelegramBotMode() {
+  return config.telegramBotMode === "polling" ? "polling" : "webhook";
+}
+
+function isTelegramWebhookModeEnabled() {
+  return Boolean(
+    isTelegramInteractiveEnabled() &&
+      getTelegramBotMode() === "webhook" &&
       config.telegramBotWebhookSecret
   );
+}
+
+function isTelegramPollingModeEnabled() {
+  return Boolean(isTelegramInteractiveEnabled() && getTelegramBotMode() === "polling");
 }
 
 function parseConfiguredChatIds() {
@@ -662,15 +677,18 @@ function buildBackMenuKeyboard() {
   };
 }
 
-async function telegramApiRequest(method, payload) {
+async function telegramApiRequest(method, payload, options = {}) {
   if (!config.telegramBotToken) {
     return { ok: false, error: "telegram_bot_token_missing" };
   }
 
+  const timeoutMs = Number.isFinite(Number(options.timeoutMs))
+    ? Math.max(1000, Number(options.timeoutMs))
+    : 9000;
   const controller = new AbortController();
   const timeout = setTimeout(() => {
     controller.abort();
-  }, 9000);
+  }, timeoutMs);
 
   try {
     const response = await fetch(`https://api.telegram.org/bot${config.telegramBotToken}/${method}`, {
@@ -1960,7 +1978,7 @@ async function handleTelegramMessage(update, context = {}) {
   }
 }
 
-async function processTelegramWebhookUpdate(update, context = {}) {
+async function processTelegramUpdate(update, context = {}) {
   if (!isTelegramInteractiveEnabled()) {
     return { ok: false, skipped: true, reason: "telegram_interactive_disabled" };
   }
@@ -2004,7 +2022,7 @@ async function processTelegramWebhookUpdate(update, context = {}) {
       chatId: metadata.chatId,
       telegramUserId: metadata.telegramUserId,
       auditAction: "telegram.bot.processing_error",
-      action: "webhook_update",
+      action: context?.source === "polling" ? "polling_update" : "webhook_update",
       result: "fail",
       reason: "internal_error",
       reqContext
@@ -2013,12 +2031,24 @@ async function processTelegramWebhookUpdate(update, context = {}) {
   }
 }
 
+async function processTelegramWebhookUpdate(update, context = {}) {
+  return processTelegramUpdate(update, {
+    ...context,
+    source: context?.source || "webhook"
+  });
+}
+
 module.exports = {
   isTelegramInteractiveEnabled,
+  getTelegramBotMode,
+  isTelegramWebhookModeEnabled,
+  isTelegramPollingModeEnabled,
   isTelegramWebhookAuthorized,
   evaluateWebhookRateLimit,
   extractUpdateMetadata,
   auditWebhookRateLimited,
+  telegramApiRequest,
+  processTelegramUpdate,
   processTelegramWebhookUpdate,
   issueTelegramLinkToken,
   getTelegramLinkStatus,

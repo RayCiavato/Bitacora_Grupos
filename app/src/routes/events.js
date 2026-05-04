@@ -36,8 +36,17 @@ const { publishRealtimeEvent } = require("../services/realtime");
 const {
   runDetached,
   notifyBitacoraCreated,
-  notifyBitacoraUpdated
+  notifyBitacoraUpdated,
+  notifyBitacoraCorrelationCreated
 } = require("../services/telegramNotifier");
+const {
+  EventCorrelationError,
+  RELATION_TYPES,
+  createEventCorrelation,
+  deleteEventCorrelation,
+  listEventCorrelations,
+  searchCorrelatableEvents
+} = require("../services/eventCorrelations");
 
 const router = express.Router();
 
@@ -133,6 +142,27 @@ const attachmentParamsSchema = z.object({
 
 const eventParamsSchema = z.object({
   id: z.coerce.number().int().positive()
+});
+
+const relationTypeSchema = z.enum(RELATION_TYPES);
+
+const eventCorrelationParamsSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  correlationId: z.coerce.number().int().positive().optional()
+});
+
+const createEventCorrelationSchema = z
+  .object({
+    targetEventId: z.coerce.number().int().positive(),
+    relationType: relationTypeSchema.default("relacionado"),
+    note: z.string().trim().max(500).optional().default("")
+  })
+  .strict();
+
+const correlationSearchQuerySchema = z.object({
+  q: z.string().trim().max(180).optional().default(""),
+  sourceEventId: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().min(1).max(20).optional().default(10)
 });
 
 const attachmentDownloadSchema = z.object({
@@ -550,6 +580,37 @@ function emitBitacoraRealtimeEvent(kind, req, bitacora, extraPayload = {}) {
   });
 }
 
+function emitBitacoraCorrelationRealtimeEvent(kind, req, { correlation, source, target } = {}) {
+  const correlationId = Number(correlation?.id || 0) || null;
+  const sourceEventId = Number(source?.id || correlation?.sourceEventId || 0) || null;
+  const targetEventId = Number(target?.id || correlation?.targetEventId || 0) || null;
+  const sourceOwnerId = Number(source?.encargadoId || source?.encargado_id || 0) || null;
+  const targetOwnerId = Number(target?.encargadoId || target?.encargado_id || 0) || null;
+
+  publishRealtimeEvent({
+    kind,
+    payload: {
+      entity: "event_correlation",
+      correlationId,
+      eventId: sourceEventId,
+      entityId: sourceEventId,
+      sourceEventId,
+      targetEventId,
+      relationType: correlation?.relationType || correlation?.relation_type || null,
+      actorId: normalizeRealtimeActorId(req)
+    },
+    visibility: (viewer) =>
+      canUserViewBitacora(viewer, {
+        id: sourceEventId,
+        encargadoId: sourceOwnerId
+      }) ||
+      canUserViewBitacora(viewer, {
+        id: targetEventId,
+        encargadoId: targetOwnerId
+      })
+  });
+}
+
 function escapeCsvValue(value) {
   const raw = value === null || value === undefined ? "" : String(value);
   const escaped = raw.replace(/"/g, '""');
@@ -885,6 +946,13 @@ function ensureEventAttachmentPermissionOrNotFound(
   }
 
   return true;
+}
+
+function sendEventCorrelationError(res, error) {
+  if (error instanceof EventCorrelationError) {
+    return res.status(error.status).json({ error: error.code, details: error.details || undefined });
+  }
+  return null;
 }
 
 router.post("/", authenticate, async (req, res, next) => {
@@ -1513,6 +1581,163 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: "validation_error" });
+    }
+    return next(error);
+  }
+});
+
+router.get("/correlations/search", authenticate, async (req, res, next) => {
+  try {
+    if (!canUserViewBitacoras(req.user)) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    const query = correlationSearchQuerySchema.parse(req.query);
+    const results = await searchCorrelatableEvents({
+      user: req.user,
+      sourceEventId: query.sourceEventId || null,
+      q: query.q,
+      limit: query.limit
+    });
+
+    return res.json({
+      results,
+      total: results.length
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error" });
+    }
+    if (sendEventCorrelationError(res, error)) {
+      return;
+    }
+    return next(error);
+  }
+});
+
+router.get("/:id/correlations", authenticate, async (req, res, next) => {
+  try {
+    if (!canUserViewBitacoras(req.user)) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    const params = eventCorrelationParamsSchema.parse(req.params);
+    const correlations = await listEventCorrelations({
+      eventId: params.id,
+      user: req.user
+    });
+
+    await createAuditLog({
+      userId: req.user.sub,
+      action: "event.correlation.viewed",
+      entity: "event",
+      entityId: params.id,
+      metadata: {
+        total: correlations.all.length
+      },
+      req
+    });
+
+    return res.json(correlations);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error" });
+    }
+    if (sendEventCorrelationError(res, error)) {
+      return;
+    }
+    return next(error);
+  }
+});
+
+router.post("/:id/correlations", authenticate, async (req, res, next) => {
+  try {
+    const params = eventCorrelationParamsSchema.parse(req.params);
+    const payload = createEventCorrelationSchema.parse(req.body);
+    const result = await createEventCorrelation({
+      sourceEventId: params.id,
+      targetEventId: payload.targetEventId,
+      relationType: payload.relationType,
+      note: payload.note,
+      user: req.user
+    });
+
+    await createAuditLog({
+      userId: req.user.sub,
+      action: "event.correlation.created",
+      entity: "event_correlation",
+      entityId: result.correlation.id,
+      metadata: {
+        sourceEventId: result.source.id,
+        targetEventId: result.target.id,
+        relationType: result.correlation.relationType,
+        note: result.correlation.note || ""
+      },
+      req
+    });
+
+    runDetached(async () => {
+      const actorId = Number(req.user?.sub || 0) || null;
+      const actorName = req.user?.name || req.user?.email || "Sistema";
+      await notifyBitacoraCorrelationCreated({
+        correlation: result.correlation,
+        source: result.source,
+        target: result.target,
+        actorName,
+        actorId
+      });
+    }, "telegram.bitacora.correlation.created");
+
+    emitBitacoraCorrelationRealtimeEvent("event.correlation.created", req, result);
+
+    return res.status(201).json({
+      correlation: result.correlation,
+      source: result.source,
+      target: result.target
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error" });
+    }
+    if (sendEventCorrelationError(res, error)) {
+      return;
+    }
+    return next(error);
+  }
+});
+
+router.delete("/:id/correlations/:correlationId", authenticate, async (req, res, next) => {
+  try {
+    const params = eventCorrelationParamsSchema.parse(req.params);
+    const result = await deleteEventCorrelation({
+      eventId: params.id,
+      correlationId: params.correlationId,
+      user: req.user
+    });
+
+    await createAuditLog({
+      userId: req.user.sub,
+      action: "event.correlation.deleted",
+      entity: "event_correlation",
+      entityId: result.correlation.id,
+      metadata: {
+        sourceEventId: result.correlation.sourceEventId,
+        targetEventId: result.correlation.targetEventId,
+        relationType: result.correlation.relationType,
+        note: result.correlation.note || ""
+      },
+      req
+    });
+
+    emitBitacoraCorrelationRealtimeEvent("event.correlation.deleted", req, result);
+
+    return res.json({ message: "Correlacion eliminada correctamente" });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error" });
+    }
+    if (sendEventCorrelationError(res, error)) {
+      return;
     }
     return next(error);
   }

@@ -116,6 +116,28 @@ CREATE TABLE IF NOT EXISTS event_attachments (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS event_correlations (
+  id BIGSERIAL PRIMARY KEY,
+  source_event_id BIGINT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  target_event_id BIGINT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  relation_type VARCHAR(32) NOT NULL CHECK (
+    relation_type IN (
+      'seguimiento',
+      'reincidencia',
+      'relacionado',
+      'actualizacion',
+      'causa_raiz',
+      'evidencia',
+      'otro'
+    )
+  ),
+  note TEXT NOT NULL DEFAULT '',
+  created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  deleted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT event_correlations_not_self_check CHECK (source_event_id <> target_event_id)
+);
+
 CREATE TABLE IF NOT EXISTS user_notification_reads (
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   notification_key VARCHAR(160) NOT NULL,
@@ -139,6 +161,21 @@ CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at ON refresh_tokens(expir
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_event_attachments_event_id ON event_attachments(event_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_event_correlations_pair_type_active
+  ON event_correlations (
+    LEAST(source_event_id, target_event_id),
+    GREATEST(source_event_id, target_event_id),
+    relation_type
+  )
+  WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_event_correlations_source_active
+  ON event_correlations(source_event_id)
+  WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_event_correlations_target_active
+  ON event_correlations(target_event_id)
+  WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_event_correlations_created_by ON event_correlations(created_by);
+CREATE INDEX IF NOT EXISTS idx_event_correlations_created_at ON event_correlations(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_user_notification_reads_user_id ON user_notification_reads(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_notification_reads_read_at ON user_notification_reads(read_at DESC);
 

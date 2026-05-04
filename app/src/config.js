@@ -16,6 +16,12 @@ function readCsvList(value) {
     .filter(Boolean);
 }
 
+function readTelegramBotMode(value) {
+  return String(value || "webhook")
+    .trim()
+    .toLowerCase();
+}
+
 const config = {
   nodeEnv: process.env.NODE_ENV || "development",
   port: Number(process.env.PORT || 3000),
@@ -59,8 +65,15 @@ const config = {
   telegramChatId: process.env.TELEGRAM_CHAT_ID || "",
   telegramChatIds: readCsvList(process.env.TELEGRAM_CHAT_IDS || ""),
   telegramTaskAlertCron: process.env.TELEGRAM_TASK_ALERT_CRON || "*/15 * * * *",
+  telegramNotifyEventCorrelations: readBool(process.env.TELEGRAM_NOTIFY_EVENT_CORRELATIONS, false),
   telegramBotInteractiveEnabled: readBool(process.env.TELEGRAM_BOT_INTERACTIVE_ENABLED, false),
+  telegramBotMode: readTelegramBotMode(process.env.TELEGRAM_BOT_MODE || "webhook"),
   telegramBotWebhookSecret: process.env.TELEGRAM_BOT_WEBHOOK_SECRET || "",
+  telegramPollingTimeout: Number(process.env.TELEGRAM_POLLING_TIMEOUT || 30),
+  telegramPollingIntervalMs: Number(process.env.TELEGRAM_POLLING_INTERVAL_MS || 1000),
+  telegramPollingAllowedUpdates: readCsvList(
+    process.env.TELEGRAM_POLLING_ALLOWED_UPDATES || "message,callback_query"
+  ),
   telegramWebhookIpLimitPerMinute: Number(process.env.TELEGRAM_WEBHOOK_IP_LIMIT_PER_MINUTE || 60),
   telegramWebhookChatLimitPerMinute: Number(process.env.TELEGRAM_WEBHOOK_CHAT_LIMIT_PER_MINUTE || 20),
   telegramUserCooldownMs: Number(process.env.TELEGRAM_USER_COOLDOWN_MS || 2500),
@@ -117,11 +130,50 @@ function assertConfig() {
       throw new Error("TELEGRAM_BOT_INTERACTIVE_ENABLED=true requiere TELEGRAM_ENABLED=true.");
     }
 
-    if (!config.telegramBotWebhookSecret || config.telegramBotWebhookSecret.length < 16) {
+    if (!["webhook", "polling"].includes(config.telegramBotMode)) {
+      throw new Error("TELEGRAM_BOT_MODE debe ser webhook o polling.");
+    }
+
+    if (
+      config.telegramBotMode === "webhook" &&
+      (!config.telegramBotWebhookSecret || config.telegramBotWebhookSecret.length < 16)
+    ) {
       throw new Error(
-        "TELEGRAM_BOT_WEBHOOK_SECRET es obligatorio y debe tener al menos 16 caracteres cuando TELEGRAM_BOT_INTERACTIVE_ENABLED=true."
+        "TELEGRAM_BOT_WEBHOOK_SECRET es obligatorio y debe tener al menos 16 caracteres cuando TELEGRAM_BOT_MODE=webhook."
       );
     }
+  }
+
+  if (!["webhook", "polling"].includes(config.telegramBotMode)) {
+    throw new Error("TELEGRAM_BOT_MODE debe ser webhook o polling.");
+  }
+
+  if (
+    Number.isNaN(config.telegramPollingTimeout) ||
+    !Number.isFinite(config.telegramPollingTimeout) ||
+    config.telegramPollingTimeout < 0 ||
+    config.telegramPollingTimeout > 50
+  ) {
+    throw new Error("TELEGRAM_POLLING_TIMEOUT debe estar entre 0 y 50 segundos.");
+  }
+
+  if (
+    Number.isNaN(config.telegramPollingIntervalMs) ||
+    !Number.isFinite(config.telegramPollingIntervalMs) ||
+    config.telegramPollingIntervalMs < 250
+  ) {
+    throw new Error("TELEGRAM_POLLING_INTERVAL_MS debe ser mayor o igual a 250.");
+  }
+
+  const allowedTelegramUpdateTypes = new Set(["message", "callback_query"]);
+  if (
+    !Array.isArray(config.telegramPollingAllowedUpdates) ||
+    config.telegramPollingAllowedUpdates.length === 0 ||
+    config.telegramPollingAllowedUpdates.some((item) => !allowedTelegramUpdateTypes.has(item))
+  ) {
+    throw new Error(
+      "TELEGRAM_POLLING_ALLOWED_UPDATES solo puede incluir message y callback_query."
+    );
   }
 
   if (

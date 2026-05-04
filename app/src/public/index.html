@@ -501,6 +501,52 @@
                         <option value="observacion">Observacion informativa</option>
                       </select>
                     </label>
+                    <section class="correlations-panel" aria-labelledby="eventCorrelationsTitle">
+                      <div class="correlations-head">
+                        <div>
+                          <h4 id="eventCorrelationsTitle">Bitacoras relacionadas</h4>
+                          <p class="help-text">
+                            Busca registros anteriores y asocialos para mantener trazabilidad operacional.
+                          </p>
+                        </div>
+                        <span id="eventCorrelationsCount" class="correlations-count">0 seleccionadas</span>
+                      </div>
+                      <div class="correlations-grid">
+                        <label>
+                          Buscar bitacora
+                          <input
+                            id="eventCorrelationSearch"
+                            type="text"
+                            maxlength="180"
+                            placeholder="ID, actividad, observacion, usuario o prioridad"
+                            autocomplete="off"
+                          />
+                        </label>
+                        <label>
+                          Tipo de relacion
+                          <select id="eventCorrelationType">
+                            <option value="seguimiento">Seguimiento</option>
+                            <option value="reincidencia">Reincidencia</option>
+                            <option value="relacionado" selected>Relacionado</option>
+                            <option value="actualizacion">Actualizacion</option>
+                            <option value="causa_raiz">Causa raiz</option>
+                            <option value="evidencia">Evidencia</option>
+                            <option value="otro">Otro</option>
+                          </select>
+                        </label>
+                      </div>
+                      <label>
+                        Nota o motivo de la correlacion
+                        <textarea
+                          id="eventCorrelationNote"
+                          rows="2"
+                          maxlength="500"
+                          placeholder="Ej: seguimiento de incidencia previa, reincidencia o evidencia vinculada"
+                        ></textarea>
+                      </label>
+                      <div id="eventCorrelationResults" class="correlation-results" aria-live="polite"></div>
+                      <div id="eventCorrelationSelected" class="correlation-selected-list"></div>
+                    </section>
                     <label>
                       Evidencias del registro (opcional)
                       <input

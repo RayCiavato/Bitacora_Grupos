@@ -3,6 +3,7 @@ const { z } = require("zod");
 const { authenticate } = require("../middleware/auth");
 const {
   isTelegramInteractiveEnabled,
+  isTelegramWebhookModeEnabled,
   isTelegramWebhookAuthorized,
   processTelegramWebhookUpdate,
   evaluateWebhookRateLimit,
@@ -18,7 +19,7 @@ const router = express.Router();
 const emptyBodySchema = z.object({}).passthrough();
 
 router.post("/webhook", async (req, res) => {
-  if (!isTelegramInteractiveEnabled()) {
+  if (!isTelegramWebhookModeEnabled()) {
     return res.status(404).json({ error: "not_found" });
   }
 

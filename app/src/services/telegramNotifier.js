@@ -382,6 +382,19 @@ function buildBitacoraUpdatedMessage(bitacoraCore, actorName) {
   ].join("\n");
 }
 
+function buildBitacoraCorrelationMessage({ correlation, source, target, actorName } = {}) {
+  return [
+    "🔗 BITÁCORA CORRELACIONADA",
+    "",
+    `👤 Usuario: ${sanitizeText(actorName, "Sistema", 120)}`,
+    `📌 Origen: BIT-${Number(source?.id || correlation?.sourceEventId || 0) || "-"}`,
+    `📎 Relacionada con: BIT-${Number(target?.id || correlation?.targetEventId || 0) || "-"}`,
+    `🏷 Tipo: ${sanitizeText(correlation?.relationType || correlation?.relation_type || "relacionado", "relacionado", 40)}`,
+    `📝 Motivo: ${sanitizeText(correlation?.note || "-", "-", 260)}`,
+    `📅 Fecha: ${formatDateTimeCaracas(new Date())}`
+  ].join("\n");
+}
+
 function notifyTaskCreated({ task, actorName, actorId } = {}) {
   const taskCore = extractTaskCore(task);
   if (actorName) {
@@ -474,6 +487,29 @@ function notifyBitacoraUpdated({ event, actorName, actorId } = {}) {
     entityId: bitacoraCore.id,
     metadata: {
       kind: "bitacora_updated"
+    }
+  });
+}
+
+function notifyBitacoraCorrelationCreated({ correlation, source, target, actorName, actorId } = {}) {
+  if (!config.telegramNotifyEventCorrelations) {
+    return Promise.resolve({
+      ok: false,
+      skipped: true,
+      reason: "event_correlations_notifications_disabled"
+    });
+  }
+
+  return sendTelegramMessage({
+    text: buildBitacoraCorrelationMessage({ correlation, source, target, actorName }),
+    userId: actorId || null,
+    entity: "event_correlation",
+    entityId: Number(correlation?.id || 0) || null,
+    metadata: {
+      kind: "bitacora_correlation_created",
+      sourceEventId: Number(source?.id || correlation?.sourceEventId || 0) || null,
+      targetEventId: Number(target?.id || correlation?.targetEventId || 0) || null,
+      relationType: correlation?.relationType || correlation?.relation_type || null
     }
   });
 }
@@ -671,6 +707,7 @@ module.exports = {
   notifyTaskCompleted,
   notifyBitacoraCreated,
   notifyBitacoraUpdated,
+  notifyBitacoraCorrelationCreated,
   runTelegramDueAlertsCycle,
   startTelegramDueAlertsScheduler
 };

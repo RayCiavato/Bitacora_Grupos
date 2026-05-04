@@ -7,3 +7,5 @@ prometheus_data/
 loki_data/
 alertmanager_data/
 app/uploads/
+certs/internal/*
+!certs/internal/.gitkeep
