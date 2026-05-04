@@ -189,7 +189,19 @@ test("assets frontend no exponen patrones peligrosos ni diccionarios internos", 
     "eventCorrelationDraft",
     "eventCorrelationSearchResults",
     "selectedEventPermissions",
-    "activeEventDetailPayload"
+    "activeEventDetailPayload",
+    "authSection",
+    "dashboardSection",
+    "tasksSection",
+    "tasksFilterStatus",
+    "eventCorrelationSearch",
+    "auditSection",
+    "settingsSection",
+    "telegramLinkBtn",
+    "notificationsDropdown",
+    'getElementById("',
+    "querySelector(\"",
+    "querySelectorAll(\""
   ];
 
   for (const assetName of assetNames) {
