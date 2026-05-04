@@ -55,15 +55,32 @@ curl -I http://127.0.0.1
 
 ```bash
 cd ~/apps/Bitacora_gestor_tareas
-git config core.filemode false
-git status --short
-if [ -n "$(git status --porcelain)" ]; then
-  git stash push -u -m "pre-deploy-$(date +%F-%H%M%S)"
+
+if docker compose version >/dev/null 2>&1; then
+  DC="docker compose"
+else
+  DC="docker-compose"
 fi
-git fetch --prune origin
+
+git config core.filemode false
+git fetch origin main
+
+# Si hay cambios locales (por ejemplo Caddyfile interno), guardalos sin perderlos.
+if [ -n "$(git status --porcelain)" ]; then
+  mkdir -p ~/bitacora-backups
+  [ -f infra/Caddyfile.internal-https ] && cp infra/Caddyfile.internal-https ~/bitacora-backups/Caddyfile.internal-https.$(date +%Y%m%d-%H%M%S).bak
+  git stash push -u -m "pre-update-$(date +%F-%H%M%S)"
+fi
+
 git checkout main
 git pull --ff-only origin main
-bash scripts/deploy-safe.sh --pull
+
+docker ps -aq --filter "name=bitacora-app" | xargs -r docker rm -f
+$DC build --no-cache app
+$DC up -d --no-deps --force-recreate app
+
+$DC ps app
+curl -sS http://127.0.0.1/health
 ```
 
 ---
@@ -72,6 +89,8 @@ bash scripts/deploy-safe.sh --pull
 
 Para usar `/menu`, botones inline y `/buscar` dentro de un grupo privado sin HTTPS ni dominio publico,
 activa long polling en el `.env` del servidor:
+
+> Seguridad: el token real del bot no se sube a GitHub. Guardalo solo en `.env` del servidor.
 
 ```bash
 TELEGRAM_ENABLED=true
@@ -92,3 +111,51 @@ curl -sS "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/deleteWebhook?drop_pen
 
 En modo `polling`, ejecuta una sola instancia de `app` para evitar doble lectura de updates.
 El modo `webhook` sigue disponible para un futuro dominio HTTPS usando `TELEGRAM_BOT_MODE=webhook`.
+
+### Cargar token y chat ID en un servidor existente
+
+```bash
+cd ~/apps/Bitacora_gestor_tareas
+
+unset TELEGRAM_BOT_TOKEN_VALUE TELEGRAM_CHAT_ID_VALUE
+read -r -s -p "Pega token Telegram: " TELEGRAM_BOT_TOKEN_VALUE; echo
+read -r -p "Pega chat id Telegram: " TELEGRAM_CHAT_ID_VALUE
+
+export TELEGRAM_BOT_TOKEN_VALUE="$(printf '%s' "$TELEGRAM_BOT_TOKEN_VALUE" | tr -cd 'A-Za-z0-9_:-')"
+export TELEGRAM_CHAT_ID_VALUE="$(printf '%s' "$TELEGRAM_CHAT_ID_VALUE" | tr -cd '0-9-')"
+
+python3 - <<'PY'
+import os
+from pathlib import Path
+
+env_path = Path(".env")
+values = {
+    "TELEGRAM_ENABLED": "true",
+    "TELEGRAM_BOT_TOKEN": os.environ["TELEGRAM_BOT_TOKEN_VALUE"],
+    "TELEGRAM_CHAT_ID": os.environ["TELEGRAM_CHAT_ID_VALUE"],
+    "TELEGRAM_BOT_INTERACTIVE_ENABLED": "true",
+    "TELEGRAM_BOT_MODE": "polling",
+    "TELEGRAM_POLLING_TIMEOUT": "30",
+    "TELEGRAM_POLLING_INTERVAL_MS": "1000",
+    "TELEGRAM_POLLING_ALLOWED_UPDATES": "message,callback_query",
+}
+lines = env_path.read_text().splitlines() if env_path.exists() else []
+out, seen = [], set()
+for line in lines:
+    key = line.split("=", 1)[0] if "=" in line else None
+    if key in values:
+        out.append(f"{key}={values[key]}")
+        seen.add(key)
+    else:
+        out.append(line)
+for key, value in values.items():
+    if key not in seen:
+        out.append(f"{key}={value}")
+env_path.write_text("\n".join(out) + "\n")
+PY
+
+curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_VALUE}/deleteWebhook?drop_pending_updates=false"
+```
+
+Despues de iniciar sesion en la web, usa el boton **Vincular Telegram** del dashboard.
+El sistema genera el codigo temporal y te muestra el comando `/start CODIGO` para pegarlo en Telegram.

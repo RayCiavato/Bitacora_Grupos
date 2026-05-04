@@ -91,9 +91,10 @@ cd ~/apps/Bitacora_gestor_tareas
 
 ---
 
-## 5) Despliegue limpio recomendado (evita errores previos)
+## 5) Primera instalacion limpia (solo servidor nuevo)
 
-Este flujo es para servidor nuevo o cuando quieres evitar mismatch de passwords DB.
+Este flujo es SOLO para servidor nuevo, sin datos que preservar.
+Si el servidor ya tiene bitacoras, tareas, usuarios o adjuntos cargados, NO uses este flujo: usa la seccion `8) Actualizacion segura`.
 
 ```bash
 cd ~/apps/Bitacora_gestor_tareas
@@ -114,8 +115,12 @@ bash scripts/install-server-safe.sh \
 
 Que hace este script:
 1. Genera `.env` consistente.
-2. Hace `deploy-safe` con `--fresh-db` para evitar credenciales desalineadas.
+2. Hace `deploy-safe` con `--fresh-db` para una instalacion nueva.
 3. Reprovisiona admin al final.
+
+Importante:
+- `--fresh-db` puede reinicializar datos. No lo uses sobre un servidor productivo con data real.
+- Para Telegram de prueba, reemplaza los placeholders solo en el servidor o usa la seccion `7) Activar o actualizar Telegram`.
 
 ---
 
@@ -144,14 +149,55 @@ Si el stack ya existe y solo quieres activar Telegram:
 ```bash
 cd ~/apps/Bitacora_gestor_tareas
 
-grep -q '^TELEGRAM_ENABLED=' .env && sed -i 's/^TELEGRAM_ENABLED=.*/TELEGRAM_ENABLED=true/' .env || echo 'TELEGRAM_ENABLED=true' >> .env
-grep -q '^TELEGRAM_BOT_TOKEN=' .env && sed -i "s|^TELEGRAM_BOT_TOKEN=.*|TELEGRAM_BOT_TOKEN=REEMPLAZAR_TOKEN_BOT|" .env || echo 'TELEGRAM_BOT_TOKEN=REEMPLAZAR_TOKEN_BOT' >> .env
-grep -q '^TELEGRAM_CHAT_ID=' .env && sed -i "s|^TELEGRAM_CHAT_ID=.*|TELEGRAM_CHAT_ID=REEMPLAZAR_CHAT_ID|" .env || echo 'TELEGRAM_CHAT_ID=REEMPLAZAR_CHAT_ID' >> .env
-grep -q '^TELEGRAM_TASK_ALERT_CRON=' .env && sed -i "s|^TELEGRAM_TASK_ALERT_CRON=.*|TELEGRAM_TASK_ALERT_CRON=*/15 * * * *|" .env || echo 'TELEGRAM_TASK_ALERT_CRON=*/15 * * * *' >> .env
+unset TELEGRAM_BOT_TOKEN_VALUE TELEGRAM_CHAT_ID_VALUE
+read -r -s -p "Pega token Telegram: " TELEGRAM_BOT_TOKEN_VALUE; echo
+read -r -p "Pega chat id Telegram: " TELEGRAM_CHAT_ID_VALUE
 
-docker compose up -d --no-deps --force-recreate app
-docker compose logs --tail=120 app | grep -i telegram || true
+export TELEGRAM_BOT_TOKEN_VALUE="$(printf '%s' "$TELEGRAM_BOT_TOKEN_VALUE" | tr -cd 'A-Za-z0-9_:-')"
+export TELEGRAM_CHAT_ID_VALUE="$(printf '%s' "$TELEGRAM_CHAT_ID_VALUE" | tr -cd '0-9-')"
+
+python3 - <<'PY'
+import os
+from pathlib import Path
+
+env_path = Path(".env")
+values = {
+    "TELEGRAM_ENABLED": "true",
+    "TELEGRAM_BOT_TOKEN": os.environ["TELEGRAM_BOT_TOKEN_VALUE"],
+    "TELEGRAM_CHAT_ID": os.environ["TELEGRAM_CHAT_ID_VALUE"],
+    "TELEGRAM_TASK_ALERT_CRON": "*/15 * * * *",
+    "TELEGRAM_BOT_INTERACTIVE_ENABLED": "true",
+    "TELEGRAM_BOT_MODE": "polling",
+    "TELEGRAM_POLLING_TIMEOUT": "30",
+    "TELEGRAM_POLLING_INTERVAL_MS": "1000",
+    "TELEGRAM_POLLING_ALLOWED_UPDATES": "message,callback_query",
+}
+lines = env_path.read_text().splitlines() if env_path.exists() else []
+out, seen = [], set()
+for line in lines:
+    key = line.split("=", 1)[0] if "=" in line else None
+    if key in values:
+        out.append(f"{key}={values[key]}")
+        seen.add(key)
+    else:
+        out.append(line)
+for key, value in values.items():
+    if key not in seen:
+        out.append(f"{key}={value}")
+env_path.write_text("\n".join(out) + "\n")
+PY
+
+curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_VALUE}/deleteWebhook?drop_pending_updates=false"
+
+if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
+$DC up -d --no-deps --force-recreate app
+$DC logs --tail=120 app | grep -i telegram || true
 ```
+
+Nota de seguridad:
+- El token real del bot no se commitea ni se sube a GitHub.
+- Queda guardado solo en `.env` del servidor.
+- Para vincular un usuario, inicia sesion en la web y usa el boton `Vincular Telegram`.
 
 ---
 
@@ -161,26 +207,44 @@ Para actualizar version en servidor ya productivo:
 
 ```bash
 cd ~/apps/Bitacora_gestor_tareas
+
+if docker compose version >/dev/null 2>&1; then
+  DC="docker compose"
+else
+  DC="docker-compose"
+fi
+
 git config core.filemode false
-git status --short
-```
+git fetch origin main
 
-Si hay cambios locales:
+# Si hay cambios locales (ej: infra/Caddyfile.internal-https), guardarlos sin perderlos.
+if [ -n "$(git status --porcelain)" ]; then
+  mkdir -p ~/bitacora-backups
+  [ -f infra/Caddyfile.internal-https ] && cp infra/Caddyfile.internal-https ~/bitacora-backups/Caddyfile.internal-https.$(date +%Y%m%d-%H%M%S).bak
+  git stash push -u -m "pre-update-$(date +%F-%H%M%S)"
+fi
 
-```bash
-git stash push -u -m "pre-deploy-$(date +%F-%H%M%S)"
-```
-
-Actualizar y desplegar:
-
-```bash
-git fetch --prune origin
 git checkout main
 git pull --ff-only origin main
-bash scripts/deploy-safe.sh --pull
-docker compose ps
-docker compose logs --tail=120 app
+
+# Rebuild solo app, no tocar DB ni volumenes.
+docker ps -aq --filter "name=bitacora-app" | xargs -r docker rm -f
+$DC build --no-cache app
+$DC up -d --no-deps --force-recreate app
+
+$DC ps app
+$DC logs --tail=120 app
+curl -sS http://127.0.0.1/health
 ```
+
+Validacion de UI nueva:
+
+```bash
+curl -sS http://10.156.99.35/ | grep -E "Vincular Telegram|asset=web&v=22"
+curl -sS http://10.156.99.35/sw.js | grep "bitacora-v22"
+```
+
+Si usas HTTPS interno, cambia `http` por `https` y agrega `-k` a `curl`.
 
 ---
 
@@ -208,24 +272,20 @@ docker compose restart app
 
 La DB quedo inicializada con otro password.
 
-Opcion segura (recomendada si puedes reiniciar DB):
+No borres volumenes si el servidor tiene data real. Primero genera backup:
 
 ```bash
 cd ~/apps/Bitacora_gestor_tareas
-docker compose down
-docker volume rm bitacora_gestor_tareas_postgres_data
-bash scripts/install-server-safe.sh \
-  --app-domain 10.156.99.35 \
-  --admin-email admin@n1njahack.local \
-  --admin-password 'N1njaHack@2026!' \
-  --db-password 'BitacoraDB_2026' \
-  --grafana-password 'GrafanaAdmin_2026' \
-  --telegram-enabled true \
-  --telegram-bot-token 'REEMPLAZAR_TOKEN_BOT' \
-  --telegram-chat-id 'REEMPLAZAR_CHAT_ID' \
-  --telegram-alert-cron '*/15 * * * *' \
-  --force
+if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
+mkdir -p backups
+POSTGRES_USER_VALUE="$(grep -E '^POSTGRES_USER=' .env 2>/dev/null | tail -n1 | cut -d= -f2-)"
+POSTGRES_DB_VALUE="$(grep -E '^POSTGRES_DB=' .env 2>/dev/null | tail -n1 | cut -d= -f2-)"
+$DC exec -T postgres pg_dump -U "${POSTGRES_USER_VALUE:-bitacora_user}" "${POSTGRES_DB_VALUE:-bitacora}" | gzip > "backups/pre-db-auth-fix-$(date +%F-%H%M%S).sql.gz"
+$DC logs --tail=200 postgres
 ```
+
+Luego corrige `.env` para que `POSTGRES_PASSWORD` coincida con la DB existente o restaura desde backup en un servidor nuevo.
+No uses `docker compose down -v` ni `docker volume rm` en produccion.
 
 ### C) Ejecutaste comandos fuera del repo
 
@@ -250,6 +310,8 @@ docker compose version
 
 ```bash
 cd ~/apps/Bitacora_gestor_tareas
+mkdir -p ~/bitacora-backups
+[ -f infra/Caddyfile.internal-https ] && cp infra/Caddyfile.internal-https ~/bitacora-backups/Caddyfile.internal-https.$(date +%Y%m%d-%H%M%S).bak
 git stash push -u -m "pre-pull-$(date +%F-%H%M%S)"
 git pull --ff-only origin main
 ```
@@ -261,7 +323,8 @@ Quedo un contenedor viejo con nombre fijo (por ejemplo `bitacora-node-exporter`)
 ```bash
 cd ~/apps/Bitacora_gestor_tareas
 docker rm -f bitacora-node-exporter 2>/dev/null || true
-bash scripts/deploy-safe.sh --fresh-db --ensure-admin --admin-email admin@n1njahack.local --admin-password 'N1njaHack@2026!'
+if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
+$DC up -d --remove-orphans
 ```
 
 Nota:
