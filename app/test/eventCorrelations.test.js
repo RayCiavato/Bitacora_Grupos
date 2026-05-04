@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const request = require("supertest");
 
+require("./_env");
 const { createApp } = require("../src/index");
 const {
   RELATION_TYPES,

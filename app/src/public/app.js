@@ -312,19 +312,6 @@ const FULL_NAME_MIN_LENGTH = 2;
 const FULL_NAME_MAX_LENGTH = 120;
 const FULL_NAME_REGEX = /^[A-Za-z0-9]+(?:[ -][A-Za-z0-9]+)*$/;
 const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{12,}$/;
-const COMMON_WEAK_PASSWORDS = new Set([
-  "password",
-  "password123",
-  "admin123",
-  "123456",
-  "123456789",
-  "qwerty123",
-  "letmein",
-  "welcome",
-  "changeme",
-  "bitacora2026",
-  "n1njahack2026"
-]);
 
 const ERROR_MESSAGES = {
   unauthorized: "Acceso no autorizado. Inicia sesion.",
@@ -637,12 +624,6 @@ function validateStrongPasswordInput(password, options = {}) {
   }
 
   const compactPassword = compactIdentity(value);
-  if (COMMON_WEAK_PASSWORDS.has(value.toLowerCase()) || COMMON_WEAK_PASSWORDS.has(compactPassword)) {
-    return {
-      valid: false,
-      message: "La contrasena es muy comun. Usa una mas robusta."
-    };
-  }
 
   const normalizedEmail = String(options.email || "").trim().toLowerCase();
   if (normalizedEmail) {

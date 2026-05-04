@@ -139,6 +139,43 @@ test("app.min.js esta minimizado y sin source map publico", () => {
   assert.equal(appMinSource.includes("sourceMappingURL"), false);
 });
 
+test("assets frontend no exponen patrones peligrosos ni diccionarios internos", () => {
+  const assetNames = ["app.min.js", "tasks.min.js"];
+  const unsafeRuntimePatterns = [
+    /\binnerHTML\b/,
+    /\bouterHTML\b/,
+    /\binsertAdjacentHTML\b/,
+    /\beval\s*\(/,
+    /\bnew\s+Function\b/,
+    /\bFunction\s*\(/,
+    /sourceMappingURL/,
+    /debugger/,
+    /console\./
+  ];
+  const sensitiveStrings = [
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_CHAT_ID",
+    "n1njahack2026",
+    "bitacora2026",
+    "password123",
+    "qwerty123",
+    "changeme"
+  ];
+
+  for (const assetName of assetNames) {
+    const assetPath = path.join(__dirname, "..", "src", "public", "assets", assetName);
+    const source = fs.readFileSync(assetPath, "utf8");
+
+    for (const pattern of unsafeRuntimePatterns) {
+      assert.equal(pattern.test(source), false, `${assetName} contiene ${pattern}`);
+    }
+
+    for (const value of sensitiveStrings) {
+      assert.equal(source.includes(value), false, `${assetName} contiene ${value}`);
+    }
+  }
+});
+
 test("GET *.map en produccion devuelve 404", async () => {
   const response = await request(app).get("/app.js.map").set("Accept", "*/*");
   assert.equal(response.status, 404);
