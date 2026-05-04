@@ -146,19 +146,32 @@ body.landing-mode .workspace {
   display: none;
 }
 
+body:not(.session-active):not(.auth-popup-mode) .workspace {
+  display: none;
+}
+
 body.auth-popup-mode .workspace,
 body.session-active .workspace {
   display: block;
 }
 
 body.landing-mode .shell,
+body:not(.session-active):not(.auth-popup-mode) .shell,
 body.auth-popup-mode .shell,
 body.session-active .shell {
   grid-template-columns: 1fr;
 }
 
-body.landing-mode .shell {
+body.landing-mode .shell,
+body:not(.session-active):not(.auth-popup-mode) .shell {
   width: min(980px, 94vw);
+}
+
+body.landing-mode .hero,
+body:not(.session-active):not(.auth-popup-mode) .hero {
+  position: static;
+  width: min(760px, 100%);
+  justify-self: center;
 }
 
 body.auth-popup-mode {

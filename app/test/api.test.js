@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 const request = require("supertest");
 
 require("./_env");
@@ -147,6 +148,15 @@ test("app.min.js esta minimizado y sin source map publico", () => {
 
   assert.equal(nonEmptyLines.length, 1);
   assert.equal(appMinSource.includes("sourceMappingURL"), false);
+});
+
+test("assets frontend minificados conservan sintaxis valida", () => {
+  for (const assetName of ["app.min.js", "tasks.min.js"]) {
+    const assetPath = path.join(__dirname, "..", "src", "public", "assets", assetName);
+    const result = spawnSync(process.execPath, ["--check", assetPath], { encoding: "utf8" });
+
+    assert.equal(result.status, 0, `${assetName} no parsea: ${result.stderr || result.stdout}`);
+  }
 });
 
 test("assets frontend no exponen patrones peligrosos ni diccionarios internos", () => {

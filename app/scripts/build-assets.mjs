@@ -46,14 +46,14 @@ const DOM_SELECTOR_XOR_KEY = 73;
 const DOM_SELECTOR_DECODER = `const _0x5a=e=>new TextDecoder().decode(Uint8Array.from(e.match(/../g)||[],t=>parseInt(t,16)^${DOM_SELECTOR_XOR_KEY}));`;
 const DOM_SELECTOR_METHODS = "getElementById|querySelectorAll|querySelector|closest|matches";
 const DOM_SELECTOR_DOUBLE_QUOTED = new RegExp(
-  `\\.(${DOM_SELECTOR_METHODS})\\("([^"\\\\]*)"\\)`,
+  `(\\??)\\.(${DOM_SELECTOR_METHODS})\\("([^"\\\\]*)"\\)`,
   "g"
 );
 const DOM_SELECTOR_SINGLE_QUOTED = new RegExp(
-  `\\.(${DOM_SELECTOR_METHODS})\\('([^'\\\\]*)'\\)`,
+  `(\\??)\\.(${DOM_SELECTOR_METHODS})\\('([^'\\\\]*)'\\)`,
   "g"
 );
-const DOM_SELECTOR_METHOD_REFERENCE = new RegExp(`\\.(${DOM_SELECTOR_METHODS})\\(`, "g");
+const DOM_SELECTOR_METHOD_REFERENCE = new RegExp(`(\\??)\\.(${DOM_SELECTOR_METHODS})\\(`, "g");
 
 function encodeDomToken(value) {
   return Array.from(Buffer.from(value, "utf8"), (byte) =>
@@ -64,16 +64,18 @@ function encodeDomToken(value) {
 function encodeDomSelectorLiterals(code) {
   let encoded = code;
   let replaced = false;
-  const replacer = (match, method, literal) => {
+  const replacer = (match, optionalPrefix, method, literal) => {
     replaced = true;
-    return `[_0x5a("${encodeDomToken(method)}")](_0x5a("${encodeDomToken(literal)}"))`;
+    const accessPrefix = optionalPrefix === "?" ? "?." : "";
+    return `${accessPrefix}[_0x5a("${encodeDomToken(method)}")](_0x5a("${encodeDomToken(literal)}"))`;
   };
 
   encoded = encoded.replace(DOM_SELECTOR_DOUBLE_QUOTED, replacer);
   encoded = encoded.replace(DOM_SELECTOR_SINGLE_QUOTED, replacer);
-  encoded = encoded.replace(DOM_SELECTOR_METHOD_REFERENCE, (match, method) => {
+  encoded = encoded.replace(DOM_SELECTOR_METHOD_REFERENCE, (match, optionalPrefix, method) => {
     replaced = true;
-    return `[_0x5a("${encodeDomToken(method)}")](`;
+    const accessPrefix = optionalPrefix === "?" ? "?." : "";
+    return `${accessPrefix}[_0x5a("${encodeDomToken(method)}")](`;
   });
 
   return replaced ? `${DOM_SELECTOR_DECODER}${encoded}` : code;
