@@ -8,6 +8,9 @@ Arquitectura:
 Usuarios internos -> HTTPS interno -> Caddy -> app:3000
 ```
 
+El Caddyfile interno escucha `:443` con certificado propio para responder tambien a clientes que
+entren por IP y no envien SNI, por ejemplo algunos `curl` o navegadores en redes internas.
+
 El perfil recomendado es:
 
 ```env

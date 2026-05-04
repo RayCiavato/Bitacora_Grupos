@@ -1,14 +1,12 @@
-http://{$INTERNAL_HTTPS_IP:10.156.99.35},
-http://{$INTERNAL_HOSTNAME:bitacora.local},
-http://{$INTERNAL_ALT_HOSTNAME:bitacora.interno},
-http://{$INTERNAL_EXTRA_HOSTNAME:opsbitacora.local} {
-  redir https://{host}{uri}
+{
+  auto_https off
 }
 
-https://{$INTERNAL_HTTPS_IP:10.156.99.35},
-https://{$INTERNAL_HOSTNAME:bitacora.local},
-https://{$INTERNAL_ALT_HOSTNAME:bitacora.interno},
-https://{$INTERNAL_EXTRA_HOSTNAME:opsbitacora.local} {
+:80 {
+  redir https://{host}{uri} 308
+}
+
+:443 {
   tls /etc/certs/server.crt /etc/certs/server.key
   encode zstd gzip
 
@@ -40,8 +38,5 @@ https://{$INTERNAL_EXTRA_HOSTNAME:opsbitacora.local} {
 
   reverse_proxy app:3000 {
     flush_interval -1
-    header_up X-Forwarded-Proto {scheme}
-    header_up X-Forwarded-Host {host}
-    header_up X-Forwarded-For {remote_host}
   }
 }
