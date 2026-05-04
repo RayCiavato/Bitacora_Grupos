@@ -222,6 +222,7 @@ const sidebarLinks = document.querySelectorAll(".sidebar-link");
 const sidebarGroupToggles = document.querySelectorAll(".sidebar-group-toggle");
 const sidebarGroups = document.querySelectorAll(".sidebar-group.is-collapsible");
 const welcomeMessage = document.getElementById("welcomeMessage");
+const telegramLinkBtn = document.getElementById("telegramLinkBtn");
 const notificationsBtn = document.getElementById("notificationsBtn");
 const notificationsBadge = document.getElementById("notificationsBadge");
 const notificationsDropdown = document.getElementById("notificationsDropdown");
@@ -889,6 +890,128 @@ function setButtonBusy(button, isBusy, busyLabel) {
     button.textContent = button.dataset.originalText;
     delete button.dataset.originalText;
   }
+}
+
+async function copyTextToClipboard(text) {
+  const normalized = String(text || "").trim();
+  if (!normalized) {
+    return false;
+  }
+
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(normalized);
+      return true;
+    } catch (_error) {
+      // Fallback below keeps the flow usable on internal HTTP deployments.
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = normalized;
+  textarea.setAttribute("readonly", "readonly");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch (_error) {
+    copied = false;
+  } finally {
+    textarea.remove();
+  }
+
+  return copied;
+}
+
+function openTelegramLinkCodeModal(payload) {
+  const code = String(payload?.code || "").trim();
+  if (!code) {
+    showToast("No se recibio codigo de Telegram.", "error");
+    return;
+  }
+
+  const command = `/start ${code}`;
+  const expiresAt = payload?.expiresAt ? formatDateTime(payload.expiresAt) : "unos minutos";
+  const body = [
+    "Codigo de vinculacion:",
+    code,
+    "",
+    "Comando para Telegram:",
+    command,
+    "",
+    "Pasos:",
+    "1. Abre el grupo privado donde esta el bot.",
+    "2. Envia el comando anterior.",
+    "3. Luego usa /menu para abrir el panel interactivo.",
+    "",
+    `Expira: ${expiresAt}`
+  ].join("\n");
+
+  openEntityModal({
+    title: "Vincular Telegram",
+    meta: "Codigo temporal para conectar tu usuario web con Telegram.",
+    body,
+    actions: [
+      {
+        label: "Copiar comando",
+        onClick: async () => {
+          const copied = await copyTextToClipboard(command);
+          showToast(copied ? "Comando copiado." : "No se pudo copiar automaticamente.", copied ? "success" : "error");
+        }
+      },
+      {
+        label: "Copiar codigo",
+        onClick: async () => {
+          const copied = await copyTextToClipboard(code);
+          showToast(copied ? "Codigo copiado." : "No se pudo copiar automaticamente.", copied ? "success" : "error");
+        }
+      }
+    ]
+  });
+}
+
+async function handleTelegramLinkCodeGeneration() {
+  if (!state.user) {
+    showToast("Inicia sesion para vincular Telegram.", "error");
+    return;
+  }
+
+  setButtonBusy(telegramLinkBtn, true, "Generando...");
+
+  const { response, data, networkError } = await apiAuth("/integrations/telegram/link-token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}"
+  });
+
+  setButtonBusy(telegramLinkBtn, false);
+
+  if (networkError) {
+    showToast("No hay conexion para generar el codigo de Telegram.", "error");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    if (response.status === 503) {
+      showToast("Telegram interactivo no esta habilitado en el servidor.", "error");
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  openTelegramLinkCodeModal(data);
+  showToast("Codigo de Telegram generado.", "success");
 }
 
 function canAccessPanel(path = getCurrentPanelPath()) {
@@ -7509,6 +7632,9 @@ async function bootstrap() {
         link.addEventListener("click", handleSidebarLinkNavigation);
       }
     });
+  }
+  if (telegramLinkBtn) {
+    telegramLinkBtn.addEventListener("click", handleTelegramLinkCodeGeneration);
   }
   if (notificationsBtn) {
     notificationsBtn.addEventListener("click", async (event) => {
