@@ -1,4 +1,4 @@
-﻿(function initTasksModule() {
+(function initTasksModule() {
   "use strict";
 
   function normalizePathname(pathname) {
@@ -95,14 +95,12 @@
     forbidden: "No tienes permisos para realizar esta accion.",
     validation_error: "No se pudo validar la solicitud.",
     past_date_not_allowed: "No se permite crear o editar tareas con fechas anteriores.",
-    task_not_found: "La tarea solicitada no existe o no esta disponible.",
-    user_not_found: "El usuario seleccionado no existe.",
     too_many_requests: "Demasiadas solicitudes. Intenta de nuevo en unos minutos."
   });
 
   const state = {
     user: null,
-    capabilities: null,
+    access: null,
     users: [],
     page: 1,
     pageSize: Number(tasksPageSize?.value || 20),
@@ -157,7 +155,7 @@
     if (!errorCode) {
       return "No se pudo completar la operacion.";
     }
-    return ERROR_MESSAGES[errorCode] || String(errorCode);
+    return ERROR_MESSAGES[errorCode] || "No se pudo completar la operacion.";
   }
 
   function parseContentDispositionFileName(headerValue) {
@@ -302,27 +300,27 @@
   }
 
   function canViewAnyTasks() {
-    return Boolean(state.capabilities?.actions?.tasks?.viewAny);
+    return Boolean(state.access?.actions?.tasks?.viewAny);
   }
 
   function canCreateTask() {
-    return Boolean(state.capabilities?.actions?.tasks?.create);
+    return Boolean(state.access?.actions?.tasks?.create);
   }
 
   function canAssignTask() {
-    return Boolean(state.capabilities?.actions?.tasks?.assignAny);
+    return Boolean(state.access?.actions?.tasks?.assignAny);
   }
 
   function canViewUsersList() {
-    return Boolean(state.capabilities?.actions?.users?.viewList);
+    return Boolean(state.access?.actions?.users?.viewList);
   }
 
   function canExportTask() {
-    return Boolean(state.capabilities?.actions?.tasks?.export);
+    return Boolean(state.access?.actions?.tasks?.export);
   }
 
   function canViewTasks() {
-    const actions = state.capabilities?.actions?.tasks;
+    const actions = state.access?.actions?.tasks;
     return Boolean(actions?.viewAny || actions?.viewOwnCreated || actions?.viewAssigned);
   }
 
@@ -898,7 +896,7 @@
     }
 
     state.user = data;
-    state.capabilities = data.capabilities || null;
+    state.access = data.capabilities || null;
     if (!canViewTasks()) {
       window.location.href = "/dashboard";
       return false;
@@ -1481,13 +1479,3 @@
 
   syncTaskDateConstraints();
 })();
-
-
-
-
-
-
-
-
-
-

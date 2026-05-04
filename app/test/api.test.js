@@ -159,7 +159,27 @@ test("assets frontend no exponen patrones peligrosos ni diccionarios internos", 
     "bitacora2026",
     "password123",
     "qwerty123",
-    "changeme"
+    "changeme",
+    "cannot_change_own_role",
+    "last_admin_not_allowed",
+    "correlation_self_not_allowed",
+    "target_event_not_found",
+    "invalid_relation_type",
+    "correlation_already_exists",
+    "task_not_found",
+    "user_not_found",
+    "grupo privado",
+    "Telegram interactivo",
+    "sessionCapabilities",
+    "rolePermissionMetadata",
+    "rolePermissionPolicies",
+    "rolePermissionLimits",
+    "rolePermissionUpdated",
+    "auditItemsById",
+    "eventCorrelationDraft",
+    "eventCorrelationSearchResults",
+    "selectedEventPermissions",
+    "activeEventDetailPayload"
   ];
 
   for (const assetName of assetNames) {

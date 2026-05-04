@@ -1,4 +1,4 @@
-﻿
+
 const authSection = document.getElementById("authSection");
 const dashboardSection = document.getElementById("dashboardSection");
 const landingPanel = document.getElementById("landingPanel");
@@ -325,40 +325,25 @@ const ERROR_MESSAGES = {
   invalid_mfa_token: "No se pudo verificar el codigo MFA.",
   mfa_not_enabled: "No se pudo completar la operacion de MFA.",
   invalid_mfa_setup: "No se pudo completar la operacion de MFA.",
-  invalid_token_purpose: "Token no valido para esta operacion.",
   mfa_setup_not_started: "Primero debes iniciar la configuracion MFA.",
   mfa_setup_required: "Configura MFA para completar el acceso.",
   weak_password:
     "La contrasena debe tener minimo 12 caracteres, mayuscula, minuscula, numero y simbolo.",
   invalid_name: "Nombre completo invalido. Usa letras, numeros, espacios y guion medio.",
-  registration_disabled: "El registro publico esta deshabilitado.",
+  registration_disabled: "No se pudo completar el registro.",
   email_already_exists: "No se pudo completar el registro.",
   registration_unavailable: "No se pudo completar el registro.",
   recover_failed: "No se pudo completar la recuperacion de contrasena.",
   validation_error: "No se pudo validar la solicitud.",
   forbidden: "No tienes permisos para esta accion.",
-  user_not_found: "No se pudo completar la operacion solicitada.",
-  invalid_user_id: "ID de usuario invalido.",
-  template_not_found: "No se pudo completar la operacion con la plantilla.",
-  template_name_exists: "No se pudo completar la operacion con la plantilla.",
-  event_not_found: "No se pudo completar la operacion con el registro.",
-  target_event_not_found: "La bitacora relacionada no existe o no esta visible para tu usuario.",
-  correlation_not_found: "La correlacion no existe o no esta visible para tu usuario.",
-  correlation_self_not_allowed: "No puedes correlacionar una bitacora consigo misma.",
-  invalid_relation_type: "Tipo de relacion invalido.",
-  correlation_already_exists: "Esa correlacion ya existe.",
   attachment_not_found: "No se pudo completar la operacion con el adjunto.",
   file_required: "Selecciona un archivo para subir.",
   file_too_large: "El archivo supera el tamano permitido.",
   invalid_file_type: "Tipo de archivo no permitido.",
   invalid_file_name: "El nombre del archivo no es valido.",
   invalid_file_extension: "La extension del archivo no es valida para su tipo.",
-  upload_storage_unavailable: "No hay espacio o permisos para guardar adjuntos. Contacta al administrador.",
+  upload_storage_unavailable: "No se pudo guardar el adjunto en este momento.",
   internal_server_error: "No se pudo completar la carga del archivo en este momento.",
-  past_date_not_allowed: "No se permite registrar bitacoras en fechas anteriores.",
-  cannot_delete_current_user: "No puedes eliminar tu propio usuario.",
-  cannot_change_own_role: "No puedes cambiar tu propio rol admin.",
-  last_admin_not_allowed: "No puedes eliminar el ultimo admin del sistema.",
   invalid_current_password: "La contrasena actual es incorrecta.",
   refresh_token_required: "Sesion no disponible. Inicia sesion de nuevo.",
   invalid_refresh_token: "Sesion invalida. Inicia sesion otra vez.",
@@ -377,16 +362,16 @@ const state = {
     totalPages: 1,
     loading: false
   },
-  sessionCapabilities: null,
+  uiCaps: null,
   eventPayloadById: {},
   eventActionPermissions: {},
-  eventCorrelationDraft: [],
-  eventCorrelationSearchResults: [],
+  corrDraft: [],
+  corrResults: [],
   editingEventId: null,
   activeEventDetailId: null,
-  activeEventDetailPayload: null,
+  activeEventPayload: null,
   selectedEventId: null,
-  selectedEventPermissions: null,
+  eventAccess: null,
   attachmentsRepo: {
     page: 1,
     pageSize: 20,
@@ -401,16 +386,16 @@ const state = {
   sidebarOpen: true,
   pdfLogoDataUrl: "",
   pdfLogoFileName: "",
-  rolePermissionMetadata: {
+  rpMeta: {
     roles: [],
     actions: [],
     modules: []
   },
-  rolePermissionPolicies: {},
-  rolePermissionLimits: {},
-  rolePermissionUpdated: {},
+  rpPolicies: {},
+  rpLimits: {},
+  rpUpdated: {},
   selectedRolePolicy: "funcionario",
-  systemSettings: null,
+  sysCfg: null,
   charts: {
     users: null,
     criticality: null,
@@ -432,7 +417,7 @@ const state = {
   sessionWarningVisible: false,
   registroComposerOpen: false,
   tasksComposerOpen: false,
-  auditItemsById: {}
+  auditCache: {}
 };
 
 const APP_TIMEZONE = "America/Caracas";
@@ -760,7 +745,7 @@ function resolveErrorMessage(errorCode, details) {
     }
     return "Demasiadas solicitudes. Intenta en unos segundos.";
   }
-  return ERROR_MESSAGES[errorCode] || errorCode;
+  return ERROR_MESSAGES[errorCode] || "No se pudo completar la operacion.";
 }
 
 function readRetrySeconds(response, data) {
@@ -927,7 +912,7 @@ function openTelegramLinkCodeModal(payload) {
     command,
     "",
     "Pasos:",
-    "1. Abre el grupo privado donde esta el bot.",
+    "1. Abre Telegram.",
     "2. Envia el comando anterior.",
     "3. Luego usa /menu para abrir el panel interactivo.",
     "",
@@ -936,7 +921,7 @@ function openTelegramLinkCodeModal(payload) {
 
   openEntityModal({
     title: "Vincular Telegram",
-    meta: "Codigo temporal para conectar tu usuario web con Telegram.",
+    meta: "Codigo temporal para conectar tu usuario.",
     body,
     actions: [
       {
@@ -984,7 +969,7 @@ async function handleTelegramLinkCodeGeneration() {
       return;
     }
     if (response.status === 503) {
-      showToast("Telegram interactivo no esta habilitado en el servidor.", "error");
+      showToast("No se pudo generar el codigo en este momento.", "error");
       return;
     }
     showToast(resolveErrorMessage(data?.error, data?.details), "error");
@@ -1000,36 +985,36 @@ function canAccessPanel(path = getCurrentPanelPath()) {
   if (!capabilityKey) {
     return false;
   }
-  return Boolean(state.sessionCapabilities?.panels?.[capabilityKey]);
+  return Boolean(state.uiCaps?.panels?.[capabilityKey]);
 }
 
 function canManageTemplates() {
-  return Boolean(state.sessionCapabilities?.actions?.templates?.manage);
+  return Boolean(state.uiCaps?.actions?.templates?.manage);
 }
 
 function canFilterByUser() {
-  return Boolean(state.sessionCapabilities?.actions?.reports?.filterByUser);
+  return Boolean(state.uiCaps?.actions?.reports?.filterByUser);
 }
 
 function canManageUsers() {
-  return Boolean(state.sessionCapabilities?.actions?.users?.manage);
+  return Boolean(state.uiCaps?.actions?.users?.manage);
 }
 
 function canViewTasksScope() {
-  const taskActions = state.sessionCapabilities?.actions?.tasks;
+  const taskActions = state.uiCaps?.actions?.tasks;
   return Boolean(taskActions?.viewAny || taskActions?.viewOwnCreated || taskActions?.viewAssigned);
 }
 
 function canChangeOwnPassword() {
-  return Boolean(state.sessionCapabilities?.actions?.users?.changeOwnPassword);
+  return Boolean(state.uiCaps?.actions?.users?.changeOwnPassword);
 }
 
 function canCreateEvent() {
-  return Boolean(state.sessionCapabilities?.actions?.events?.create);
+  return Boolean(state.uiCaps?.actions?.events?.create);
 }
 
 function canExportReports() {
-  return Boolean(state.sessionCapabilities?.actions?.reports?.export);
+  return Boolean(state.uiCaps?.actions?.reports?.export);
 }
 
 function cloneJson(value) {
@@ -1040,7 +1025,7 @@ function getRolePolicyFor(roleKey) {
   if (!roleKey) {
     return null;
   }
-  const policy = state.rolePermissionPolicies?.[roleKey];
+  const policy = state.rpPolicies?.[roleKey];
   if (!policy || typeof policy !== "object") {
     return null;
   }
@@ -1051,7 +1036,7 @@ function getRolePolicyLimitFor(roleKey) {
   if (!roleKey) {
     return null;
   }
-  const limit = state.rolePermissionLimits?.[roleKey];
+  const limit = state.rpLimits?.[roleKey];
   if (!limit || typeof limit !== "object") {
     return null;
   }
@@ -1068,7 +1053,7 @@ function isAdminRequiredRbacAction(roleKey, moduleKey, actionKey) {
 }
 
 function formatRbacUpdatedMeta(roleKey) {
-  const record = state.rolePermissionUpdated?.[roleKey];
+  const record = state.rpUpdated?.[roleKey];
   if (!record) {
     return "Sin historial reciente.";
   }
@@ -1091,8 +1076,8 @@ function renderRolePolicyRoleOptions() {
   }
 
   clearElement(rbacRoleSelect);
-  const roles = Array.isArray(state.rolePermissionMetadata?.roles)
-    ? state.rolePermissionMetadata.roles
+  const roles = Array.isArray(state.rpMeta?.roles)
+    ? state.rpMeta.roles
     : [];
 
   if (!roles.length) {
@@ -1127,11 +1112,11 @@ function renderRolePolicyTable() {
   clearElement(rbacTableBody);
 
   const roleKey = state.selectedRolePolicy;
-  const modules = Array.isArray(state.rolePermissionMetadata?.modules)
-    ? state.rolePermissionMetadata.modules
+  const modules = Array.isArray(state.rpMeta?.modules)
+    ? state.rpMeta.modules
     : [];
-  const actions = Array.isArray(state.rolePermissionMetadata?.actions)
-    ? state.rolePermissionMetadata.actions
+  const actions = Array.isArray(state.rpMeta?.actions)
+    ? state.rpMeta.actions
     : [];
   const rolePolicy = getRolePolicyFor(roleKey);
   const roleLimit = getRolePolicyLimitFor(roleKey);
@@ -1365,8 +1350,8 @@ function cancelEventCorrelationSearch() {
 
 function resetEventCorrelationDraft() {
   cancelEventCorrelationSearch();
-  state.eventCorrelationDraft = [];
-  state.eventCorrelationSearchResults = [];
+  state.corrDraft = [];
+  state.corrResults = [];
   if (eventCorrelationSearchInput) {
     eventCorrelationSearchInput.value = "";
   }
@@ -1394,8 +1379,8 @@ function renderEventCorrelationResults(message = "") {
     return;
   }
 
-  const results = Array.isArray(state.eventCorrelationSearchResults)
-    ? state.eventCorrelationSearchResults
+  const results = Array.isArray(state.corrResults)
+    ? state.corrResults
     : [];
   if (results.length === 0) {
     const empty = document.createElement("p");
@@ -1441,7 +1426,7 @@ function renderEventCorrelationSelected() {
   }
 
   clearElement(eventCorrelationSelected);
-  const draft = Array.isArray(state.eventCorrelationDraft) ? state.eventCorrelationDraft : [];
+  const draft = Array.isArray(state.corrDraft) ? state.corrDraft : [];
   if (eventCorrelationsCount) {
     eventCorrelationsCount.textContent = `${draft.length} seleccionada${draft.length === 1 ? "" : "s"}`;
   }
@@ -1490,7 +1475,7 @@ async function searchEventCorrelationsNow() {
 
   const query = eventCorrelationSearchInput.value.trim();
   if (query.length < 2) {
-    state.eventCorrelationSearchResults = [];
+    state.corrResults = [];
     renderEventCorrelationResults();
     return;
   }
@@ -1532,9 +1517,9 @@ async function searchEventCorrelationsNow() {
     return;
   }
 
-  state.eventCorrelationSearchResults = Array.isArray(data?.results) ? data.results : [];
+  state.corrResults = Array.isArray(data?.results) ? data.results : [];
   renderEventCorrelationResults(
-    state.eventCorrelationSearchResults.length === 0 ? "No hay coincidencias visibles." : ""
+    state.corrResults.length === 0 ? "No hay coincidencias visibles." : ""
   );
 }
 
@@ -1550,7 +1535,7 @@ function scheduleEventCorrelationSearch() {
 
 function addEventCorrelationDraft(eventId) {
   const targetEventId = Number(eventId || 0);
-  const item = state.eventCorrelationSearchResults.find((candidate) => Number(candidate.id) === targetEventId);
+  const item = state.corrResults.find((candidate) => Number(candidate.id) === targetEventId);
   if (!item) {
     return;
   }
@@ -1558,7 +1543,7 @@ function addEventCorrelationDraft(eventId) {
   const relationType = String(eventCorrelationTypeInput?.value || "relacionado");
   const note = String(eventCorrelationNoteInput?.value || "").trim().slice(0, 500);
   const key = getCorrelationDraftKey(targetEventId, relationType);
-  const existingIndex = state.eventCorrelationDraft.findIndex(
+  const existingIndex = state.corrDraft.findIndex(
     (candidate) => getCorrelationDraftKey(candidate.targetEventId, candidate.relationType) === key
   );
 
@@ -1572,9 +1557,9 @@ function addEventCorrelationDraft(eventId) {
   };
 
   if (existingIndex >= 0) {
-    state.eventCorrelationDraft[existingIndex] = draftItem;
+    state.corrDraft[existingIndex] = draftItem;
   } else {
-    state.eventCorrelationDraft.push(draftItem);
+    state.corrDraft.push(draftItem);
   }
 
   renderEventCorrelationSelected();
@@ -1583,7 +1568,7 @@ function addEventCorrelationDraft(eventId) {
 
 function removeEventCorrelationDraft(key) {
   const normalizedKey = String(key || "");
-  state.eventCorrelationDraft = state.eventCorrelationDraft.filter(
+  state.corrDraft = state.corrDraft.filter(
     (item) => getCorrelationDraftKey(item.targetEventId, item.relationType) !== normalizedKey
   );
   renderEventCorrelationSelected();
@@ -1591,7 +1576,7 @@ function removeEventCorrelationDraft(key) {
 
 async function persistEventCorrelationDraft(sourceEventId) {
   const normalizedSourceId = Number(sourceEventId || 0);
-  const draft = Array.isArray(state.eventCorrelationDraft) ? [...state.eventCorrelationDraft] : [];
+  const draft = Array.isArray(state.corrDraft) ? [...state.corrDraft] : [];
   if (!normalizedSourceId || draft.length === 0) {
     return { created: 0, skipped: 0, failed: 0 };
   }
@@ -1602,7 +1587,7 @@ async function persistEventCorrelationDraft(sourceEventId) {
 
   for (const item of draft) {
     // eslint-disable-next-line no-await-in-loop
-    const { response, data, networkError } = await apiAuth(`/events/${normalizedSourceId}/correlations`, {
+    const { response, networkError } = await apiAuth(`/events/${normalizedSourceId}/correlations`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1620,7 +1605,7 @@ async function persistEventCorrelationDraft(sourceEventId) {
       created += 1;
       continue;
     }
-    if (response.status === 409 || data?.error === "correlation_already_exists") {
+    if (response.status === 409) {
       skipped += 1;
       continue;
     }
@@ -1631,7 +1616,7 @@ async function persistEventCorrelationDraft(sourceEventId) {
 }
 
 function canUploadToSelectedEvent() {
-  return Boolean(state.selectedEventPermissions?.canUpload);
+  return Boolean(state.eventAccess?.canUpload);
 }
 
 function setAuthView(view) {
@@ -2027,13 +2012,13 @@ function refreshAttachmentUploadState() {
 
 function clearSession() {
   state.user = null;
-  state.sessionCapabilities = null;
+  state.uiCaps = null;
   state.users = [];
   state.templates = [];
   state.eventPayloadById = {};
   state.eventActionPermissions = {};
-  state.eventCorrelationDraft = [];
-  state.eventCorrelationSearchResults = [];
+  state.corrDraft = [];
+  state.corrResults = [];
   state.setupToken = null;
   state.report = {
     page: 1,
@@ -2042,23 +2027,23 @@ function clearSession() {
   };
   state.editingEventId = null;
   state.activeEventDetailId = null;
-  state.activeEventDetailPayload = null;
+  state.activeEventPayload = null;
   state.selectedEventId = null;
-  state.selectedEventPermissions = null;
+  state.eventAccess = null;
   state.attachmentsRepo = { page: 1, pageSize: 20, totalPages: 1, total: 0 };
   state.authView = getRequestedAuthView();
   state.authPopup = getAuthPopupMode();
   state.sidebarOpen = true;
-  state.rolePermissionMetadata = {
+  state.rpMeta = {
     roles: [],
     actions: [],
     modules: []
   };
-  state.rolePermissionPolicies = {};
-  state.rolePermissionLimits = {};
-  state.rolePermissionUpdated = {};
+  state.rpPolicies = {};
+  state.rpLimits = {};
+  state.rpUpdated = {};
   state.selectedRolePolicy = "funcionario";
-  state.systemSettings = null;
+  state.sysCfg = null;
   state.sidebarGroups = loadSidebarGroupPreferences();
   state.notifications = { items: [], unread: 0, open: false };
   state.sessionRuntime = { idleTimeoutMinutes: 120, warningMinutes: 5, keepAliveIntervalMinutes: 5 };
@@ -2067,7 +2052,7 @@ function clearSession() {
   state.sessionWarningVisible = false;
   state.registroComposerOpen = false;
   state.tasksComposerOpen = false;
-  state.auditItemsById = {};
+  state.auditCache = {};
 
   stopSessionRuntimeHandlers();
   stopNotificationsPolling();
@@ -2145,14 +2130,14 @@ function clearSession() {
 function applySessionUser(userPayload) {
   if (!userPayload || typeof userPayload !== "object") {
     state.user = null;
-    state.sessionCapabilities = null;
+    state.uiCaps = null;
     return false;
   }
 
   const userId = Number(userPayload.id);
   if (!Number.isInteger(userId) || userId <= 0) {
     state.user = null;
-    state.sessionCapabilities = null;
+    state.uiCaps = null;
     return false;
   }
 
@@ -2162,11 +2147,11 @@ function applySessionUser(userPayload) {
     email: String(userPayload.email || ""),
     role: String(userPayload.role || "")
   };
-  state.sessionCapabilities = userPayload.capabilities && typeof userPayload.capabilities === "object"
+  state.uiCaps = userPayload.capabilities && typeof userPayload.capabilities === "object"
     ? userPayload.capabilities
     : null;
 
-  return Boolean(state.sessionCapabilities);
+  return Boolean(state.uiCaps);
 }
 
 function setKpi(report) {
@@ -2979,7 +2964,7 @@ function renderAuditTimeline(items = []) {
   }
 
   clearElement(auditTimeline);
-  state.auditItemsById = {};
+  state.auditCache = {};
 
   if (!Array.isArray(items) || items.length === 0) {
     const empty = document.createElement("li");
@@ -2992,7 +2977,7 @@ function renderAuditTimeline(items = []) {
   items.forEach((item) => {
     const id = Number(item.id || 0);
     if (id > 0) {
-      state.auditItemsById[String(id)] = item;
+      state.auditCache[String(id)] = item;
     }
 
     const appearance = resolveAuditEventAppearance(item.action);
@@ -3113,7 +3098,7 @@ function handleAuditTimelineClick(event) {
   }
 
   const auditId = String(detailButton.dataset.auditId || "").trim();
-  const item = state.auditItemsById?.[auditId];
+  const item = state.auditCache?.[auditId];
   if (!item) {
     return;
   }
@@ -3251,16 +3236,16 @@ async function loadRolePermissionsPanel() {
     return;
   }
 
-  state.rolePermissionMetadata = {
+  state.rpMeta = {
     roles: Array.isArray(data?.roles) ? data.roles : [],
     actions: Array.isArray(data?.actions) ? data.actions : [],
     modules: Array.isArray(data?.modules) ? data.modules : []
   };
-  state.rolePermissionPolicies =
+  state.rpPolicies =
     data?.policies && typeof data.policies === "object" ? cloneJson(data.policies) : {};
-  state.rolePermissionLimits =
+  state.rpLimits =
     data?.limits && typeof data.limits === "object" ? cloneJson(data.limits) : {};
-  state.rolePermissionUpdated =
+  state.rpUpdated =
     data?.updated && typeof data.updated === "object" ? cloneJson(data.updated) : {};
 
   renderRolePolicyRoleOptions();
@@ -3308,7 +3293,7 @@ function handleRbacTableChange(event) {
   }
   policy[moduleKey][actionKey] = target.checked;
 
-  state.rolePermissionPolicies[roleKey] = policy;
+  state.rpPolicies[roleKey] = policy;
 }
 
 async function handleRbacSave() {
@@ -3349,7 +3334,7 @@ async function handleRbacSave() {
   }
 
   if (data?.permissions) {
-    state.rolePermissionPolicies[roleKey] = cloneJson(data.permissions);
+    state.rpPolicies[roleKey] = cloneJson(data.permissions);
   }
 
   setRbacMetaMessage("Permisos actualizados correctamente. Recargando estado...");
@@ -3395,9 +3380,9 @@ async function loadSystemSettingsPanel() {
     return;
   }
 
-  state.systemSettings = cloneJson(data || {});
-  setSystemSettingsFormValues(state.systemSettings);
-  state.sessionRuntime = normalizeSessionRuntimeConfig(state.systemSettings?.session);
+  state.sysCfg = cloneJson(data || {});
+  setSystemSettingsFormValues(state.sysCfg);
+  state.sessionRuntime = normalizeSessionRuntimeConfig(state.sysCfg?.session);
   setSettingsMetaMessage("Configuracion cargada correctamente.");
 }
 
@@ -3441,9 +3426,9 @@ async function handleSystemSettingsSave(event) {
   }
 
   if (data?.settings) {
-    state.systemSettings = cloneJson(data.settings);
-    setSystemSettingsFormValues(state.systemSettings);
-    state.sessionRuntime = normalizeSessionRuntimeConfig(state.systemSettings?.session);
+    state.sysCfg = cloneJson(data.settings);
+    setSystemSettingsFormValues(state.sysCfg);
+    state.sessionRuntime = normalizeSessionRuntimeConfig(state.sysCfg?.session);
     if (state.user) {
       state.sessionLastActivityAt = Date.now();
       scheduleSessionRuntimeHandlers();
@@ -4439,7 +4424,7 @@ async function loadTrends() {
 
 async function loadAttachments(eventId) {
   state.selectedEventId = Number(eventId);
-  state.selectedEventPermissions = null;
+  state.eventAccess = null;
   attachmentEventId.value = String(eventId);
   refreshAttachmentUploadState();
 
@@ -4463,7 +4448,7 @@ async function loadAttachments(eventId) {
   const payloadPermissions = data && !Array.isArray(data) ? data.permissions : null;
   const fallbackPermissions = getEventActionPermissions(eventId);
 
-  state.selectedEventPermissions = {
+  state.eventAccess = {
     canUpload: payloadPermissions
       ? Boolean(payloadPermissions.canUpload)
       : Boolean(fallbackPermissions?.canUploadAttachments),
@@ -5076,7 +5061,7 @@ async function refreshRouteFromRealtime(payload) {
       Number(payload.sourceEventId || 0) === activeDetailId ||
       Number(payload.targetEventId || 0) === activeDetailId)
   ) {
-    await openEventDetailModal(activeDetailId, state.activeEventDetailPayload);
+    await openEventDetailModal(activeDetailId, state.activeEventPayload);
   }
 
   if (route === "/dashboard") {
@@ -5791,7 +5776,7 @@ async function handleAttachmentRename(attachmentId, currentName) {
 }
 
 async function handleAttachmentDelete(attachmentId) {
-  if (!window.confirm("Â¿Eliminar este adjunto? Esta acciÃ³n no se puede deshacer.")) {
+  if (!window.confirm("¿Eliminar este adjunto? Esta acción no se puede deshacer.")) {
     return;
   }
 
@@ -5982,7 +5967,7 @@ async function handleEventDelete(button) {
 
   if (String(state.selectedEventId) === String(eventId)) {
     state.selectedEventId = null;
-    state.selectedEventPermissions = null;
+    state.eventAccess = null;
     clearElement(attachmentList);
     attachmentEventId.value = "";
     refreshAttachmentUploadState();
@@ -6680,7 +6665,7 @@ function closeEntityModal() {
   entityModal.setAttribute("aria-hidden", "true");
   state.sessionWarningVisible = false;
   state.activeEventDetailId = null;
-  state.activeEventDetailPayload = null;
+  state.activeEventPayload = null;
   document.body.classList.remove("modal-open");
 }
 
@@ -6817,7 +6802,7 @@ async function openEventDetailModal(eventId, payload) {
   }
 
   state.activeEventDetailId = Number(eventId || 0) || null;
-  state.activeEventDetailPayload = payload;
+  state.activeEventPayload = payload;
 
   const modalMeta = `${payload.encargado || "-"} | ${formatDate(payload.fecha)} | ${formatPriorityLabel(
     payload.prioridad
@@ -7810,103 +7795,3 @@ async function bootstrap() {
 }
 
 bootstrap();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
