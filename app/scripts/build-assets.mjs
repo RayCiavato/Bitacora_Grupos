@@ -42,19 +42,23 @@ const minifyOptions = {
   }
 };
 
-const DOM_SELECTOR_DECODER = "const __bitacoraDom=e=>atob(e);";
+const DOM_SELECTOR_XOR_KEY = 73;
+const DOM_SELECTOR_DECODER = `const _0x5a=e=>new TextDecoder().decode(Uint8Array.from(e.match(/../g)||[],t=>parseInt(t,16)^${DOM_SELECTOR_XOR_KEY}));`;
 const DOM_SELECTOR_METHODS = "getElementById|querySelectorAll|querySelector|closest|matches";
 const DOM_SELECTOR_DOUBLE_QUOTED = new RegExp(
-  `\\b(${DOM_SELECTOR_METHODS})\\("([^"\\\\]*)"\\)`,
+  `\\.(${DOM_SELECTOR_METHODS})\\("([^"\\\\]*)"\\)`,
   "g"
 );
 const DOM_SELECTOR_SINGLE_QUOTED = new RegExp(
-  `\\b(${DOM_SELECTOR_METHODS})\\('([^'\\\\]*)'\\)`,
+  `\\.(${DOM_SELECTOR_METHODS})\\('([^'\\\\]*)'\\)`,
   "g"
 );
+const DOM_SELECTOR_METHOD_REFERENCE = new RegExp(`\\.(${DOM_SELECTOR_METHODS})\\(`, "g");
 
-function encodeBase64(value) {
-  return Buffer.from(value, "utf8").toString("base64");
+function encodeDomToken(value) {
+  return Array.from(Buffer.from(value, "utf8"), (byte) =>
+    (byte ^ DOM_SELECTOR_XOR_KEY).toString(16).padStart(2, "0")
+  ).join("");
 }
 
 function encodeDomSelectorLiterals(code) {
@@ -62,11 +66,15 @@ function encodeDomSelectorLiterals(code) {
   let replaced = false;
   const replacer = (match, method, literal) => {
     replaced = true;
-    return `${method}(__bitacoraDom("${encodeBase64(literal)}"))`;
+    return `[_0x5a("${encodeDomToken(method)}")](_0x5a("${encodeDomToken(literal)}"))`;
   };
 
   encoded = encoded.replace(DOM_SELECTOR_DOUBLE_QUOTED, replacer);
   encoded = encoded.replace(DOM_SELECTOR_SINGLE_QUOTED, replacer);
+  encoded = encoded.replace(DOM_SELECTOR_METHOD_REFERENCE, (match, method) => {
+    replaced = true;
+    return `[_0x5a("${encodeDomToken(method)}")](`;
+  });
 
   return replaced ? `${DOM_SELECTOR_DECODER}${encoded}` : code;
 }

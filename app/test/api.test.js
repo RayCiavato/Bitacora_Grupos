@@ -124,8 +124,8 @@ test("GET /assets/tasks.min.js como asset controlado devuelve 200", async () => 
 test("GET /tareas sirve index con referencias a assets minificados", async () => {
   const response = await request(app).get("/tareas");
   assert.equal(response.status, 200);
-  assert.match(String(response.text || ""), /\/assets\/app\.min\.js\?asset=web&v=23/);
-  assert.match(String(response.text || ""), /\/assets\/tasks\.min\.js\?asset=tasks&v=23/);
+  assert.match(String(response.text || ""), /\/assets\/app\.min\.js\?asset=web&v=24/);
+  assert.match(String(response.text || ""), /\/assets\/tasks\.min\.js\?asset=tasks&v=24/);
   assert.match(String(response.text || ""), /\/assets\/security\.min\.js\?asset=sec/);
   assert.doesNotMatch(String(response.text || ""), /\/tasks\.js\?asset=tasks/);
 });
@@ -134,10 +134,10 @@ test("service worker usa cache versionada para invalidar bundles antiguos", () =
   const swPath = path.join(__dirname, "..", "src", "public", "sw.js");
   const swSource = fs.readFileSync(swPath, "utf8");
 
-  assert.match(swSource, /bitacora-v23/);
-  assert.match(swSource, /\/assets\/app\.min\.js\?asset=web&v=23/);
-  assert.match(swSource, /\/assets\/tasks\.min\.js\?asset=tasks&v=23/);
-  assert.doesNotMatch(swSource, /bitacora-v22/);
+  assert.match(swSource, /bitacora-v24/);
+  assert.match(swSource, /\/assets\/app\.min\.js\?asset=web&v=24/);
+  assert.match(swSource, /\/assets\/tasks\.min\.js\?asset=tasks&v=24/);
+  assert.doesNotMatch(swSource, /bitacora-v23/);
 });
 
 test("app.min.js esta minimizado y sin source map publico", () => {
@@ -199,9 +199,13 @@ test("assets frontend no exponen patrones peligrosos ni diccionarios internos", 
     "settingsSection",
     "telegramLinkBtn",
     "notificationsDropdown",
-    'getElementById("',
-    "querySelector(\"",
-    "querySelectorAll(\""
+    "__bitacoraDom",
+    "atob(",
+    "getElementById",
+    "querySelector",
+    "querySelectorAll",
+    "closest(",
+    "matches("
   ];
 
   for (const assetName of assetNames) {
