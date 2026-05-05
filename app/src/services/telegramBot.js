@@ -745,6 +745,27 @@ async function sendTelegramMessage(chatId, text, options = {}) {
   });
 }
 
+function isTelegramNoopEditError(result) {
+  const error = String(result?.error || "").toLowerCase();
+  return error.includes("message is not modified");
+}
+
+async function editTelegramMessageText(chatId, messageId, text, options = {}) {
+  const normalizedChatId = normalizeTelegramChatId(chatId);
+  const normalizedMessageId = Number(messageId);
+  if (!normalizedChatId || !Number.isSafeInteger(normalizedMessageId) || normalizedMessageId <= 0) {
+    return { ok: false, error: "telegram_edit_target_missing" };
+  }
+
+  return telegramApiRequest("editMessageText", {
+    chat_id: normalizedChatId,
+    message_id: normalizedMessageId,
+    text: sanitizeTelegramMessage(text, "-", 3900),
+    disable_web_page_preview: options.disableWebPagePreview !== false,
+    reply_markup: options.replyMarkup || undefined
+  });
+}
+
 async function sendTelegramMessageChunked(chatId, text, options = {}) {
   const chunks = splitMessageChunks(text);
   let lastResult = { ok: true };
@@ -1465,9 +1486,29 @@ async function buildTaskSearchMessage(user, rawQuery) {
     .trim();
 }
 
-async function sendPanelMenu(chatId) {
-  return sendTelegramMessage(chatId, "Panel de Control", {
-    replyMarkup: buildMainMenuKeyboard()
+async function sendPanelMenu(chatId, options = {}) {
+  const text = "Panel de Control";
+  const replyMarkup = buildMainMenuKeyboard();
+
+  if (options.editMessageId) {
+    const editResult = await editTelegramMessageText(chatId, options.editMessageId, text, {
+      replyMarkup
+    });
+    if (editResult.ok || isTelegramNoopEditError(editResult)) {
+      return { ok: true, edited: true };
+    }
+
+    logger.warn(
+      {
+        error: editResult.error,
+        statusCode: editResult.statusCode || null
+      },
+      "No se pudo editar mensaje de menu Telegram; se enviara uno nuevo"
+    );
+  }
+
+  return sendTelegramMessage(chatId, text, {
+    replyMarkup
   });
 }
 
@@ -1818,29 +1859,33 @@ async function handleCallbackQuery(update, context = {}) {
     return;
   }
 
-  const throttle = evaluateUserThrottle(telegramUserId);
-  if (!throttle.allowed) {
-    await answerCallbackQuery(callbackId, "Espera unos segundos y vuelve a intentar.");
-    await auditTelegramAction({
-      chatId,
-      telegramUserId,
-      auditAction: "telegram.bot.callback",
-      action: data.slice(0, 80),
-      result: "fail",
-      reason: throttle.reason || "throttled",
-      details: {
-        retryAfterSeconds: Math.max(0, Number(throttle.retryAfterSeconds) || 0)
-      },
-      reqContext
-    });
+  if (!data.startsWith(MENU_CALLBACK_PREFIX)) {
+    await answerCallbackQuery(callbackId);
     return;
+  }
+
+  const action = data.slice(MENU_CALLBACK_PREFIX.length);
+  if (action !== "home") {
+    const throttle = evaluateUserThrottle(telegramUserId);
+    if (!throttle.allowed) {
+      await answerCallbackQuery(callbackId, "Espera unos segundos y vuelve a intentar.");
+      await auditTelegramAction({
+        chatId,
+        telegramUserId,
+        auditAction: "telegram.bot.callback",
+        action: data.slice(0, 80),
+        result: "fail",
+        reason: throttle.reason || "throttled",
+        details: {
+          retryAfterSeconds: Math.max(0, Number(throttle.retryAfterSeconds) || 0)
+        },
+        reqContext
+      });
+      return;
+    }
   }
 
   await answerCallbackQuery(callbackId);
-
-  if (!data.startsWith(MENU_CALLBACK_PREFIX)) {
-    return;
-  }
 
   if (!isAllowedGroupChat(chat)) {
     await sendUserFriendlyError(chat.id, "chat_not_allowed");
@@ -1851,6 +1896,23 @@ async function handleCallbackQuery(update, context = {}) {
       action: data.slice(0, 80),
       result: "fail",
       reason: "chat_not_allowed",
+      reqContext
+    });
+    return;
+  }
+
+  if (action === "home") {
+    const menuResult = await sendPanelMenu(chat.id, {
+      editMessageId: callback?.message?.message_id || null
+    });
+    await auditTelegramAction({
+      userId: null,
+      chatId,
+      telegramUserId,
+      auditAction: "telegram.bot.callback",
+      action,
+      result: menuResult?.ok ? "success" : "fail",
+      reason: menuResult?.ok ? null : menuResult?.error || "menu_send_failed",
       reqContext
     });
     return;
@@ -1867,11 +1929,7 @@ async function handleCallbackQuery(update, context = {}) {
     return;
   }
 
-  const action = data.slice(MENU_CALLBACK_PREFIX.length);
   switch (action) {
-    case "home":
-      await sendPanelMenu(chat.id);
-      break;
     case "tasks": {
       const text = await buildMyTasksMessage(linkedUser);
       await sendTelegramMessageChunked(chat.id, text, {
