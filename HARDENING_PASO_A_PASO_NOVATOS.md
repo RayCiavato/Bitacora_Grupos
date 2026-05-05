@@ -20,6 +20,24 @@ Ruta de trabajo usada en este proyecto:
 
 ---
 
+## 0.1) Credenciales temporales sin quemarlas en GitHub
+
+- No se guardan passwords reales por defecto en el repositorio.
+- Para evitar errores de tipeo, genera secretos temporales con `scripts/setup-env.sh` en el servidor.
+- Las credenciales generadas viven solo en `.env`; ese archivo no debe subirse a GitHub.
+- Cambia la password temporal del admin despues del primer acceso.
+- Si usas una password temporal manual, pasala solo como argumento del script en el servidor.
+
+Comando recomendado:
+
+```bash
+cd ~/apps/Bitacora_gestor_tareas
+bash scripts/setup-env.sh --app-domain 10.156.99.35 --admin-email admin@n1njahack.local --force
+bash scripts/deploy-safe.sh --ensure-admin
+```
+
+---
+
 ## 1) Quick wins de seguridad (sin romper)
 
 ### 1.1 Endurecer .env en produccion

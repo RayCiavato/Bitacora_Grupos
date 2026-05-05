@@ -106,6 +106,16 @@ const DATE_ONLY_FORMATTER = new Intl.DateTimeFormat("es-VE", {
   year: "numeric"
 });
 
+const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("es-VE", {
+  timeZone: APP_TIMEZONE,
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false
+});
+
 const STATUS_LABELS = Object.freeze({
   sin_realizar: "Sin realizar",
   en_proceso: "En proceso",
@@ -605,6 +615,46 @@ function formatDateCaracas(value) {
     return normalizeText(value);
   }
   return DATE_ONLY_FORMATTER.format(parsed);
+}
+
+function formatDateTimeCaracas(value) {
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "-";
+  }
+  return DATE_TIME_FORMATTER.format(parsed);
+}
+
+function toMetricCount(value) {
+  const normalized = Number(value || 0);
+  return Number.isFinite(normalized) ? Math.max(0, normalized) : 0;
+}
+
+function metricDot(value, activeDot = "🔵", emptyDot = "🟢") {
+  return toMetricCount(value) > 0 ? activeDot : emptyDot;
+}
+
+function metricLine(label, value, { activeDot = "🔵", emptyDot = "🟢" } = {}) {
+  return `${metricDot(value, activeDot, emptyDot)} ${label}: ${toMetricCount(value)}`;
+}
+
+function buildTelegramRiskSummary({
+  overdue = 0,
+  critical = 0,
+  high = 0,
+  dueSoon = 0,
+  pending = 0
+} = {}) {
+  if (toMetricCount(overdue) > 0 || toMetricCount(critical) > 0) {
+    return "Semaforo: 🔴 Atencion inmediata";
+  }
+  if (toMetricCount(high) > 0 || toMetricCount(dueSoon) > 0) {
+    return "Semaforo: 🟠 Revisar pronto";
+  }
+  if (toMetricCount(pending) > 0) {
+    return "Semaforo: 🟡 Seguimiento normal";
+  }
+  return "Semaforo: 🟢 Sin alertas activas";
 }
 
 function toTaskLine(task) {
@@ -1418,12 +1468,21 @@ async function buildAlertsMessage(user) {
   return [
     "Alertas operativas",
     "",
-    `- Vencidas: ${Number(counts.overdue || 0)}`,
-    `- Proximas a vencer (7 dias): ${Number(counts.dueSoon || 0)}`,
-    `- Criticas: ${Number(counts.critical || 0)}`,
-    `- Prioridad alta: ${Number(counts.high || 0)}`,
-    `- Prioridad media: ${Number(counts.medium || 0)}`,
-    `- Prioridad baja: ${Number(counts.low || 0)}`
+    buildTelegramRiskSummary({
+      overdue: counts.overdue,
+      critical: counts.critical,
+      high: counts.high,
+      dueSoon: counts.dueSoon
+    }),
+    "",
+    metricLine("Vencidas", counts.overdue, { activeDot: "🔴" }),
+    metricLine("Proximas a vencer (7 dias)", counts.dueSoon, { activeDot: "🟡" }),
+    metricLine("Criticas", counts.critical, { activeDot: "🔴" }),
+    metricLine("Prioridad alta", counts.high, { activeDot: "🟠" }),
+    metricLine("Prioridad media", counts.medium, { activeDot: "🟡" }),
+    metricLine("Prioridad baja", counts.low, { activeDot: "🔵" }),
+    "",
+    `Actualizado: ${formatDateTimeCaracas(new Date())}`
   ].join("\n");
 }
 
@@ -1474,21 +1533,35 @@ async function buildGeneralStatusMessage(user) {
     Number(totals.enProceso || 0) +
     Number(totals.pendienteRevision || 0);
   const alerts = taskAlerts?.counts || {};
+  const overdue = Number(totals.vencidas || 0);
+  const critical = Number(alerts.critical || 0);
+  const high = Number(alerts.high || 0);
+  const dueSoon = Number(alerts.dueSoon || 0);
 
   return [
     "Estado general",
     "",
+    buildTelegramRiskSummary({
+      overdue,
+      critical,
+      high,
+      dueSoon,
+      pending
+    }),
+    "",
     "Tareas:",
-    `- Total: ${Number(totals.total || 0)}`,
-    `- Pendientes: ${pending}`,
-    `- Completadas: ${Number(totals.completada || 0)}`,
-    `- Vencidas: ${Number(totals.vencidas || 0)}`,
-    `- Criticas activas: ${Number(alerts.critical || 0)}`,
+    metricLine("Total", totals.total, { activeDot: "🔵", emptyDot: "⚪" }),
+    metricLine("Pendientes", pending, { activeDot: "🟡", emptyDot: "🟢" }),
+    metricLine("Completadas", totals.completada, { activeDot: "🟢", emptyDot: "⚪" }),
+    metricLine("Vencidas", overdue, { activeDot: "🔴" }),
+    metricLine("Criticas activas", critical, { activeDot: "🔴" }),
     "",
     "Bitacoras:",
-    `- Total: ${Number(bitacoraTotals.total || 0)}`,
-    `- Hoy: ${Number(bitacoraTotals.today || 0)}`,
-    `- Criticas (7 dias): ${Number(bitacoraTotals.critical || 0)}`
+    metricLine("Total", bitacoraTotals.total, { activeDot: "🔵", emptyDot: "⚪" }),
+    metricLine("Hoy", bitacoraTotals.today, { activeDot: "🔵", emptyDot: "⚪" }),
+    metricLine("Criticas (7 dias)", bitacoraTotals.critical, { activeDot: "🔴" }),
+    "",
+    `Actualizado: ${formatDateTimeCaracas(new Date())}`
   ].join("\n");
 }
 

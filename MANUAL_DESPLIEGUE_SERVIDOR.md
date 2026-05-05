@@ -24,6 +24,38 @@ Importante:
 - La password de DB conviene URL-safe (`A-Za-z0-9_-`) para evitar errores en `DATABASE_URL`.
 - Guarda las credenciales solo en `.env` del servidor o en tu gestor de secretos.
 
+### Opcion segura para no equivocarte tipeando passwords
+
+No se deja una password fija en el repositorio. Si quieres evitar errores, deja que el servidor genere passwords temporales fuertes:
+
+```bash
+cd ~/apps/Bitacora_gestor_tareas
+chmod +x scripts/*.sh
+
+bash scripts/setup-env.sh \
+  --app-domain 10.156.99.35 \
+  --admin-email admin@n1njahack.local \
+  --admin-name "Administrador Principal" \
+  --force
+
+bash scripts/deploy-safe.sh --ensure-admin
+
+# Ver solo dentro del servidor. No subir ni compartir este output.
+grep -E '^(ADMIN_DEFAULT_EMAIL|ADMIN_DEFAULT_PASSWORD|POSTGRES_PASSWORD|GRAFANA_ADMIN_PASSWORD)=' .env
+```
+
+Si necesitas usar una password temporal elegida por ti, pasala solo en servidor:
+
+```bash
+bash scripts/setup-env.sh \
+  --app-domain 10.156.99.35 \
+  --admin-email admin@n1njahack.local \
+  --admin-password 'TU_PASSWORD_TEMPORAL_FUERTE' \
+  --db-password 'DB_PASSWORD_URL_SAFE' \
+  --grafana-password 'GRAFANA_PASSWORD_TEMPORAL' \
+  --force
+```
+
 ---
 
 ## 2) Prechecks obligatorios en servidor

@@ -26,6 +26,30 @@ Usa passwords fuertes y guardalos solo en el `.env` del servidor o en tu gestor 
 
 ---
 
+## Passwords temporales sin errores de tipeo
+
+No se publica una password fija en GitHub. Para evitar errores al escribir credenciales, usa el generador del servidor: crea valores temporales fuertes, los guarda solo en `.env` y los muestra en consola para que puedas anotarlos y cambiarlos luego.
+
+```bash
+cd ~/apps/Bitacora_gestor_tareas
+chmod +x scripts/*.sh
+
+bash scripts/setup-env.sh \
+  --app-domain 10.156.99.35 \
+  --admin-email admin@n1njahack.local \
+  --admin-name "Administrador Principal" \
+  --force
+
+bash scripts/deploy-safe.sh --ensure-admin
+
+# Ver solo en el servidor. No pegues este output en GitHub ni en chats publicos.
+grep -E '^(ADMIN_DEFAULT_EMAIL|ADMIN_DEFAULT_PASSWORD|POSTGRES_PASSWORD|GRAFANA_ADMIN_PASSWORD)=' .env
+```
+
+Si prefieres una password temporal definida por ti, pasala solo al script en el servidor con `--admin-password`, `--db-password` y `--grafana-password`.
+
+---
+
 ## Despliegue rapido recomendado
 
 ```bash
