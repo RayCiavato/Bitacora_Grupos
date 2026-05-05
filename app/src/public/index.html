@@ -12,7 +12,7 @@
       href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=27" />
   </head>
   <body>
     <canvas id="matrixCanvas" class="matrix-canvas" aria-hidden="true"></canvas>
@@ -776,7 +776,7 @@
                   </div>
                   <button id="tasksNewTaskBtn" type="button" class="btn btn-primary">+ Nueva tarea</button>
                 </div>
-                <div class="tasks-layout">
+                <div class="tasks-layout tasks-layout--single">
                   <article id="tasksComposerPanel" class="tasks-panel tasks-composer-panel hidden">
                     <h4 id="taskFormTitle">Nueva tarea</h4>
                     <form id="taskForm" class="form">
@@ -836,7 +836,7 @@
                     </article>
                   </article>
 
-                  <article class="tasks-panel">
+                  <article class="tasks-panel tasks-list-panel">
                     <form id="tasksFilterForm" class="report-filters tasks-filter-form">
                       <div class="tasks-filter-primary">
                         <label>
@@ -1370,8 +1370,8 @@
     <div id="overlay-root" class="notifications-overlay-root" aria-hidden="true"></div>
     <div id="toast" class="toast hidden" aria-live="polite"></div>
     <script src="/assets/security.min.js?asset=sec" defer></script>
-    <script src="/assets/app.min.js?asset=web&v=26" defer></script>
-    <script src="/assets/tasks.min.js?asset=tasks&v=26" defer></script>
+    <script src="/assets/app.min.js?asset=web&v=27" defer></script>
+    <script src="/assets/tasks.min.js?asset=tasks&v=27" defer></script>
   </body>
 </html>
 

@@ -1518,6 +1518,12 @@ th {
   width: 100%;
 }
 
+/* CSS fallback: if JS has not synced the single-column state yet, the visible list still fills the module. */
+.tasks-layout > .tasks-composer-panel.hidden + .tasks-list-panel {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
 .tasks-filter-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1529,7 +1535,7 @@ th {
 
 .tasks-filter-primary {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   grid-column: 1 / -1;
   gap: 0.55rem;
 }
@@ -1599,6 +1605,12 @@ th {
   padding: 0.8rem;
   display: grid;
   gap: 0.6rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.tasks-list-panel {
+  align-self: stretch;
 }
 
 .tasks-panel h4 {
@@ -1733,7 +1745,7 @@ th {
 }
 
 #tasksSection table {
-  min-width: 980px;
+  min-width: 1080px;
 }
 
 #tasksSection table tbody tr:hover {
