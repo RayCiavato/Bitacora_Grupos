@@ -1500,10 +1500,22 @@ th {
   display: grid;
   grid-template-columns: minmax(300px, 0.95fr) minmax(540px, 1.6fr);
   gap: 0.75rem;
+  align-items: start;
+  width: 100%;
+  min-width: 0;
 }
 
 .tasks-layout.tasks-layout--single {
   grid-template-columns: minmax(0, 1fr);
+}
+
+.tasks-layout > .tasks-panel {
+  min-width: 0;
+}
+
+.tasks-layout.tasks-layout--single > .tasks-panel:not(.tasks-composer-panel) {
+  grid-column: 1 / -1;
+  width: 100%;
 }
 
 .tasks-filter-form {
@@ -1511,11 +1523,13 @@ th {
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 0.65rem;
+  width: 100%;
+  min-width: 0;
 }
 
 .tasks-filter-primary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   grid-column: 1 / -1;
   gap: 0.55rem;
 }
@@ -1557,7 +1571,7 @@ th {
 .tasks-filter-advanced-grid {
   margin-top: 0.5rem;
   display: grid;
-  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 0.55rem;
 }
 
@@ -1714,6 +1728,12 @@ th {
 #tasksSection .table-wrap {
   border-color: rgba(122, 158, 219, 0.28);
   background: rgba(8, 19, 43, 0.72);
+  width: 100%;
+  min-width: 0;
+}
+
+#tasksSection table {
+  min-width: 980px;
 }
 
 #tasksSection table tbody tr:hover {
@@ -1739,6 +1759,88 @@ th {
 
 #adminGeneratePassword {
   width: fit-content;
+}
+
+.settings-subpanel {
+  margin: 0.9rem 0 1rem;
+  border: 1px solid rgba(118, 156, 220, 0.26);
+  border-radius: 16px;
+  padding: 0.9rem;
+  background:
+    linear-gradient(160deg, rgba(13, 29, 62, 0.82), rgba(9, 20, 45, 0.72)),
+    radial-gradient(circle at top right, rgba(78, 198, 255, 0.12), transparent 42%);
+  display: grid;
+  gap: 0.78rem;
+}
+
+.settings-subpanel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.settings-subpanel-head h4 {
+  margin: 0.15rem 0;
+}
+
+.settings-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 112px;
+  border: 1px solid rgba(127, 160, 213, 0.34);
+  border-radius: 999px;
+  padding: 0.28rem 0.72rem;
+  color: #c9dcf8;
+  background: rgba(13, 29, 60, 0.9);
+  font-weight: 800;
+  font-size: 0.78rem;
+}
+
+.settings-status-pill.is-linked {
+  border-color: rgba(102, 237, 169, 0.44);
+  color: #74f1b2;
+  background: rgba(17, 78, 62, 0.28);
+}
+
+.settings-status-pill.is-unlinked {
+  border-color: rgba(248, 193, 89, 0.44);
+  color: #ffd276;
+  background: rgba(93, 61, 16, 0.28);
+}
+
+.settings-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  gap: 0.65rem;
+}
+
+.settings-status-grid > div {
+  border: 1px solid rgba(119, 154, 213, 0.22);
+  border-radius: 12px;
+  padding: 0.62rem 0.68rem;
+  background: rgba(6, 17, 40, 0.48);
+  min-width: 0;
+}
+
+.settings-label {
+  margin: 0 0 0.22rem;
+  color: #91a8ca;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.settings-status-grid strong {
+  display: block;
+  color: #e3efff;
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
+.telegram-settings-actions {
+  justify-content: flex-start;
 }
 
 .template-list {
@@ -2788,6 +2890,10 @@ th {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .settings-status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .pdf-branding-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2881,6 +2987,7 @@ th {
 
   .report-filters,
   .pdf-branding-grid,
+  .settings-status-grid,
   .settings-grid,
   .filter-row,
   #adminTools .filter-row {

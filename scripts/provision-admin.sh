@@ -6,9 +6,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/compose.sh"
 detect_compose_cmd
 
-ADMIN_EMAIL="${1:-admin@n1njahack.local}"
-ADMIN_PASSWORD="${2:-N1njaHack@2026!}"
-ADMIN_NAME="${3:-Administrador N1njaHack}"
+ADMIN_EMAIL="${1:-${ADMIN_EMAIL:-admin@n1njahack.local}}"
+ADMIN_PASSWORD="${2:-${ADMIN_PASSWORD:-}}"
+ADMIN_NAME="${3:-${ADMIN_NAME:-Administrador N1njaHack}}"
+
+if [ -z "$ADMIN_PASSWORD" ]; then
+  cat >&2 <<'EOF'
+ERROR: ADMIN_PASSWORD es obligatorio.
+Uso:
+  ADMIN_PASSWORD='tu-password-fuerte' bash scripts/provision-admin.sh admin@n1njahack.local
+  bash scripts/provision-admin.sh admin@n1njahack.local 'tu-password-fuerte' 'Administrador N1njaHack'
+EOF
+  exit 1
+fi
 
 if [ "${#ADMIN_PASSWORD}" -lt 12 ]; then
   echo "ERROR: la contrasena debe tener al menos 12 caracteres."

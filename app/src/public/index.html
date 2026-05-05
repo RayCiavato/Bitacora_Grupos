@@ -291,7 +291,7 @@
     </button>
     <div class="sidebar-group-content">
       <a href="/auditoria" class="btn btn-ghost sidebar-link hidden" data-group="sistema" data-requires="admin">Auditoria</a>
-      <a href="/configuracion" class="btn btn-ghost sidebar-link hidden" data-group="sistema" data-requires="admin">Configuracion</a>
+      <a href="/configuracion" class="btn btn-ghost sidebar-link" data-group="sistema">Configuracion</a>
     </div>
   </section>
 </nav>
@@ -307,7 +307,6 @@
                   <p id="sessionInfo" class="subtitle"></p>
                 </div>
                 <div class="topbar-actions">
-                  <button id="telegramLinkBtn" type="button" class="btn btn-ghost">Vincular Telegram</button>
                   <div class="notifications-wrap">
                     <button
                       id="notificationsBtn"
@@ -1149,8 +1148,44 @@
 </section>
 
               <section id="settingsSection" class="card hidden">
-                <h3>Configuracion global</h3>
-                <p class="help-text">Parametros centrales del sistema con validacion estricta y auditoria.</p>
+                <h3>Configuracion</h3>
+                <p class="help-text">Ajustes personales y parametros centrales protegidos por permisos.</p>
+
+                <article id="telegramSettingsPanel" class="settings-subpanel telegram-settings-panel">
+                  <header class="settings-subpanel-head">
+                    <div>
+                      <p class="eyebrow">TELEGRAM</p>
+                      <h4>Vinculacion del bot</h4>
+                      <p class="help-text">Un solo usuario del sistema puede quedar vinculado a un solo usuario/dispositivo Telegram.</p>
+                    </div>
+                    <span id="telegramSettingsStatus" class="settings-status-pill">Verificando</span>
+                  </header>
+
+                  <div class="settings-status-grid">
+                    <div>
+                      <p class="settings-label">Cuenta Telegram</p>
+                      <strong id="telegramSettingsAccount">Sin vincular</strong>
+                    </div>
+                    <div>
+                      <p class="settings-label">Chat / dispositivo</p>
+                      <strong id="telegramSettingsDevice">Sin registrar</strong>
+                    </div>
+                    <div>
+                      <p class="settings-label">Ultimo uso</p>
+                      <strong id="telegramSettingsLastUsed">Sin actividad</strong>
+                    </div>
+                    <div>
+                      <p class="settings-label">Expiracion</p>
+                      <strong id="telegramSettingsExpires">Sin expiracion</strong>
+                    </div>
+                  </div>
+
+                  <div class="form-actions telegram-settings-actions">
+                    <button id="telegramSettingsGenerateBtn" type="button" class="btn btn-primary">Generar codigo de vinculacion</button>
+                    <button id="telegramSettingsUnlinkBtn" type="button" class="btn btn-ghost hidden">Desvincular</button>
+                  </div>
+                  <p id="telegramSettingsMeta" class="help-text">La vinculacion se administra solo desde Configuracion.</p>
+                </article>
 
                 <form id="systemSettingsForm" class="form settings-form">
                   <div class="settings-grid">
@@ -1335,8 +1370,8 @@
     <div id="overlay-root" class="notifications-overlay-root" aria-hidden="true"></div>
     <div id="toast" class="toast hidden" aria-live="polite"></div>
     <script src="/assets/security.min.js?asset=sec" defer></script>
-    <script src="/assets/app.min.js?asset=web&v=25" defer></script>
-    <script src="/assets/tasks.min.js?asset=tasks&v=25" defer></script>
+    <script src="/assets/app.min.js?asset=web&v=26" defer></script>
+    <script src="/assets/tasks.min.js?asset=tasks&v=26" defer></script>
   </body>
 </html>
 

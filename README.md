@@ -14,15 +14,15 @@ Guia HTTPS interno con CA propia:
 
 ---
 
-## Credenciales por defecto (despliegue inicial)
+## Credenciales iniciales
 
 - Admin email: `admin@n1njahack.local`
-- Admin password: `N1njaHack@2026!`
-- DB password: `BitacoraDB_2026`
+- Admin password: definir en el servidor, no se publica en GitHub.
+- DB password: definir en el servidor, no se publica en GitHub.
 - Grafana user: `admin`
-- Grafana password: `GrafanaAdmin_2026`
+- Grafana password: definir en el servidor, no se publica en GitHub.
 
-Cambia estas credenciales despues del primer login.
+Usa passwords fuertes y guardalos solo en el `.env` del servidor o en tu gestor de secretos.
 
 ---
 
@@ -32,12 +32,16 @@ Cambia estas credenciales despues del primer login.
 cd ~/apps/Bitacora_gestor_tareas
 chmod +x scripts/*.sh
 
+read -r -s -p "Admin password inicial: " ADMIN_PASSWORD; echo
+read -r -s -p "DB password: " DB_PASSWORD; echo
+read -r -s -p "Grafana password: " GRAFANA_PASSWORD; echo
+
 bash scripts/install-server-safe.sh \
-  --app-domain 10.156.99.15 \
+  --app-domain 10.156.99.35 \
   --admin-email admin@n1njahack.local \
-  --admin-password 'N1njaHack@2026!' \
-  --db-password 'BitacoraDB_2026' \
-  --grafana-password 'GrafanaAdmin_2026' \
+  --admin-password "$ADMIN_PASSWORD" \
+  --db-password "$DB_PASSWORD" \
+  --grafana-password "$GRAFANA_PASSWORD" \
   --force
 ```
 
@@ -157,5 +161,5 @@ PY
 curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_VALUE}/deleteWebhook?drop_pending_updates=false"
 ```
 
-Despues de iniciar sesion en la web, usa el boton **Vincular Telegram** del dashboard.
+Despues de iniciar sesion en la web, ve a **Configuracion > Telegram** para generar el codigo de vinculacion o desvincular el dispositivo actual.
 El sistema genera el codigo temporal y te muestra el comando `/start CODIGO` para pegarlo en Telegram.

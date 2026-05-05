@@ -112,6 +112,45 @@ async function fetchOverdueTaskNotifications(user, limit) {
   );
 }
 
+async function fetchDueSoonTaskNotifications(user, limit) {
+  const scope = buildTaskScopeWhere(user, 1);
+  const params = [...scope.params];
+  const limitIndex = params.push(limit);
+
+  const result = await pool.query(
+    `
+      SELECT
+        t.id,
+        t.title,
+        t.priority,
+        t.status,
+        t.due_date AS "dueDate",
+        t.updated_at AS "updatedAt",
+        u.name AS "assignedToName"
+      FROM tasks t
+      LEFT JOIN users u ON u.id = t.assigned_to
+      WHERE ${scope.clause}
+        AND t.due_date IS NOT NULL
+        AND t.due_date >= CURRENT_DATE
+        AND t.due_date <= CURRENT_DATE + 1
+        AND t.status NOT IN ('completada', 'cancelada')
+      ORDER BY t.due_date ASC, t.updated_at DESC
+      LIMIT $${limitIndex}
+    `,
+    params
+  );
+
+  return result.rows.map((row) =>
+    mapTaskNotification(
+      row,
+      "tareas_por_vencer",
+      "high",
+      () => `Tarea por vencer: ${row.title || `#${row.id}`}`,
+      () => `Vence el ${row.dueDate || "-"}. Responsable: ${row.assignedToName || "sin asignar"}.`
+    )
+  );
+}
+
 async function fetchCriticalTaskNotifications(user, limit) {
   const scope = buildTaskScopeWhere(user, 1);
   const params = [...scope.params];
@@ -314,6 +353,7 @@ async function listNotificationsForUser(user, options = {}) {
 
   const [
     overdue,
+    dueSoon,
     critical,
     assignments,
     changes,
@@ -321,6 +361,7 @@ async function listNotificationsForUser(user, options = {}) {
     readKeys
   ] = await Promise.all([
     fetchOverdueTaskNotifications(user, Math.min(limit, 20)),
+    fetchDueSoonTaskNotifications(user, Math.min(limit, 20)),
     fetchCriticalTaskNotifications(user, Math.min(limit, 20)),
     fetchAssignmentNotifications(user, Math.min(limit, 20)),
     fetchChangeNotifications(user, Math.min(limit, 20)),
@@ -328,7 +369,7 @@ async function listNotificationsForUser(user, options = {}) {
     getReadNotificationKeys(userId)
   ]);
 
-  const merged = [...overdue, ...critical, ...assignments, ...changes, ...systemEvents]
+  const merged = [...overdue, ...dueSoon, ...critical, ...assignments, ...changes, ...systemEvents]
     .filter((item) => item && item.key && item.createdAt)
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
     .slice(0, limit)

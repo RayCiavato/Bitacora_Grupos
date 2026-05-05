@@ -125,8 +125,8 @@ test("GET /assets/tasks.min.js como asset controlado devuelve 200", async () => 
 test("GET /tareas sirve index con referencias a assets minificados", async () => {
   const response = await request(app).get("/tareas");
   assert.equal(response.status, 200);
-  assert.match(String(response.text || ""), /\/assets\/app\.min\.js\?asset=web&v=25/);
-  assert.match(String(response.text || ""), /\/assets\/tasks\.min\.js\?asset=tasks&v=25/);
+  assert.match(String(response.text || ""), /\/assets\/app\.min\.js\?asset=web&v=26/);
+  assert.match(String(response.text || ""), /\/assets\/tasks\.min\.js\?asset=tasks&v=26/);
   assert.match(String(response.text || ""), /\/assets\/security\.min\.js\?asset=sec/);
   assert.doesNotMatch(String(response.text || ""), /\/tasks\.js\?asset=tasks/);
 });
@@ -135,9 +135,9 @@ test("service worker usa cache versionada para invalidar bundles antiguos", () =
   const swPath = path.join(__dirname, "..", "src", "public", "sw.js");
   const swSource = fs.readFileSync(swPath, "utf8");
 
-  assert.match(swSource, /bitacora-v25/);
-  assert.match(swSource, /\/assets\/app\.min\.js\?asset=web&v=25/);
-  assert.match(swSource, /\/assets\/tasks\.min\.js\?asset=tasks&v=25/);
+  assert.match(swSource, /bitacora-v26/);
+  assert.match(swSource, /\/assets\/app\.min\.js\?asset=web&v=26/);
+  assert.match(swSource, /\/assets\/tasks\.min\.js\?asset=tasks&v=26/);
   assert.doesNotMatch(swSource, /bitacora-v24/);
 });
 

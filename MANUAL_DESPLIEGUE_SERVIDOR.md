@@ -8,21 +8,21 @@ Ruta recomendada en servidor:
 
 ---
 
-## 1) Credenciales por defecto (para despliegue inicial)
+## 1) Credenciales iniciales seguras
 
-Usa estas por defecto para levantar rapido:
+Usa estos usuarios sugeridos y define las passwords en el servidor. Las passwords no se publican en GitHub.
 
 - Admin email: `admin@n1njahack.local`
-- Admin password: `N1njaHack@2026!`
+- Admin password: definir en el servidor.
 - DB user: `bitacora_user`
-- DB password: `BitacoraDB_2026`
+- DB password: definir en el servidor.
 - Grafana user: `admin`
-- Grafana password: `GrafanaAdmin_2026`
+- Grafana password: definir en el servidor.
 
 Importante:
 - La password admin debe cumplir complejidad (incluye mayuscula, minuscula, numero y especial).
 - La password de DB conviene URL-safe (`A-Za-z0-9_-`) para evitar errores en `DATABASE_URL`.
-- Cambia credenciales despues del primer acceso.
+- Guarda las credenciales solo en `.env` del servidor o en tu gestor de secretos.
 
 ---
 
@@ -100,12 +100,16 @@ Si el servidor ya tiene bitacoras, tareas, usuarios o adjuntos cargados, NO uses
 cd ~/apps/Bitacora_gestor_tareas
 chmod +x scripts/*.sh
 
+read -r -s -p "Admin password inicial: " ADMIN_PASSWORD; echo
+read -r -s -p "DB password: " DB_PASSWORD; echo
+read -r -s -p "Grafana password: " GRAFANA_PASSWORD; echo
+
 bash scripts/install-server-safe.sh \
   --app-domain 10.156.99.35 \
   --admin-email admin@n1njahack.local \
-  --admin-password 'N1njaHack@2026!' \
-  --db-password 'BitacoraDB_2026' \
-  --grafana-password 'GrafanaAdmin_2026' \
+  --admin-password "$ADMIN_PASSWORD" \
+  --db-password "$DB_PASSWORD" \
+  --grafana-password "$GRAFANA_PASSWORD" \
   --telegram-enabled true \
   --telegram-bot-token 'REEMPLAZAR_TOKEN_BOT' \
   --telegram-chat-id 'REEMPLAZAR_CHAT_ID' \
@@ -197,7 +201,7 @@ $DC logs --tail=120 app | grep -i telegram || true
 Nota de seguridad:
 - El token real del bot no se commitea ni se sube a GitHub.
 - Queda guardado solo en `.env` del servidor.
-- Para vincular un usuario, inicia sesion en la web y usa el boton `Vincular Telegram`.
+- Para vincular un usuario, inicia sesion en la web y entra a `Configuracion > Telegram`.
 
 ---
 
@@ -240,8 +244,8 @@ curl -sS http://127.0.0.1/health
 Validacion de UI nueva:
 
 ```bash
-curl -sS http://10.156.99.35/ | grep -E "Vincular Telegram|asset=web&v=22"
-curl -sS http://10.156.99.35/sw.js | grep "bitacora-v22"
+curl -sS http://10.156.99.35/ | grep -E "asset=web&v=26|asset=tasks&v=26"
+curl -sS http://10.156.99.35/sw.js | grep "bitacora-v26"
 ```
 
 Si usas HTTPS interno, cambia `http` por `https` y agrega `-k` a `curl`.
@@ -264,7 +268,8 @@ Si ves error de politica de password admin:
 
 ```bash
 cd ~/apps/Bitacora_gestor_tareas
-bash scripts/provision-admin.sh admin@n1njahack.local 'N1njaHack@2026!' 'Administrador N1njaHack'
+read -r -s -p "Nuevo password admin: " ADMIN_PASSWORD; echo
+bash scripts/provision-admin.sh admin@n1njahack.local "$ADMIN_PASSWORD" 'Administrador N1njaHack'
 docker compose restart app
 ```
 

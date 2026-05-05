@@ -58,6 +58,14 @@ const systemSettingsForm = document.getElementById("systemSettingsForm");
 const settingsMeta = document.getElementById("settingsMeta");
 const settingsReloadBtn = document.getElementById("settingsReloadBtn");
 const settingsSaveBtn = document.getElementById("settingsSaveBtn");
+const telegramSettingsStatus = document.getElementById("telegramSettingsStatus");
+const telegramSettingsAccount = document.getElementById("telegramSettingsAccount");
+const telegramSettingsDevice = document.getElementById("telegramSettingsDevice");
+const telegramSettingsLastUsed = document.getElementById("telegramSettingsLastUsed");
+const telegramSettingsExpires = document.getElementById("telegramSettingsExpires");
+const telegramSettingsGenerateBtn = document.getElementById("telegramSettingsGenerateBtn");
+const telegramSettingsUnlinkBtn = document.getElementById("telegramSettingsUnlinkBtn");
+const telegramSettingsMeta = document.getElementById("telegramSettingsMeta");
 const settingReportPageSizeDefaultInput = document.getElementById("settingReportPageSizeDefault");
 const settingReportPageSizeMaxInput = document.getElementById("settingReportPageSizeMax");
 const settingTasksPageSizeDefaultInput = document.getElementById("settingTasksPageSizeDefault");
@@ -222,7 +230,6 @@ const sidebarLinks = document.querySelectorAll(".sidebar-link");
 const sidebarGroupToggles = document.querySelectorAll(".sidebar-group-toggle");
 const sidebarGroups = document.querySelectorAll(".sidebar-group.is-collapsible");
 const welcomeMessage = document.getElementById("welcomeMessage");
-const telegramLinkBtn = document.getElementById("telegramLinkBtn");
 const notificationsBtn = document.getElementById("notificationsBtn");
 const notificationsBadge = document.getElementById("notificationsBadge");
 const notificationsDropdown = document.getElementById("notificationsDropdown");
@@ -348,7 +355,9 @@ const ERROR_MESSAGES = {
   refresh_token_required: "Sesion no disponible. Inicia sesion de nuevo.",
   invalid_refresh_token: "Sesion invalida. Inicia sesion otra vez.",
   refresh_token_expired: "Tu sesion expiro. Inicia sesion nuevamente.",
-  too_many_requests: "Demasiados intentos. Espera un momento e intenta de nuevo."
+  too_many_requests: "Demasiados intentos. Espera un momento e intenta de nuevo.",
+  telegram_already_linked: "Este usuario ya tiene Telegram vinculado. Desvincula primero.",
+  telegram_user_already_linked: "Esta cuenta de Telegram ya esta vinculada a otro usuario."
 };
 
 const state = {
@@ -396,6 +405,10 @@ const state = {
   rpUpdated: {},
   selectedRolePolicy: "funcionario",
   sysCfg: null,
+  telegramLink: {
+    linked: false,
+    loading: false
+  },
   charts: {
     users: null,
     criticality: null,
@@ -942,13 +955,115 @@ function openTelegramLinkCodeModal(payload) {
   });
 }
 
+function setTelegramSettingsMeta(message) {
+  if (telegramSettingsMeta) {
+    security.setSafeText(telegramSettingsMeta, message);
+  }
+}
+
+function renderTelegramLinkStatus(status = {}) {
+  const linked = Boolean(status?.linked);
+  const link = status?.link || {};
+  state.telegramLink = {
+    linked,
+    loading: false,
+    link
+  };
+
+  if (telegramSettingsStatus) {
+    telegramSettingsStatus.classList.toggle("is-linked", linked);
+    telegramSettingsStatus.classList.toggle("is-unlinked", !linked);
+    security.setSafeText(telegramSettingsStatus, linked ? "Vinculado" : "Sin vincular");
+  }
+
+  const nameParts = [
+    link.telegramFirstName,
+    link.telegramLastName
+  ].filter(Boolean);
+  const accountLabel = linked
+    ? `${nameParts.join(" ").trim() || link.telegramUsername || "Cuenta Telegram"}${link.telegramUsername ? ` (@${link.telegramUsername})` : ""}`
+    : "Sin vincular";
+  const deviceLabel = linked
+    ? [
+        link.telegramPrivateChatId ? `Privado ${link.telegramPrivateChatId}` : "",
+        link.telegramGroupChatId ? `Grupo ${link.telegramGroupChatId}` : ""
+      ].filter(Boolean).join(" | ") || `Telegram ID ${link.telegramUserId || "-"}`
+    : "Sin registrar";
+
+  if (telegramSettingsAccount) {
+    security.setSafeText(telegramSettingsAccount, accountLabel);
+  }
+  if (telegramSettingsDevice) {
+    security.setSafeText(telegramSettingsDevice, deviceLabel);
+  }
+  if (telegramSettingsLastUsed) {
+    security.setSafeText(telegramSettingsLastUsed, linked && link.lastUsedAt ? formatDateTime(link.lastUsedAt) : "Sin actividad");
+  }
+  if (telegramSettingsExpires) {
+    security.setSafeText(
+      telegramSettingsExpires,
+      linked && link.sessionExpiresAt ? formatDateTime(link.sessionExpiresAt) : "Sin expiracion"
+    );
+  }
+
+  if (telegramSettingsGenerateBtn) {
+    telegramSettingsGenerateBtn.disabled = linked;
+    telegramSettingsGenerateBtn.classList.toggle("hidden", linked);
+  }
+  if (telegramSettingsUnlinkBtn) {
+    telegramSettingsUnlinkBtn.classList.toggle("hidden", !linked);
+  }
+
+  setTelegramSettingsMeta(
+    linked
+      ? "Telegram esta vinculado. Para cambiar de dispositivo o cuenta, desvincula primero."
+      : "Genera un codigo temporal y usalo con /start CODIGO-VINCULACION en Telegram."
+  );
+}
+
+async function loadTelegramLinkStatus({ silent = false } = {}) {
+  if (!state.user || !telegramSettingsStatus) {
+    return;
+  }
+
+  state.telegramLink.loading = true;
+  if (!silent) {
+    security.setSafeText(telegramSettingsStatus, "Verificando");
+    setTelegramSettingsMeta("Verificando vinculacion de Telegram...");
+  }
+
+  const { response, data, networkError } = await apiAuth("/integrations/telegram/link-status");
+  state.telegramLink.loading = false;
+
+  if (networkError) {
+    setTelegramSettingsMeta("No hay conexion para verificar Telegram.");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    setTelegramSettingsMeta(resolveErrorMessage(data?.error, data?.details));
+    return;
+  }
+
+  renderTelegramLinkStatus(data);
+}
+
 async function handleTelegramLinkCodeGeneration() {
   if (!state.user) {
     showToast("Inicia sesion para vincular Telegram.", "error");
     return;
   }
 
-  setButtonBusy(telegramLinkBtn, true, "Generando...");
+  if (state.telegramLink?.linked) {
+    showToast("Telegram ya esta vinculado. Desvincula primero para cambiarlo.", "error");
+    return;
+  }
+
+  setButtonBusy(telegramSettingsGenerateBtn, true, "Generando...");
 
   const { response, data, networkError } = await apiAuth("/integrations/telegram/link-token", {
     method: "POST",
@@ -956,7 +1071,7 @@ async function handleTelegramLinkCodeGeneration() {
     body: "{}"
   });
 
-  setButtonBusy(telegramLinkBtn, false);
+  setButtonBusy(telegramSettingsGenerateBtn, false);
 
   if (networkError) {
     showToast("No hay conexion para generar el codigo de Telegram.", "error");
@@ -978,6 +1093,42 @@ async function handleTelegramLinkCodeGeneration() {
 
   openTelegramLinkCodeModal(data);
   showToast("Codigo de Telegram generado.", "success");
+  await loadTelegramLinkStatus({ silent: true });
+}
+
+async function handleTelegramUnlink() {
+  if (!state.user || !state.telegramLink?.linked) {
+    return;
+  }
+
+  if (!window.confirm("Confirma desvincular Telegram de este usuario.")) {
+    return;
+  }
+
+  setButtonBusy(telegramSettingsUnlinkBtn, true, "Desvinculando...");
+
+  const { response, data, networkError } = await apiAuth("/integrations/telegram/link", {
+    method: "DELETE"
+  });
+
+  setButtonBusy(telegramSettingsUnlinkBtn, false);
+
+  if (networkError) {
+    showToast("No hay conexion para desvincular Telegram.", "error");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  renderTelegramLinkStatus({ linked: false });
+  showToast(data?.unlinked ? "Telegram desvinculado correctamente." : "Telegram ya estaba sin vincular.", "success");
 }
 
 function canAccessPanel(path = getCurrentPanelPath()) {
@@ -3347,15 +3498,20 @@ async function handleRbacReload() {
 }
 
 async function loadSystemSettingsPanel() {
-  if (!settingsSection || !systemSettingsForm) {
+  if (!settingsSection) {
     return;
   }
 
-  if (!canAccessPanel("/configuracion")) {
-    setSettingsMetaMessage("Sin permisos para consultar configuracion.");
+  await loadTelegramLinkStatus();
+
+  if (!systemSettingsForm || !canAccessPanel("/configuracion")) {
+    setElementVisible(systemSettingsForm, false);
+    setButtonBusy(settingsSaveBtn, false);
+    setSettingsMetaMessage("La configuracion global esta disponible solo para administradores.");
     return;
   }
 
+  setElementVisible(systemSettingsForm, true);
   setButtonBusy(settingsSaveBtn, true, "Cargando...");
   setSettingsMetaMessage("Cargando configuracion...");
 
@@ -3885,7 +4041,7 @@ function applyRouteMode() {
     state.registroComposerOpen = false;
   }
 
-  if (isPanelRoute(route) && !canAccessPanel(route)) {
+  if (isPanelRoute(route) && route !== "/configuracion" && !canAccessPanel(route)) {
     window.location.href = "/dashboard";
     return;
   }
@@ -3905,7 +4061,8 @@ function applyRouteMode() {
   setElementVisible(rbacSection, showRolesPermisos && canManageUsers());
   setElementVisible(templateTools, showPlantillas && canManageTemplates());
   setElementVisible(auditSection, showAuditoria && canAccessPanel("/auditoria"));
-  setElementVisible(settingsSection, showConfiguracion && canAccessPanel("/configuracion"));
+  setElementVisible(settingsSection, showConfiguracion);
+  setElementVisible(systemSettingsForm, showConfiguracion && canAccessPanel("/configuracion"));
 
   if (mainWorkspaceSection) {
     mainWorkspaceSection.classList.toggle("single-column", showRegistro || showBitacoraReport);
@@ -7599,8 +7756,11 @@ async function bootstrap() {
       }
     });
   }
-  if (telegramLinkBtn) {
-    telegramLinkBtn.addEventListener("click", handleTelegramLinkCodeGeneration);
+  if (telegramSettingsGenerateBtn) {
+    telegramSettingsGenerateBtn.addEventListener("click", handleTelegramLinkCodeGeneration);
+  }
+  if (telegramSettingsUnlinkBtn) {
+    telegramSettingsUnlinkBtn.addEventListener("click", handleTelegramUnlink);
   }
   if (notificationsBtn) {
     notificationsBtn.addEventListener("click", async (event) => {
@@ -7757,7 +7917,7 @@ async function bootstrap() {
 
     window.addEventListener("load", () => {
       navigator.serviceWorker
-        .register("/sw.js?v=25")
+        .register("/sw.js?v=26")
         .then((registration) => registration.update())
         .catch(() => {
           // No interrumpir flujo principal si falla el service worker.

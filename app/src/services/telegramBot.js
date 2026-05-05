@@ -853,6 +853,33 @@ async function issueTelegramLinkToken({ user, req } = {}) {
     throw new Error("invalid_actor");
   }
 
+  await pool.query(
+    `
+      DELETE FROM user_telegram_links
+      WHERE user_id = $1
+        AND session_expires_at IS NOT NULL
+        AND session_expires_at <= NOW()
+    `,
+    [userId]
+  );
+
+  const existingLink = await pool.query(
+    `
+      SELECT 1
+      FROM user_telegram_links
+      WHERE user_id = $1
+        AND (session_expires_at IS NULL OR session_expires_at > NOW())
+      LIMIT 1
+    `,
+    [userId]
+  );
+
+  if (existingLink.rowCount > 0) {
+    const error = new Error("telegram_already_linked");
+    error.statusCode = 409;
+    throw error;
+  }
+
   let created = null;
   for (let attempt = 1; attempt <= 5; attempt += 1) {
     const rawCode = generateLinkCode(10);
@@ -988,6 +1015,8 @@ async function getTelegramLinkStatus(user) {
       SELECT
         telegram_user_id AS "telegramUserId",
         telegram_username AS "telegramUsername",
+        telegram_first_name AS "telegramFirstName",
+        telegram_last_name AS "telegramLastName",
         telegram_private_chat_id AS "telegramPrivateChatId",
         telegram_group_chat_id AS "telegramGroupChatId",
         last_used_at AS "lastUsedAt",
@@ -996,6 +1025,7 @@ async function getTelegramLinkStatus(user) {
         updated_at AS "updatedAt"
       FROM user_telegram_links
       WHERE user_id = $1
+        AND (session_expires_at IS NULL OR session_expires_at > NOW())
       LIMIT 1
     `,
     [userId]
@@ -1146,20 +1176,43 @@ async function consumeTelegramLinkCode({ code, from, chat, reqMeta = null } = {}
 
     await client.query(
       `
+        DELETE FROM user_telegram_links
+        WHERE (user_id = $1 OR telegram_user_id = $2)
+          AND session_expires_at IS NOT NULL
+          AND session_expires_at <= NOW()
+      `,
+      [tokenRow.userId, telegramUserId]
+    );
+
+    const activeLinkResult = await client.query(
+      `
+        SELECT user_id AS "userId", telegram_user_id AS "telegramUserId"
+        FROM user_telegram_links
+        WHERE user_id = $1
+           OR telegram_user_id = $2
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [tokenRow.userId, telegramUserId]
+    );
+
+    if (activeLinkResult.rowCount > 0) {
+      const activeLink = activeLinkResult.rows[0] || {};
+      await client.query("ROLLBACK");
+      txStarted = false;
+      if (Number(activeLink.userId) === Number(tokenRow.userId)) {
+        return { ok: false, error: "telegram_already_linked" };
+      }
+      return { ok: false, error: "telegram_user_already_linked" };
+    }
+
+    await client.query(
+      `
         UPDATE telegram_link_tokens
         SET consumed_at = NOW()
         WHERE id = $1
       `,
       [tokenRow.id]
-    );
-
-    await client.query(
-      `
-        DELETE FROM user_telegram_links
-        WHERE user_id = $1
-           OR telegram_user_id = $2
-      `,
-      [tokenRow.userId, telegramUserId]
     );
 
     await client.query(
@@ -1690,9 +1743,14 @@ async function handleStartCommand(update, context = {}) {
   });
 
   if (!linkResult.ok) {
-    const reason = linkResult.error === "expired_code"
-      ? "El codigo expiro. Genera uno nuevo en el sistema."
-      : "Codigo invalido. Verifica el token e intentalo de nuevo.";
+    const linkErrorMessages = {
+      expired_code: "El codigo expiro. Genera uno nuevo en el sistema.",
+      telegram_already_linked: "Ese usuario ya tiene Telegram vinculado. Desvincula primero desde Configuracion.",
+      telegram_user_already_linked: "Esta cuenta de Telegram ya esta vinculada a otro usuario.",
+      user_inactive: "El usuario del sistema esta inactivo."
+    };
+    const reason = linkErrorMessages[linkResult.error] ||
+      "Codigo invalido. Verifica el token e intentalo de nuevo.";
     await sendTelegramMessage(chat.id, `ERROR: ${reason}`, {
       replyToMessageId
     });

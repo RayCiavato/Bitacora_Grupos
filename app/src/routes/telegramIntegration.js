@@ -95,6 +95,9 @@ router.post("/link-token", authenticate, async (req, res, next) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: "validation_error" });
     }
+    if (error?.message === "telegram_already_linked") {
+      return res.status(409).json({ error: "telegram_already_linked" });
+    }
     return next(error);
   }
 });
