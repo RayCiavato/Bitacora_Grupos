@@ -646,15 +646,32 @@ function buildTelegramRiskSummary({
   pending = 0
 } = {}) {
   if (toMetricCount(overdue) > 0 || toMetricCount(critical) > 0) {
-    return "Semaforo: 🔴 Atencion inmediata";
+    return "🔴 Atencion inmediata";
   }
   if (toMetricCount(high) > 0 || toMetricCount(dueSoon) > 0) {
-    return "Semaforo: 🟠 Revisar pronto";
+    return "🟠 Revisar pronto";
   }
   if (toMetricCount(pending) > 0) {
-    return "Semaforo: 🟡 Seguimiento normal";
+    return "🟡 Seguimiento normal";
   }
-  return "Semaforo: 🟢 Sin alertas activas";
+  return "🟢 Sin alertas activas";
+}
+
+function bitacoraPriorityDot(priority) {
+  const normalized = String(priority || "").trim().toLowerCase();
+  if (normalized === "alta") {
+    return "🔴";
+  }
+  if (normalized === "media") {
+    return "🟡";
+  }
+  if (normalized === "baja") {
+    return "🔵";
+  }
+  if (normalized === "observacion") {
+    return "⚪";
+  }
+  return "🟢";
 }
 
 function toTaskLine(task) {
@@ -1495,21 +1512,31 @@ async function buildBitacorasMessage(user) {
   const items = await listRecentBitacorasForUser(user, 5);
   if (!items.length) {
     return [
-    "Bitacoras recientes",
+      "Bitacoras recientes",
       "",
       "No hay bitacoras visibles para tu perfil."
     ].join("\n");
   }
 
   const lines = items.map((item) => {
-    const activity = normalizeText(item.actividad, "-", 90);
-    return `- #${Number(item.id || 0)} ${activity}\n  Usuario: ${normalizeText(item.encargado, "-", 60)} | Fecha: ${formatDateCaracas(item.fecha)}`;
+    const id = Number(item.id || 0);
+    const activity = normalizeText(item.actividad, "Sin actividad", 90);
+    const priority =
+      PRIORITY_LABELS[String(item.prioridad || "")] || normalizeText(item.prioridad, "Sin prioridad", 32);
+    return [
+      `${bitacoraPriorityDot(item.prioridad)} BIT-${String(id).padStart(5, "0")} | ${priority}`,
+      `Actividad: ${activity}`,
+      `Usuario: ${normalizeText(item.encargado, "-", 60)}`,
+      `Fecha: ${formatDateCaracas(item.fecha)}`
+    ].join("\n");
   });
 
   return [
     "Bitacoras recientes",
     "",
-    ...lines
+    ...lines.flatMap((line, index) => (index === 0 ? [line] : ["", line])),
+    "",
+    `Actualizado: ${formatDateTimeCaracas(new Date())}`
   ].join("\n");
 }
 

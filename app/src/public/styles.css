@@ -1596,6 +1596,34 @@ th {
   font-size: 0.8rem;
 }
 
+.bitacora-filter-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 0.65rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.bitacora-filter-primary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  grid-column: 1 / -1;
+  gap: 0.55rem;
+}
+
+.bitacora-filter-advanced-grid {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.bitacora-pdf-branding {
+  margin-top: 0.65rem;
+}
+
+.bitacora-filter-actions {
+  margin-top: 0.05rem;
+}
+
 .tasks-panel {
   border: 1px solid rgba(125, 165, 236, 0.26);
   border-radius: 14px;

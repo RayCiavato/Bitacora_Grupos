@@ -116,6 +116,8 @@ const searchTextInput = document.getElementById("searchText");
 const priorityFilterInput = document.getElementById("priorityFilter");
 const userFilterInput = document.getElementById("userFilter");
 const pageSizeInput = document.getElementById("pageSize");
+const reportSortByInput = document.getElementById("reportSortBy");
+const reportSortOrderInput = document.getElementById("reportSortOrder");
 const resumenNewEventBtn = document.getElementById("resumenNewEventBtn");
 
 const eventTemplateSelect = document.getElementById("eventTemplateSelect");
@@ -319,6 +321,7 @@ const FULL_NAME_MIN_LENGTH = 2;
 const FULL_NAME_MAX_LENGTH = 120;
 const FULL_NAME_REGEX = /^[A-Za-z0-9]+(?:[ -][A-Za-z0-9]+)*$/;
 const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{12,}$/;
+const ALLOWED_REGISTRATION_EMAIL_DOMAINS = new Set(["gmail.com", "hotmail.com"]);
 
 const ERROR_MESSAGES = {
   unauthorized: "Acceso no autorizado. Inicia sesion.",
@@ -338,6 +341,7 @@ const ERROR_MESSAGES = {
     "La contrasena debe tener minimo 12 caracteres, mayuscula, minuscula, numero y simbolo.",
   invalid_name: "Nombre completo invalido. Usa letras, numeros, espacios y guion medio.",
   registration_disabled: "No se pudo completar el registro.",
+  email_domain_not_allowed: "Solo se permiten correos Gmail o Hotmail para registrarse.",
   email_already_exists: "No se pudo completar el registro.",
   registration_unavailable: "No se pudo completar el registro.",
   recover_failed: "No se pudo completar la recuperacion de contrasena.",
@@ -599,6 +603,20 @@ function validateFullNameInput(value) {
       valid: false,
       value: normalized,
       message: "El nombre solo permite letras, numeros, espacios simples y guion medio."
+    };
+  }
+
+  return { valid: true, value: normalized };
+}
+
+function validateAllowedRegistrationEmailInput(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  const domain = normalized.split("@").pop();
+  if (!normalized || !ALLOWED_REGISTRATION_EMAIL_DOMAINS.has(domain)) {
+    return {
+      valid: false,
+      value: normalized,
+      message: "Solo se permiten correos Gmail o Hotmail para registrarse."
     };
   }
 
@@ -4155,6 +4173,14 @@ function buildReportParams(includePagination = true) {
     params.set("encargadoId", userFilterInput.value);
   }
 
+  if (reportSortByInput instanceof HTMLSelectElement && reportSortByInput.value) {
+    params.set("sortBy", reportSortByInput.value);
+  }
+
+  if (reportSortOrderInput instanceof HTMLSelectElement && reportSortOrderInput.value) {
+    params.set("sortOrder", reportSortOrderInput.value);
+  }
+
   if (includePagination) {
     params.set("page", String(state.report.page));
     params.set("pageSize", String(state.report.pageSize));
@@ -4249,6 +4275,16 @@ function reportParamsToPayload(params) {
   const encargadoId = params.get("encargadoId");
   if (encargadoId) {
     payload.encargadoId = Number(encargadoId);
+  }
+
+  const sortBy = params.get("sortBy");
+  if (sortBy) {
+    payload.sortBy = sortBy;
+  }
+
+  const sortOrder = params.get("sortOrder");
+  if (sortOrder) {
+    payload.sortOrder = sortOrder;
   }
 
   return payload;
@@ -4447,9 +4483,11 @@ function setReportLoading(isLoading) {
     openReportBtn.disabled = state.report.loading;
   }
 
-  if (pageSizeInput instanceof HTMLSelectElement) {
-    pageSizeInput.disabled = state.report.loading;
-  }
+  [pageSizeInput, reportSortByInput, reportSortOrderInput].forEach((input) => {
+    if (input instanceof HTMLSelectElement) {
+      input.disabled = state.report.loading;
+    }
+  });
 
   exportButtons.forEach((button) => {
     if (button instanceof HTMLButtonElement) {
@@ -5590,7 +5628,18 @@ async function handleRegister(event) {
   }
 
   const name = nameValidation.value;
-  const email = (registerEmailInput?.value || "").trim();
+  const emailValidation = validateAllowedRegistrationEmailInput(registerEmailInput?.value || "");
+  if (!emailValidation.valid) {
+    setButtonBusy(submitButton, false);
+    showToast(emailValidation.message, "error");
+    return;
+  }
+
+  if (registerEmailInput instanceof HTMLInputElement) {
+    registerEmailInput.value = emailValidation.value;
+  }
+
+  const email = emailValidation.value;
   const password = registerPasswordInput?.value || "";
   const passwordConfirm = registerPasswordConfirmInput?.value || "";
 
@@ -7858,7 +7907,7 @@ async function bootstrap() {
 
   fromDateInput.addEventListener("change", syncDateConstraints);
   toDateInput.addEventListener("change", syncDateConstraints);
-  [searchTextInput, priorityFilterInput, userFilterInput].forEach((input) => {
+  [searchTextInput, priorityFilterInput, userFilterInput, reportSortByInput, reportSortOrderInput].forEach((input) => {
     if (input instanceof HTMLInputElement) {
       input.addEventListener("input", scheduleReportReload);
       return;
@@ -7917,7 +7966,7 @@ async function bootstrap() {
 
     window.addEventListener("load", () => {
       navigator.serviceWorker
-        .register("/sw.js?v=27")
+        .register("/sw.js?v=28")
         .then((registration) => registration.update())
         .catch(() => {
           // No interrumpir flujo principal si falla el service worker.

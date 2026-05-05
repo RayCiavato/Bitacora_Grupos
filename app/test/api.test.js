@@ -9,6 +9,7 @@ require("./_env");
 const { createApp } = require("../src/index");
 const { validateFullName } = require("../src/services/namePolicy");
 const { validatePasswordPolicy } = require("../src/services/passwordPolicy");
+const { validateRegistrationEmail } = require("../src/services/emailPolicy");
 
 const app = createApp();
 const {
@@ -125,8 +126,8 @@ test("GET /assets/tasks.min.js como asset controlado devuelve 200", async () => 
 test("GET /tareas sirve index con referencias a assets minificados", async () => {
   const response = await request(app).get("/tareas");
   assert.equal(response.status, 200);
-  assert.match(String(response.text || ""), /\/assets\/app\.min\.js\?asset=web&v=27/);
-  assert.match(String(response.text || ""), /\/assets\/tasks\.min\.js\?asset=tasks&v=27/);
+  assert.match(String(response.text || ""), /\/assets\/app\.min\.js\?asset=web&v=28/);
+  assert.match(String(response.text || ""), /\/assets\/tasks\.min\.js\?asset=tasks&v=28/);
   assert.match(String(response.text || ""), /\/assets\/security\.min\.js\?asset=sec/);
   assert.doesNotMatch(String(response.text || ""), /\/tasks\.js\?asset=tasks/);
 });
@@ -135,9 +136,9 @@ test("service worker usa cache versionada para invalidar bundles antiguos", () =
   const swPath = path.join(__dirname, "..", "src", "public", "sw.js");
   const swSource = fs.readFileSync(swPath, "utf8");
 
-  assert.match(swSource, /bitacora-v27/);
-  assert.match(swSource, /\/assets\/app\.min\.js\?asset=web&v=27/);
-  assert.match(swSource, /\/assets\/tasks\.min\.js\?asset=tasks&v=27/);
+  assert.match(swSource, /bitacora-v28/);
+  assert.match(swSource, /\/assets\/app\.min\.js\?asset=web&v=28/);
+  assert.match(swSource, /\/assets\/tasks\.min\.js\?asset=tasks&v=28/);
   assert.doesNotMatch(swSource, /bitacora-v24/);
 });
 
@@ -327,6 +328,13 @@ test("Politica de nombre acepta formatos validos y normaliza espacios", () => {
   const normalized = validateFullName("  Juan    Perez  ");
   assert.equal(normalized.valid, true);
   assert.equal(normalized.value, "Juan Perez");
+});
+
+test("Politica de correo de registro permite solo Gmail y Hotmail", () => {
+  assert.equal(validateRegistrationEmail("persona@gmail.com").valid, true);
+  assert.equal(validateRegistrationEmail("persona@hotmail.com").valid, true);
+  assert.equal(validateRegistrationEmail("persona@outlook.com").valid, false);
+  assert.equal(validateRegistrationEmail("persona@bitacora.local").valid, false);
 });
 
 test("Politica de password rechaza contrasena debil", () => {

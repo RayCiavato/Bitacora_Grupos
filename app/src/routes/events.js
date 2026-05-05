@@ -76,6 +76,10 @@ const reportQuerySchema = z.object({
   q: z.string().trim().max(200).optional(),
   priority: z.enum(["baja", "media", "alta", "observacion"]).optional(),
   encargadoId: z.coerce.number().int().positive().optional(),
+  sortBy: z
+    .enum(["fecha", "createdAt", "updatedAt", "prioridad", "encargado", "actividad"])
+    .default("fecha"),
+  sortOrder: z.enum(["asc", "desc"]).default("desc"),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(500).default(20)
 });
@@ -525,6 +529,21 @@ function buildReportFilters(query) {
     whereSql: whereParts.join(" AND "),
     params
   };
+}
+
+const REPORT_SORT_COLUMNS = Object.freeze({
+  fecha: "e.fecha",
+  createdAt: "e.created_at",
+  updatedAt: "e.updated_at",
+  prioridad: "e.prioridad",
+  encargado: "u.name",
+  actividad: "e.descripcion_actividad"
+});
+
+function buildReportOrderBy(query) {
+  const sortColumn = REPORT_SORT_COLUMNS[query.sortBy] || REPORT_SORT_COLUMNS.fecha;
+  const direction = String(query.sortOrder || "desc").toLowerCase() === "asc" ? "ASC" : "DESC";
+  return `${sortColumn} ${direction}, e.created_at ${direction}, e.id ${direction}`;
 }
 
 function getScopedEncargadoId(req, requestedEncargadoId) {
@@ -1065,6 +1084,7 @@ router.get("/report", authenticate, async (req, res, next) => {
       encargadoId: getScopedEncargadoId(req, query.encargadoId)
     };
     const { whereSql, params } = buildReportFilters(scopedQuery);
+    const orderBySql = buildReportOrderBy(scopedQuery);
 
     const countResult = await pool.query(
       `
@@ -1113,7 +1133,7 @@ router.get("/report", authenticate, async (req, res, next) => {
         JOIN users u ON u.id = e.encargado_id
         LEFT JOIN event_templates t ON t.id = e.template_id
         WHERE ${whereSql}
-        ORDER BY e.fecha DESC, e.created_at DESC
+        ORDER BY ${orderBySql}
         LIMIT $${limitIndex} OFFSET $${offsetIndex}
       `,
       eventsParams
@@ -1185,6 +1205,7 @@ async function handleReportExport(req, res, next, source) {
       encargadoId: getScopedEncargadoId(req, payload.encargadoId)
     };
     const { whereSql, params } = buildReportFilters(scopedPayload);
+    const orderBySql = buildReportOrderBy(scopedPayload);
 
     const eventsResult = await pool.query(
       `
@@ -1204,7 +1225,7 @@ async function handleReportExport(req, res, next, source) {
         JOIN users u ON u.id = e.encargado_id
         LEFT JOIN event_templates t ON t.id = e.template_id
         WHERE ${whereSql}
-        ORDER BY e.fecha DESC, e.created_at DESC
+        ORDER BY ${orderBySql}
       `,
       params
     );

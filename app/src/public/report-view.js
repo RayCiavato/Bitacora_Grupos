@@ -25,6 +25,8 @@ const baseQuery = {
   q: params.get("q") || "",
   priority: params.get("priority") || "",
   encargadoId: params.get("encargadoId") || "",
+  sortBy: params.get("sortBy") || "fecha",
+  sortOrder: params.get("sortOrder") || "desc",
   pageSize: Number(params.get("pageSize") || 100)
 };
 
@@ -234,6 +236,12 @@ async function loadPage() {
   }
   if (baseQuery.encargadoId) {
     query.set("encargadoId", baseQuery.encargadoId);
+  }
+  if (baseQuery.sortBy) {
+    query.set("sortBy", baseQuery.sortBy);
+  }
+  if (baseQuery.sortOrder) {
+    query.set("sortOrder", baseQuery.sortOrder);
   }
 
   const response = await fetch(`/events/report?${query.toString()}`, {

@@ -16,6 +16,8 @@ Usa estos usuarios sugeridos y define las passwords en el servidor. Las password
 - Admin password: definir en el servidor.
 - DB user: `bitacora_user`
 - DB password: definir en el servidor.
+
+Nota de registro: los usuarios nuevos creados desde la web o desde administracion solo aceptan correos `gmail.com` y `hotmail.com`. El admin inicial `admin@n1njahack.local` se mantiene como excepcion de provisioning por script.
 - Grafana user: `admin`
 - Grafana password: definir en el servidor.
 
@@ -276,8 +278,8 @@ curl -sS http://127.0.0.1/health
 Validacion de UI nueva:
 
 ```bash
-curl -sS http://10.156.99.35/ | grep -E "asset=web&v=27|asset=tasks&v=27|styles.css\\?v=27"
-curl -sS http://10.156.99.35/sw.js | grep "bitacora-v27"
+curl -sS http://10.156.99.35/ | grep -E "asset=web&v=28|asset=tasks&v=28|styles.css\\?v=28"
+curl -sS http://10.156.99.35/sw.js | grep "bitacora-v28"
 ```
 
 Si usas HTTPS interno, cambia `http` por `https` y agrega `-k` a `curl`.

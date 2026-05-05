@@ -5,6 +5,7 @@ const { pool } = require("../db");
 const { authenticate, requireRole } = require("../middleware/auth");
 const { validatePasswordPolicy } = require("../services/passwordPolicy");
 const { validateFullName } = require("../services/namePolicy");
+const { validateRegistrationEmail } = require("../services/emailPolicy");
 const { createAuditLog } = require("../services/audit");
 const { canUserManageUsers, canUserViewUsers } = require("../services/authorization");
 
@@ -45,10 +46,6 @@ function ensureCanManageUsersOrForbidden(req, res) {
   return true;
 }
 
-function normalizeEmail(email) {
-  return String(email || "").trim().toLowerCase();
-}
-
 function parseBooleanQueryFlag(value) {
   if (value === undefined || value === null || value === "") {
     return false;
@@ -63,7 +60,11 @@ router.post("/", authenticate, requireRole(["admin"]), async (req, res, next) =>
     }
 
     const payload = createUserSchema.parse(req.body);
-    const email = normalizeEmail(payload.email);
+    const emailResult = validateRegistrationEmail(payload.email);
+    if (!emailResult.valid) {
+      return res.status(400).json({ error: emailResult.error });
+    }
+    const email = emailResult.value;
     const nameResult = validateFullName(payload.name);
     if (!nameResult.valid) {
       return res.status(400).json({ error: "invalid_name" });

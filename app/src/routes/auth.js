@@ -10,6 +10,7 @@ const { logger } = require("../logger");
 const { authenticate, requirePurpose } = require("../middleware/auth");
 const { validatePasswordPolicy } = require("../services/passwordPolicy");
 const { validateFullName } = require("../services/namePolicy");
+const { normalizeEmail, validateRegistrationEmail } = require("../services/emailPolicy");
 const { createAuditLog } = require("../services/audit");
 const { buildSessionUser } = require("../services/authorization");
 const { getSystemSettings } = require("../services/systemSettings");
@@ -46,10 +47,6 @@ const recoverPasswordSchema = z.object({
   mfaToken: z.string().regex(/^[0-9]{6}$/),
   newPassword: z.string().min(1)
 });
-
-function normalizeEmail(email) {
-  return String(email || "").trim().toLowerCase();
-}
 
 function getRuntimeSessionSettings() {
   const current = getSystemSettings();
@@ -349,7 +346,11 @@ router.post("/register", async (req, res, next) => {
     }
 
     const payload = registerSchema.parse(req.body);
-    email = normalizeEmail(payload.email);
+    const emailResult = validateRegistrationEmail(payload.email);
+    if (!emailResult.valid) {
+      return res.status(400).json({ error: emailResult.error });
+    }
+    email = emailResult.value;
     const nameResult = validateFullName(payload.name);
     if (!nameResult.valid) {
       logger.warn({ email, reasons: nameResult.errors }, "Register rejected by name policy");

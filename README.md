@@ -19,6 +19,8 @@ Guia HTTPS interno con CA propia:
 - Admin email: `admin@n1njahack.local`
 - Admin password: definir en el servidor, no se publica en GitHub.
 - DB password: definir en el servidor, no se publica en GitHub.
+
+Nota de registro: la web y el alta manual de usuarios aceptan nuevos correos solo de `gmail.com` y `hotmail.com`. El admin inicial de provisioning puede seguir usando el correo interno documentado porque se crea por script operativo, no por registro publico.
 - Grafana user: `admin`
 - Grafana password: definir en el servidor, no se publica en GitHub.
 
