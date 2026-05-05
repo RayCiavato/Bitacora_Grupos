@@ -55,6 +55,7 @@
   const tasksPageSize = document.getElementById("tasksPageSize");
   const tasksAdvancedFilters = document.getElementById("tasksAdvancedFilters");
   const tasksFilterSubmitBtn = tasksFilterForm?.querySelector('button[type="submit"]');
+  const tasksClearFilters = document.getElementById("tasksClearFilters");
 
   const tasksTableBody = document.getElementById("tasksTableBody");
   const tasksPrev = document.getElementById("tasksPrev");
@@ -475,10 +476,11 @@
       showToast("No tienes permisos para crear tareas.", "error");
       return;
     }
-    state.tasksComposerOpen = true;
     resetTaskForm();
+    state.tasksComposerOpen = true;
     renderTaskDetail(null);
     syncTaskComposerState();
+    tasksComposerPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
     if (taskTitle instanceof HTMLInputElement) {
       taskTitle.focus();
     }
@@ -920,6 +922,7 @@
 
   function applyRouteFiltersFromQuery() {
     const params = new URLSearchParams(window.location.search);
+    resetTaskFilterInputs();
     state.activeAlertFilter = normalizeAlertFilter(params.get("alert"));
     state.pendingFocusTaskId = Number(params.get("focus") || 0);
 
@@ -961,6 +964,58 @@
         tasksFilterPriority.value = "alta";
       }
     }
+  }
+
+  function resetTaskFilterInputs() {
+    if (tasksFilterSearch) {
+      tasksFilterSearch.value = "";
+    }
+    if (tasksFilterStatus) {
+      tasksFilterStatus.value = "";
+    }
+    if (tasksFilterPriority) {
+      tasksFilterPriority.value = "";
+    }
+    if (tasksFilterCreatedBy) {
+      tasksFilterCreatedBy.value = "";
+    }
+    if (tasksFilterAssignedTo) {
+      tasksFilterAssignedTo.value = "";
+    }
+    if (tasksFilterStartFrom) {
+      tasksFilterStartFrom.value = "";
+    }
+    if (tasksFilterStartTo) {
+      tasksFilterStartTo.value = "";
+    }
+    if (tasksFilterDueFrom) {
+      tasksFilterDueFrom.value = "";
+    }
+    if (tasksFilterDueTo) {
+      tasksFilterDueTo.value = "";
+    }
+    if (tasksFilterSortBy) {
+      tasksFilterSortBy.value = "updatedAt";
+    }
+    if (tasksFilterSortOrder) {
+      tasksFilterSortOrder.value = "desc";
+    }
+    if (tasksPageSize) {
+      tasksPageSize.value = String(state.pageSize || 20);
+    }
+    state.activeAlertFilter = "";
+    state.pendingFocusTaskId = 0;
+  }
+
+  function clearTaskFilters() {
+    resetTaskFilterInputs();
+    state.page = 1;
+    state.pageSize = Number(tasksPageSize?.value || 20);
+    syncAdvancedFiltersState();
+    if (window.location.search) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+    scheduleFiltersReload(0);
   }
 
   async function loadUsers() {
@@ -1466,6 +1521,7 @@
   tasksExportPdf.addEventListener("click", async () => {
     await downloadExport("pdf");
   });
+  tasksClearFilters?.addEventListener("click", clearTaskFilters);
 
   window.addEventListener("bitacora:realtime", handleRealtimeEvent);
   window.addEventListener("beforeunload", () => {
