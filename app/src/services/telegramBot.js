@@ -679,7 +679,87 @@ function toTaskLine(task) {
   const status = STATUS_LABELS[String(task?.status || "")] || normalizeText(task?.status, "-", 24);
   const priority = PRIORITY_LABELS[String(task?.priority || "")] || normalizeText(task?.priority, "-", 24);
   const dueDate = formatDateCaracas(task?.dueDate);
-  return `- #${Number(task?.id || 0)} ${title}\n  Estado: ${status} | Prioridad: ${priority} | Vence: ${dueDate}`;
+  const createdBy = normalizeText(task?.createdBy?.name, "Usuario eliminado", 70);
+  const assignedTo = task?.assignedTo
+    ? normalizeText(task.assignedTo.name, "Usuario eliminado", 70)
+    : "Sin asignar";
+  return [
+    `- #${Number(task?.id || 0)} ${title}`,
+    `  Estado: ${status} | Prioridad: ${priority} | Vence: ${dueDate}`,
+    `  Creado por: ${createdBy} | Asignado a: ${assignedTo}`
+  ].join("\n");
+}
+
+function taskDueSortValue(task) {
+  const dueDate = String(task?.dueDate || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
+    return dueDate;
+  }
+  return "9999-12-31";
+}
+
+function taskUpdatedSortValue(task) {
+  const parsed = new Date(task?.updatedAt || task?.createdAt || 0);
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+}
+
+function sortTelegramTasks(left, right) {
+  const dueCompare = taskDueSortValue(left).localeCompare(taskDueSortValue(right));
+  if (dueCompare !== 0) {
+    return dueCompare;
+  }
+  const updatedCompare = taskUpdatedSortValue(right) - taskUpdatedSortValue(left);
+  if (updatedCompare !== 0) {
+    return updatedCompare;
+  }
+  return Number(right?.id || 0) - Number(left?.id || 0);
+}
+
+async function listTelegramMyTasks(user, actorId, limit = 5) {
+  const safeLimit = Math.max(1, Math.min(Number(limit || 5), 10));
+  const fetchSize = Math.min(safeLimit * 2, 20);
+  const [createdResult, assignedResult] = await Promise.all([
+    listTasks({
+      user,
+      query: {
+        createdById: actorId,
+        sortBy: "dueDate",
+        sortOrder: "asc",
+        page: 1,
+        pageSize: fetchSize
+      }
+    }),
+    listTasks({
+      user,
+      query: {
+        assignedToId: actorId,
+        sortBy: "dueDate",
+        sortOrder: "asc",
+        page: 1,
+        pageSize: fetchSize
+      }
+    })
+  ]);
+
+  const merged = new Map();
+  for (const item of [
+    ...(Array.isArray(createdResult?.items) ? createdResult.items : []),
+    ...(Array.isArray(assignedResult?.items) ? assignedResult.items : [])
+  ]) {
+    const id = Number(item?.id || 0);
+    if (Number.isInteger(id) && id > 0 && !merged.has(id)) {
+      merged.set(id, item);
+    }
+  }
+
+  const allItems = Array.from(merged.values()).sort(sortTelegramTasks);
+  const createdTotal = Number(createdResult?.pagination?.totalItems || 0);
+  const assignedTotal = Number(assignedResult?.pagination?.totalItems || 0);
+  return {
+    items: allItems.slice(0, safeLimit),
+    totalHint: Math.max(allItems.length, createdTotal, assignedTotal),
+    hasMore: allItems.length > safeLimit || createdTotal > fetchSize || assignedTotal > fetchSize
+  };
 }
 
 function splitMessageChunks(text) {
@@ -1378,12 +1458,14 @@ async function listRecentBitacorasForUser(user, limit = 5) {
         e.prioridad,
         e.descripcion_actividad AS "actividad",
         CASE
+          WHEN u.id IS NULL
+            THEN 'Usuario eliminado (Usuario inactivo)'
           WHEN u.is_active = FALSE OR u.deleted_at IS NOT NULL
             THEN CONCAT(u.name, ' (Usuario inactivo)')
           ELSE u.name
         END AS "encargado"
       FROM events e
-      JOIN users u ON u.id = e.encargado_id
+      LEFT JOIN users u ON u.id = e.encargado_id
       ${whereSql}
       ORDER BY e.fecha DESC, e.created_at DESC
       LIMIT $${limitIndex}
@@ -1442,29 +1524,22 @@ async function buildMyTasksMessage(user) {
     return "No se pudo identificar tu cuenta para consultar tareas.";
   }
 
-  const result = await listTasks({
-    user,
-    query: {
-      assignedToId: actorId,
-      sortBy: "dueDate",
-      sortOrder: "asc",
-      page: 1,
-      pageSize: 5
-    }
-  });
-
+  const result = await listTelegramMyTasks(user, actorId, 5);
   const items = Array.isArray(result?.items) ? result.items : [];
   if (items.length === 0) {
     return [
-    "Mis Tareas",
+      "Mis Tareas",
       "",
-      "No tienes tareas asignadas en este momento."
+      "No tienes tareas creadas ni asignadas en este momento."
     ].join("\n");
   }
 
-  const total = Number(result?.pagination?.totalItems || items.length);
   const lines = items.map((item) => toTaskLine(item));
-  const moreNotice = total > items.length ? `\nMostrando ${items.length} de ${total} tareas.` : "";
+  const totalHint = Number(result?.totalHint || items.length);
+  const moreNotice =
+    result?.hasMore || totalHint > items.length
+      ? `\nMostrando ${items.length} tareas principales. Usa /buscar para ubicar otra tarea.`
+      : "";
   return [
     "Mis Tareas",
     "",
@@ -1526,7 +1601,7 @@ async function buildBitacorasMessage(user) {
     return [
       `${bitacoraPriorityIcon(item.prioridad)} BIT-${String(id).padStart(5, "0")} | ${priority}`,
       `Actividad: ${activity}`,
-      `Usuario: ${normalizeText(item.encargado, "-", 60)}`,
+      `Creado por: ${normalizeText(item.encargado, "-", 60)}`,
       `Fecha: ${formatDateCaracas(item.fecha)}`
     ].join("\n");
   });
