@@ -684,9 +684,13 @@ function toTaskLine(task) {
     ? normalizeText(task.assignedTo.name, "Usuario eliminado", 70)
     : "Sin asignar";
   return [
-    `- #${Number(task?.id || 0)} ${title}`,
-    `  Estado: ${status} | Prioridad: ${priority} | Vence: ${dueDate}`,
-    `  Creado por: ${createdBy} | Asignado a: ${assignedTo}`
+    `📋 Tarea #${Number(task?.id || 0)}`,
+    `🧾 ${title}`,
+    `📊 Estado: ${status}`,
+    `⚠️ Prioridad: ${priority}`,
+    `📅 Vence: ${dueDate}`,
+    `👤 Creado por: ${createdBy}`,
+    `👥 Asignado a: ${assignedTo}`
   ].join("\n");
 }
 
@@ -1543,7 +1547,7 @@ async function buildMyTasksMessage(user) {
   return [
     "Mis Tareas",
     "",
-    ...lines,
+    ...lines.flatMap((line, index) => (index === 0 ? [line] : ["", line])),
     moreNotice
   ]
     .join("\n")

@@ -278,8 +278,8 @@ curl -sS http://127.0.0.1/health
 Validacion de UI nueva:
 
 ```bash
-curl -sS http://10.156.99.35/ | grep -E "asset=web&v=30|asset=tasks&v=30|styles.css\\?v=30"
-curl -sS http://10.156.99.35/sw.js | grep "bitacora-v30"
+curl -sS http://10.156.99.35/ | grep -E "asset=web&v=31|asset=tasks&v=31|styles.css\\?v=31"
+curl -sS http://10.156.99.35/sw.js | grep "bitacora-v31"
 ```
 
 Si usas HTTPS interno, cambia `http` por `https` y agrega `-k` a `curl`.

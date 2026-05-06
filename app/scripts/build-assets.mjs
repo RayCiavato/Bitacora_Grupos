@@ -11,12 +11,14 @@ const targets = [
   {
     input: path.join(projectRoot, "src", "public", "app.js"),
     output: path.join(projectRoot, "src", "public", "assets", "app.min.js"),
-    encodeDomSelectors: true
+    encodeDomSelectors: true,
+    domDecoderName: "_0x5a_app"
   },
   {
     input: path.join(projectRoot, "src", "public", "tasks.js"),
     output: path.join(projectRoot, "src", "public", "assets", "tasks.min.js"),
-    encodeDomSelectors: true
+    encodeDomSelectors: true,
+    domDecoderName: "_0x5a_tasks"
   },
   {
     input: path.join(projectRoot, "src", "public", "security.js"),
@@ -43,7 +45,6 @@ const minifyOptions = {
 };
 
 const DOM_SELECTOR_XOR_KEY = 73;
-const DOM_SELECTOR_DECODER = `const _0x5a=e=>new TextDecoder().decode(Uint8Array.from(e.match(/../g)||[],t=>parseInt(t,16)^${DOM_SELECTOR_XOR_KEY}));`;
 const DOM_SELECTOR_METHODS = "getElementById|querySelectorAll|querySelector|closest|matches";
 const DOM_SELECTOR_DOUBLE_QUOTED = new RegExp(
   `(\\??)\\.(${DOM_SELECTOR_METHODS})\\("([^"\\\\]*)"\\)`,
@@ -61,13 +62,15 @@ function encodeDomToken(value) {
   ).join("");
 }
 
-function encodeDomSelectorLiterals(code) {
+function encodeDomSelectorLiterals(code, decoderName = "_0x5a") {
   let encoded = code;
   let replaced = false;
+  const safeDecoderName = /^[A-Za-z_$][\w$]*$/.test(decoderName) ? decoderName : "_0x5a";
+  const decoder = `const ${safeDecoderName}=e=>new TextDecoder().decode(Uint8Array.from(e.match(/../g)||[],t=>parseInt(t,16)^${DOM_SELECTOR_XOR_KEY}));`;
   const replacer = (match, optionalPrefix, method, literal) => {
     replaced = true;
     const accessPrefix = optionalPrefix === "?" ? "?." : "";
-    return `${accessPrefix}[_0x5a("${encodeDomToken(method)}")](_0x5a("${encodeDomToken(literal)}"))`;
+    return `${accessPrefix}[${safeDecoderName}("${encodeDomToken(method)}")](${safeDecoderName}("${encodeDomToken(literal)}"))`;
   };
 
   encoded = encoded.replace(DOM_SELECTOR_DOUBLE_QUOTED, replacer);
@@ -75,10 +78,10 @@ function encodeDomSelectorLiterals(code) {
   encoded = encoded.replace(DOM_SELECTOR_METHOD_REFERENCE, (match, optionalPrefix, method) => {
     replaced = true;
     const accessPrefix = optionalPrefix === "?" ? "?." : "";
-    return `${accessPrefix}[_0x5a("${encodeDomToken(method)}")](`;
+    return `${accessPrefix}[${safeDecoderName}("${encodeDomToken(method)}")](`;
   });
 
-  return replaced ? `${DOM_SELECTOR_DECODER}${encoded}` : code;
+  return replaced ? `${decoder}${encoded}` : code;
 }
 
 async function buildTarget(target) {
@@ -87,7 +90,9 @@ async function buildTarget(target) {
   if (!result.code) {
     throw new Error(`No se pudo minificar ${path.basename(target.input)}`);
   }
-  const outputCode = target.encodeDomSelectors ? encodeDomSelectorLiterals(result.code) : result.code;
+  const outputCode = target.encodeDomSelectors
+    ? encodeDomSelectorLiterals(result.code, target.domDecoderName)
+    : result.code;
   await mkdir(path.dirname(target.output), { recursive: true });
   await writeFile(target.output, outputCode, "utf8");
 }
