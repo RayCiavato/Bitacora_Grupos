@@ -1518,6 +1518,28 @@ th {
   width: 100%;
 }
 
+#tasksSection.tasks-composer-focus .tasks-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+#tasksSection.tasks-composer-focus .tasks-list-panel {
+  display: none;
+}
+
+#tasksSection.tasks-composer-focus .tasks-composer-panel {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: min(760px, calc(100vh - 15rem));
+}
+
+#tasksSection.tasks-composer-focus .tasks-composer-panel .form {
+  max-width: none;
+}
+
+#tasksSection.tasks-composer-focus .tasks-composer-panel textarea {
+  min-height: 8rem;
+}
+
 /* CSS fallback: if JS has not synced the single-column state yet, the visible list still fills the module. */
 .tasks-layout > .tasks-composer-panel.hidden + .tasks-list-panel {
   grid-column: 1 / -1;

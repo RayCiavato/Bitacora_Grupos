@@ -457,11 +457,13 @@
     const isEditMode = Number.isInteger(state.editingTaskId) && state.editingTaskId > 0;
     const shouldShow = isEditMode || (canCreate && state.tasksComposerOpen);
 
+    section.classList.toggle("tasks-composer-focus", shouldShow);
+
     if (tasksComposerPanel) {
       tasksComposerPanel.classList.toggle("hidden", !shouldShow);
     }
     if (tasksLayout) {
-      tasksLayout.classList.toggle("tasks-layout--single", !shouldShow);
+      tasksLayout.classList.add("tasks-layout--single");
     }
 
     if (tasksNewTaskBtn) {
