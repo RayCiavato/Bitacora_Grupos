@@ -150,12 +150,18 @@ function toTaskSelectRow(task, usersById) {
     metadata: clone(task.metadata || {}),
     createdAt: task.created_at,
     updatedAt: task.updated_at,
-    createdById: creator?.id || null,
+    createdById: task.created_by || null,
     createdByName: creator?.name || "",
     createdByEmail: creator?.email || "",
-    assignedToId: assignee?.id || null,
+    createdByUserId: creator?.id || null,
+    createdByIsActive: creator ? creator.is_active ?? true : false,
+    createdByDeletedAt: creator?.deleted_at || null,
+    assignedToId: task.assigned_to || null,
     assignedToName: assignee?.name || "",
-    assignedToEmail: assignee?.email || ""
+    assignedToEmail: assignee?.email || "",
+    assignedToUserId: assignee?.id || null,
+    assignedToIsActive: assignee ? assignee.is_active ?? true : false,
+    assignedToDeletedAt: assignee?.deleted_at || null
   };
 }
 
@@ -639,7 +645,7 @@ function createFakeTasksDb() {
       };
     }
 
-    if (lower.includes("from tasks t join users creator")) {
+    if (lower.includes("from tasks t left join users creator")) {
       if (lower.includes("where t.id = $1")) {
         const taskId = Number(params[0]);
         const task = tasks.find((item) => item.id === taskId && !item.deleted_at);
@@ -667,6 +673,9 @@ function createFakeTasksDb() {
   return {
     reset,
     query,
+    addTask: (task) => {
+      tasks.push(clone(task));
+    },
     getAuditLogs: () => clone(auditLogs),
     getTasks: () => clone(tasks)
   };
@@ -779,6 +788,41 @@ test("TASKS module: QA, AppSec y hardening", async (t) => {
     assert.equal(response.status, 200);
     const ids = response.body.items.map((item) => Number(item.id)).sort((a, b) => a - b);
     assert.deepEqual(ids, [101, 102, 103, 104]);
+  });
+
+  await t.test("listado conserva tareas historicas aunque falte el usuario creador", async () => {
+    fakeDb.reset();
+    fakeDb.addTask({
+      id: 106,
+      title: "Historica sin creador activo",
+      description: "Debe seguir visible para auditoria operacional",
+      status: "sin_realizar",
+      priority: "alta",
+      start_date: "2026-04-05",
+      due_date: "2026-04-15",
+      created_by: 999,
+      assigned_to: null,
+      assignee_ids: [],
+      allow_assignees_edit: false,
+      metadata: {},
+      created_at: "2026-04-05T10:00:00.000Z",
+      updated_at: "2026-04-05T10:00:00.000Z",
+      deleted_at: null
+    });
+    const app = createApp();
+
+    const response = await attachSession(
+      request(app).get("/tasks?page=1&pageSize=20"),
+      admin,
+      { includeCsrfHeader: false }
+    );
+
+    assert.equal(response.status, 200);
+    const historical = response.body.items.find((item) => Number(item.id) === 106);
+    assert.ok(historical, "La tarea historica debe estar en el listado");
+    assert.equal(historical.createdBy.id, 999);
+    assert.match(historical.createdBy.name, /Usuario eliminado/);
+    assert.equal(historical.permissions.canEdit, true);
   });
 
   await t.test("funcionario puede ver detalle de terceros pero no editar ni borrar", async () => {

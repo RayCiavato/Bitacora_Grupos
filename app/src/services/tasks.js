@@ -202,10 +202,12 @@ function mapTaskRow(row, user) {
   const taskIdentity = buildTaskIdentityFromRow(row);
   const createdById = taskIdentity.createdById;
   const assignedToId = taskIdentity.assignedToId;
+  const createdByMissing = Boolean(createdById) && !row.createdByUserId;
+  const assignedToMissing = Boolean(assignedToId) && !row.assignedToUserId;
   const createdByInactive =
-    row.createdByIsActive === false || Boolean(row.createdByDeletedAt);
+    createdByMissing || row.createdByIsActive === false || Boolean(row.createdByDeletedAt);
   const assignedToInactive =
-    row.assignedToIsActive === false || Boolean(row.assignedToDeletedAt);
+    assignedToMissing || row.assignedToIsActive === false || Boolean(row.assignedToDeletedAt);
   const createdByName = String(row.createdByName || "").trim();
   const assignedToName = String(row.assignedToName || "").trim();
 
@@ -225,7 +227,7 @@ function mapTaskRow(row, user) {
     createdBy: {
       id: createdById,
       name: createdByInactive
-        ? `${createdByName || "Usuario"} (Usuario inactivo)`
+        ? `${createdByName || "Usuario eliminado"} (Usuario inactivo)`
         : createdByName,
       email: String(row.createdByEmail || ""),
       isActive: !createdByInactive
@@ -234,7 +236,7 @@ function mapTaskRow(row, user) {
       ? {
           id: assignedToId,
           name: assignedToInactive
-            ? `${assignedToName || "Usuario"} (Usuario inactivo)`
+            ? `${assignedToName || "Usuario eliminado"} (Usuario inactivo)`
             : assignedToName,
           email: String(row.assignedToEmail || ""),
           isActive: !assignedToInactive
@@ -259,18 +261,20 @@ function taskRowSelectSql() {
       t.metadata,
       t.created_at AS "createdAt",
       t.updated_at AS "updatedAt",
-      creator.id AS "createdById",
+      t.created_by AS "createdById",
       creator.name AS "createdByName",
       creator.email AS "createdByEmail",
+      creator.id AS "createdByUserId",
       creator.is_active AS "createdByIsActive",
       creator.deleted_at AS "createdByDeletedAt",
-      assignee.id AS "assignedToId",
+      t.assigned_to AS "assignedToId",
       assignee.name AS "assignedToName",
       assignee.email AS "assignedToEmail",
+      assignee.id AS "assignedToUserId",
       assignee.is_active AS "assignedToIsActive",
       assignee.deleted_at AS "assignedToDeletedAt"
     FROM tasks t
-    JOIN users creator ON creator.id = t.created_by
+    LEFT JOIN users creator ON creator.id = t.created_by
     LEFT JOIN users assignee ON assignee.id = t.assigned_to
   `;
 }

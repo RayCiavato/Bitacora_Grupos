@@ -305,7 +305,7 @@
   }
 
   function canCreateTask() {
-    return Boolean(state.access?.actions?.tasks?.create);
+    return Boolean(state.access?.actions?.tasks?.create || state.user?.role === "admin");
   }
 
   function canAssignTask() {
@@ -711,18 +711,23 @@
     }
   }
 
+  function renderTasksMessage(message, rowClass = "tasks-empty-row") {
+    clearNode(tasksTableBody);
+    const row = document.createElement("tr");
+    row.className = rowClass;
+    const cell = document.createElement("td");
+    cell.colSpan = 10;
+    cell.textContent = message;
+    row.appendChild(cell);
+    tasksTableBody.appendChild(row);
+  }
+
   function renderTasksRows(items) {
     state.activeRows = Array.isArray(items) ? items : [];
     clearNode(tasksTableBody);
 
     if (!state.activeRows.length) {
-      const row = document.createElement("tr");
-      row.className = "tasks-empty-row";
-      const cell = document.createElement("td");
-      cell.colSpan = 10;
-      cell.textContent = "No hay tareas para los filtros seleccionados.";
-      row.appendChild(cell);
-      tasksTableBody.appendChild(row);
+      renderTasksMessage("No hay tareas para los filtros seleccionados.");
       return;
     }
 
@@ -1079,6 +1084,7 @@
       const { response, data, networkError } = await apiAuth(`/tasks?${params.toString()}`);
       if (networkError) {
         showToast("No hay conexion para cargar tareas.", "error");
+        renderTasksMessage("No se pudieron cargar las tareas por falta de conexion.");
         return;
       }
       if (!response.ok) {
@@ -1087,6 +1093,7 @@
           return;
         }
         showToast(resolveErrorMessage(data?.error), "error");
+        renderTasksMessage("No se pudieron cargar las tareas. Intenta limpiar filtros o recargar.");
         return;
       }
 

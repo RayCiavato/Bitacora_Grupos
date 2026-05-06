@@ -887,6 +887,10 @@ function resolveTaskUserIds(task) {
 }
 
 function canUserCreateTask(user) {
+  if (normalizeRole(user?.role) === "admin") {
+    return true;
+  }
+
   const capabilities = getSessionCapabilities(user?.role);
   return Boolean(capabilities.actions.tasks.create);
 }
@@ -1105,6 +1109,9 @@ function buildSessionUser(user) {
   capabilities.actions.tasks.viewAny = true;
   capabilities.actions.tasks.viewOwnCreated = true;
   capabilities.actions.tasks.viewAssigned = true;
+  if (normalizedRole === "admin") {
+    capabilities.actions.tasks.create = true;
+  }
 
   return {
     id: Number(user.id),
