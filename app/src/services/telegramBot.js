@@ -630,12 +630,12 @@ function toMetricCount(value) {
   return Number.isFinite(normalized) ? Math.max(0, normalized) : 0;
 }
 
-function metricDot(value, activeDot = "🔵", emptyDot = "🟢") {
-  return toMetricCount(value) > 0 ? activeDot : emptyDot;
+function metricIcon(value, activeIcon = "📊", emptyIcon = "➖") {
+  return toMetricCount(value) > 0 ? activeIcon : emptyIcon;
 }
 
-function metricLine(label, value, { activeDot = "🔵", emptyDot = "🟢" } = {}) {
-  return `${metricDot(value, activeDot, emptyDot)} ${label}: ${toMetricCount(value)}`;
+function metricLine(label, value, { activeIcon = "📊", emptyIcon = "➖" } = {}) {
+  return `${metricIcon(value, activeIcon, emptyIcon)} ${label}: ${toMetricCount(value)}`;
 }
 
 function buildTelegramRiskSummary({
@@ -646,32 +646,32 @@ function buildTelegramRiskSummary({
   pending = 0
 } = {}) {
   if (toMetricCount(overdue) > 0 || toMetricCount(critical) > 0) {
-    return "🔴 Atencion inmediata";
+    return "🚨 Atencion inmediata";
   }
   if (toMetricCount(high) > 0 || toMetricCount(dueSoon) > 0) {
-    return "🟠 Revisar pronto";
+    return "⚠️ Revisar pronto";
   }
   if (toMetricCount(pending) > 0) {
-    return "🟡 Seguimiento normal";
+    return "🧭 Seguimiento normal";
   }
-  return "🟢 Sin alertas activas";
+  return "✅ Sin alertas activas";
 }
 
-function bitacoraPriorityDot(priority) {
+function bitacoraPriorityIcon(priority) {
   const normalized = String(priority || "").trim().toLowerCase();
   if (normalized === "alta") {
-    return "🔴";
+    return "🚨";
   }
   if (normalized === "media") {
-    return "🟡";
+    return "⚠️";
   }
   if (normalized === "baja") {
-    return "🔵";
+    return "ℹ️";
   }
   if (normalized === "observacion") {
-    return "⚪";
+    return "📝";
   }
-  return "🟢";
+  return "📌";
 }
 
 function toTaskLine(task) {
@@ -1492,12 +1492,12 @@ async function buildAlertsMessage(user) {
       dueSoon: counts.dueSoon
     }),
     "",
-    metricLine("Vencidas", counts.overdue, { activeDot: "🔴" }),
-    metricLine("Proximas a vencer (7 dias)", counts.dueSoon, { activeDot: "🟡" }),
-    metricLine("Criticas", counts.critical, { activeDot: "🔴" }),
-    metricLine("Prioridad alta", counts.high, { activeDot: "🟠" }),
-    metricLine("Prioridad media", counts.medium, { activeDot: "🟡" }),
-    metricLine("Prioridad baja", counts.low, { activeDot: "🔵" }),
+    metricLine("Vencidas", counts.overdue, { activeIcon: "🚨" }),
+    metricLine("Proximas a vencer (7 dias)", counts.dueSoon, { activeIcon: "⏳" }),
+    metricLine("Criticas", counts.critical, { activeIcon: "🔥" }),
+    metricLine("Prioridad alta", counts.high, { activeIcon: "⚠️" }),
+    metricLine("Prioridad media", counts.medium, { activeIcon: "📌" }),
+    metricLine("Prioridad baja", counts.low, { activeIcon: "ℹ️" }),
     "",
     `Actualizado: ${formatDateTimeCaracas(new Date())}`
   ].join("\n");
@@ -1524,7 +1524,7 @@ async function buildBitacorasMessage(user) {
     const priority =
       PRIORITY_LABELS[String(item.prioridad || "")] || normalizeText(item.prioridad, "Sin prioridad", 32);
     return [
-      `${bitacoraPriorityDot(item.prioridad)} BIT-${String(id).padStart(5, "0")} | ${priority}`,
+      `${bitacoraPriorityIcon(item.prioridad)} BIT-${String(id).padStart(5, "0")} | ${priority}`,
       `Actividad: ${activity}`,
       `Usuario: ${normalizeText(item.encargado, "-", 60)}`,
       `Fecha: ${formatDateCaracas(item.fecha)}`
@@ -1577,16 +1577,16 @@ async function buildGeneralStatusMessage(user) {
     }),
     "",
     "Tareas:",
-    metricLine("Total", totals.total, { activeDot: "🔵", emptyDot: "⚪" }),
-    metricLine("Pendientes", pending, { activeDot: "🟡", emptyDot: "🟢" }),
-    metricLine("Completadas", totals.completada, { activeDot: "🟢", emptyDot: "⚪" }),
-    metricLine("Vencidas", overdue, { activeDot: "🔴" }),
-    metricLine("Criticas activas", critical, { activeDot: "🔴" }),
+    metricLine("Total", totals.total, { activeIcon: "📊" }),
+    metricLine("Pendientes", pending, { activeIcon: "⏳" }),
+    metricLine("Completadas", totals.completada, { activeIcon: "✅" }),
+    metricLine("Vencidas", overdue, { activeIcon: "🚨" }),
+    metricLine("Criticas activas", critical, { activeIcon: "🔥" }),
     "",
     "Bitacoras:",
-    metricLine("Total", bitacoraTotals.total, { activeDot: "🔵", emptyDot: "⚪" }),
-    metricLine("Hoy", bitacoraTotals.today, { activeDot: "🔵", emptyDot: "⚪" }),
-    metricLine("Criticas (7 dias)", bitacoraTotals.critical, { activeDot: "🔴" }),
+    metricLine("Total", bitacoraTotals.total, { activeIcon: "📓" }),
+    metricLine("Hoy", bitacoraTotals.today, { activeIcon: "🕒" }),
+    metricLine("Criticas (7 dias)", bitacoraTotals.critical, { activeIcon: "🔥" }),
     "",
     `Actualizado: ${formatDateTimeCaracas(new Date())}`
   ].join("\n");
