@@ -8,6 +8,7 @@ const { validateFullName } = require("../services/namePolicy");
 const { validateRegistrationEmail } = require("../services/emailPolicy");
 const { createAuditLog } = require("../services/audit");
 const { canUserManageUsers, canUserViewUsers } = require("../services/authorization");
+const { addUserToGroup, getDefaultGroup } = require("../services/groups");
 
 const router = express.Router();
 
@@ -89,6 +90,14 @@ router.post("/", authenticate, requireRole(["admin"]), async (req, res, next) =>
       `,
       [nameResult.value, email, passwordHash, payload.role]
     );
+    const defaultGroup = await getDefaultGroup();
+    if (defaultGroup?.id) {
+      await addUserToGroup({
+        userId: insertResult.rows[0].id,
+        groupId: defaultGroup.id,
+        roleInGroup: "miembro"
+      });
+    }
 
     await createAuditLog({
       userId: req.user.sub,

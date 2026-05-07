@@ -2005,6 +2005,38 @@ body.modal-open {
   gap: 0.3rem;
 }
 
+.rbac-tabs {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0;
+}
+
+.rbac-tab {
+  border: 1px solid rgba(123, 161, 226, 0.34);
+  border-radius: 999px;
+  background: rgba(15, 34, 70, 0.72);
+  color: #cfe2ff;
+  padding: 0.55rem 0.85rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.rbac-tab.is-active {
+  border-color: rgba(77, 201, 255, 0.68);
+  background: linear-gradient(135deg, rgba(49, 167, 238, 0.92), rgba(47, 113, 214, 0.92));
+  color: #06142d;
+}
+
+.rbac-pane {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.rbac-pane.hidden {
+  display: none;
+}
+
 .rbac-toolbar {
   display: flex;
   justify-content: space-between;
@@ -2017,6 +2049,28 @@ body.modal-open {
   display: flex;
   gap: 0.45rem;
   flex-wrap: wrap;
+}
+
+.rbac-inline-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(240px, 1.2fr) auto;
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.group-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 0.65rem;
+}
+
+.group-admin-card {
+  border: 1px solid rgba(94, 139, 211, 0.34);
+  border-radius: 14px;
+  background: rgba(8, 20, 45, 0.58);
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.45rem;
 }
 
 .rbac-table-wrap {
@@ -2906,6 +2960,10 @@ th {
 
   .tasks-filter-advanced-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rbac-inline-form {
+    grid-template-columns: 1fr;
   }
 }
 

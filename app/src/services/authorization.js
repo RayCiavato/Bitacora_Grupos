@@ -1,3 +1,11 @@
+const {
+  canUserCreateInGroup,
+  canUserDeleteGroupResource,
+  canUserEditGroupResource,
+  canUserViewGroupResource,
+  getGroupIdFromResource
+} = require("./groups");
+
 const ROLE_KEYS = Object.freeze(["admin", "supervisor", "funcionario"]);
 
 const PANEL_KEYS = Object.freeze([
@@ -705,6 +713,10 @@ function canUserEditAnyEvent(user) {
 }
 
 function canUserEditEvent(user, ownerId) {
+  if (ownerId && typeof ownerId === "object" && !canUserEditGroupResource(user, ownerId)) {
+    return false;
+  }
+
   if (canUserEditAnyEvent(user)) {
     return true;
   }
@@ -715,7 +727,7 @@ function canUserEditEvent(user, ownerId) {
   }
 
   const actorId = resolveActorId(user);
-  const normalizedOwnerId = Number(ownerId);
+  const normalizedOwnerId = Number(resolveBitacoraOwnerId(ownerId) || ownerId);
   if (!Number.isInteger(actorId) || !Number.isInteger(normalizedOwnerId) || normalizedOwnerId <= 0) {
     return false;
   }
@@ -773,6 +785,10 @@ function resolveBitacoraOwnerId(bitacora) {
 }
 
 function canUserViewBitacora(user, bitacora) {
+  if (!canUserViewGroupResource(user, bitacora)) {
+    return false;
+  }
+
   const scope = getBitacoraViewScope(user);
   if (scope.canViewAny) {
     return true;
@@ -792,13 +808,18 @@ function canUserViewBitacora(user, bitacora) {
 }
 
 function canUserUploadEventAttachment(user, ownerId) {
+  const uploadTargetGroupId = ownerId && typeof ownerId === "object" ? getGroupIdFromResource(ownerId) : null;
+  if (uploadTargetGroupId && !canUserCreateInGroup(user, uploadTargetGroupId)) {
+    return false;
+  }
+
   const capabilities = getSessionCapabilities(user?.role);
   if (capabilities.actions.attachments.uploadAny) {
     return true;
   }
 
   const actorId = resolveActorId(user);
-  const normalizedOwnerId = Number(ownerId);
+  const normalizedOwnerId = Number(resolveBitacoraOwnerId(ownerId) || ownerId);
   if (!Number.isInteger(actorId) || !Number.isInteger(normalizedOwnerId) || normalizedOwnerId <= 0) {
     return false;
   }
@@ -807,13 +828,17 @@ function canUserUploadEventAttachment(user, ownerId) {
 }
 
 function canUserViewEventAttachments(user, ownerId) {
+  if (ownerId && typeof ownerId === "object" && !canUserViewGroupResource(user, ownerId)) {
+    return false;
+  }
+
   const capabilities = getSessionCapabilities(user?.role);
   if (capabilities.actions.attachments.viewAny) {
     return true;
   }
 
   const actorId = resolveActorId(user);
-  const normalizedOwnerId = Number(ownerId);
+  const normalizedOwnerId = Number(resolveBitacoraOwnerId(ownerId) || ownerId);
   if (!Number.isInteger(actorId) || !Number.isInteger(normalizedOwnerId) || normalizedOwnerId <= 0) {
     return false;
   }
@@ -945,6 +970,10 @@ function canUserDeleteAnyTask(user) {
 }
 
 function canUserViewTask(user, task) {
+  if (!canUserViewGroupResource(user, task)) {
+    return false;
+  }
+
   const viewScope = getTaskViewScope(user);
   if (viewScope.canViewAny) {
     return true;
@@ -972,6 +1001,10 @@ function canUserViewTask(user, task) {
 }
 
 function canUserEditTask(user, task) {
+  if (!canUserEditGroupResource(user, task)) {
+    return false;
+  }
+
   const capabilities = getSessionCapabilities(user?.role);
   if (capabilities.actions.tasks.editAny) {
     return true;
@@ -999,6 +1032,10 @@ function canUserEditTask(user, task) {
 }
 
 function canUserDeleteTask(user, task) {
+  if (!canUserDeleteGroupResource(user, task)) {
+    return false;
+  }
+
   const capabilities = getSessionCapabilities(user?.role);
   if (capabilities.actions.tasks.deleteAny) {
     return true;
@@ -1014,6 +1051,10 @@ function canUserDeleteTask(user, task) {
 }
 
 function canUserManageTaskSharedEdit(user, task) {
+  if (!canUserEditGroupResource(user, task)) {
+    return false;
+  }
+
   const capabilities = getSessionCapabilities(user?.role);
   if (capabilities.actions.tasks.editAny) {
     return true;
@@ -1042,6 +1083,10 @@ function resolveFileOwnerId(file) {
 }
 
 function canUserViewFile(user, file) {
+  if (!canUserViewGroupResource(user, file)) {
+    return false;
+  }
+
   const capabilities = getSessionCapabilities(user?.role);
   if (capabilities.actions.attachments.viewAny) {
     return true;
@@ -1061,6 +1106,10 @@ function canUserViewFile(user, file) {
 }
 
 function canUserEditFile(user, file) {
+  if (!canUserEditGroupResource(user, file)) {
+    return false;
+  }
+
   const capabilities = getSessionCapabilities(user?.role);
   if (capabilities.actions.attachments.editAny) {
     return true;
@@ -1080,6 +1129,10 @@ function canUserEditFile(user, file) {
 }
 
 function canUserDeleteFile(user, file) {
+  if (!canUserDeleteGroupResource(user, file)) {
+    return false;
+  }
+
   const capabilities = getSessionCapabilities(user?.role);
   if (capabilities.actions.attachments.deleteAny) {
     return true;
@@ -1118,6 +1171,8 @@ function buildSessionUser(user) {
     name: user.name,
     email: user.email,
     role: normalizedRole,
+    groups: Array.isArray(user.groups) ? user.groups : [],
+    groupAccess: user.groupAccess || null,
     capabilities
   };
 }
@@ -1125,7 +1180,7 @@ function buildSessionUser(user) {
 function buildEventPermissions(user, eventOwnerId) {
   return {
     canEdit: canUserEditEvent(user, eventOwnerId),
-    canDelete: canUserDeleteAnyEvent(user),
+    canDelete: canUserDeleteAnyEvent(user) && canUserDeleteGroupResource(user, eventOwnerId),
     canUploadAttachments: canUserUploadEventAttachment(user, eventOwnerId),
     canViewAttachments: canUserViewEventAttachments(user, eventOwnerId)
   };

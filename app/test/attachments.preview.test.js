@@ -34,10 +34,40 @@ const USERS_FIXTURE = Object.freeze([
   }
 ]);
 
+const GROUPS_FIXTURE = Object.freeze([
+  {
+    id: 1,
+    name: "General",
+    slug: "general",
+    description: "Grupo base para pruebas",
+    is_system: true,
+    is_active: true,
+    created_at: "2026-04-01T00:00:00.000Z",
+    updated_at: "2026-04-01T00:00:00.000Z"
+  }
+]);
+
+const GROUP_POLICIES_FIXTURE = Object.freeze([
+  {
+    id: 1,
+    source_group_id: 1,
+    target_group_id: 1,
+    resource_type: "all",
+    can_view: true,
+    can_create: true,
+    can_edit: true,
+    can_delete: true,
+    can_export: true,
+    can_administer: true,
+    updated_at: "2026-04-01T00:00:00.000Z"
+  }
+]);
+
 const ATTACHMENTS_FIXTURE = Object.freeze([
   {
     id: 501,
     event_id: 901,
+    group_id: 1,
     uploaded_by: 3,
     owner_id: 3,
     original_name: "informe-operativo.pdf",
@@ -49,6 +79,7 @@ const ATTACHMENTS_FIXTURE = Object.freeze([
   {
     id: 502,
     event_id: 901,
+    group_id: 1,
     uploaded_by: 1,
     owner_id: 1,
     original_name: "evidencia.png",
@@ -60,6 +91,7 @@ const ATTACHMENTS_FIXTURE = Object.freeze([
   {
     id: 503,
     event_id: 901,
+    group_id: 1,
     uploaded_by: 3,
     owner_id: 3,
     original_name: "paquete.zip",
@@ -73,6 +105,7 @@ const ATTACHMENTS_FIXTURE = Object.freeze([
 const EVENTS_FIXTURE = Object.freeze([
   {
     id: 901,
+    group_id: 1,
     encargado_id: 3,
     fecha: "2026-04-14"
   }
@@ -110,6 +143,24 @@ function applyAttachmentFilters(sql, params, attachments) {
   let index = 0;
   let filtered = attachments.slice();
 
+  const groupScopeMatch = sql.match(/(?:ea|e)\.group_id\s*=\s*any\(\$(\d+)::bigint\[\]\)/i);
+  if (groupScopeMatch) {
+    const allowedGroupIds = Array.isArray(params[Number(groupScopeMatch[1]) - 1])
+      ? params[Number(groupScopeMatch[1]) - 1].map(Number)
+      : [];
+    if (allowedGroupIds.length) {
+      filtered = filtered.filter((row) => allowedGroupIds.includes(Number(row.group_id || 1)));
+    }
+  }
+
+  const groupFilterMatch = sql.match(/(?:ea|e)\.group_id\s*=\s*\$(\d+)/i);
+  if (groupFilterMatch) {
+    const expected = Number(params[Number(groupFilterMatch[1]) - 1]);
+    if (expected > 0) {
+      filtered = filtered.filter((row) => Number(row.group_id || 1) === expected);
+    }
+  }
+
   if (sql.includes("lower(ea.original_name) like lower($")) {
     const value = String(params[index] || "").toLowerCase().replace(/%/g, "");
     filtered = filtered.filter((row) => String(row.original_name).toLowerCase().includes(value));
@@ -145,6 +196,15 @@ function applyAttachmentFilters(sql, params, attachments) {
 
 function createAttachmentsDbDouble() {
   const usersById = new Map(USERS_FIXTURE.map((row) => [Number(row.id), clone(row)]));
+  const groups = clone(GROUPS_FIXTURE);
+  const userGroups = USERS_FIXTURE.map((user) => ({
+    user_id: Number(user.id),
+    group_id: 1,
+    role_in_group: user.role === "admin" ? "admin" : "member",
+    created_at: "2026-04-01T00:00:00.000Z",
+    updated_at: "2026-04-01T00:00:00.000Z"
+  }));
+  const groupPolicies = clone(GROUP_POLICIES_FIXTURE);
   const eventsById = new Map(EVENTS_FIXTURE.map((row) => [Number(row.id), clone(row)]));
   const attachmentsById = new Map(ATTACHMENTS_FIXTURE.map((row) => [Number(row.id), clone(row)]));
 
@@ -158,6 +218,75 @@ function createAttachmentsDbDouble() {
       return {
         rowCount: user ? 1 : 0,
         rows: user ? [clone(user)] : []
+      };
+    }
+
+    if (lower.startsWith("select id, name, slug, description, is_system, is_active, created_at, updated_at from groups")) {
+      let rows = groups.slice();
+      if (lower.includes("where is_active = true")) {
+        rows = rows.filter((group) => Boolean(group.is_active));
+      }
+      return {
+        rowCount: rows.length,
+        rows: rows.map((group) => ({
+          id: group.id,
+          name: group.name,
+          slug: group.slug,
+          description: group.description,
+          is_system: group.is_system,
+          is_active: group.is_active,
+          created_at: group.created_at,
+          updated_at: group.updated_at
+        }))
+      };
+    }
+
+    if (lower.includes("from user_groups ug join groups g on g.id = ug.group_id")) {
+      const userId = Number(params[0]);
+      const rows = userGroups
+        .filter((membership) => Number(membership.user_id) === userId)
+        .map((membership) => {
+          const group = groups.find((item) => Number(item.id) === Number(membership.group_id));
+          if (!group || !group.is_active) {
+            return null;
+          }
+          return {
+            id: group.id,
+            name: group.name,
+            slug: group.slug,
+            description: group.description,
+            isSystem: group.is_system,
+            isActive: group.is_active,
+            roleInGroup: membership.role_in_group,
+            createdAt: membership.created_at,
+            updatedAt: membership.updated_at
+          };
+        })
+        .filter(Boolean);
+      return {
+        rowCount: rows.length,
+        rows
+      };
+    }
+
+    if (lower.includes("from group_access_policies p")) {
+      const resourceType = String(params[0] || "all");
+      const rows = groupPolicies
+        .filter((policy) => String(policy.resource_type) === resourceType)
+        .map((policy) => ({
+          source_group_id: policy.source_group_id,
+          target_group_id: policy.target_group_id,
+          resource_type: policy.resource_type,
+          can_view: policy.can_view,
+          can_create: policy.can_create,
+          can_edit: policy.can_edit,
+          can_delete: policy.can_delete,
+          can_export: policy.can_export,
+          can_administer: policy.can_administer
+        }));
+      return {
+        rowCount: rows.length,
+        rows
       };
     }
 
@@ -185,7 +314,9 @@ function createAttachmentsDbDouble() {
             mimeType: attachment.mime_type,
             sizeBytes: attachment.size_bytes,
             createdAt: attachment.created_at,
-            encargadoId: event?.encargado_id || null
+            encargadoId: event?.encargado_id || null,
+            groupId: attachment.group_id || event?.group_id || 1,
+            eventGroupId: event?.group_id || attachment.group_id || 1
           }
         ]
       };
@@ -240,7 +371,11 @@ function createAttachmentsDbDouble() {
           ownerName: owner?.name || null,
           ownerEmail: owner?.email || null,
           uploadedByName: uploader?.name || null,
-          uploadedByEmail: uploader?.email || null
+          uploadedByEmail: uploader?.email || null,
+          groupId: row.group_id || event?.group_id || 1,
+          eventGroupId: event?.group_id || row.group_id || 1,
+          groupName: "General",
+          groupSlug: "general"
         };
       });
 

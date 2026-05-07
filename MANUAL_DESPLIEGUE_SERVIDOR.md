@@ -1,10 +1,36 @@
-# Manual De Despliegue En Servidor Ubuntu (BitacoraHardening)
+# Manual De Despliegue En Servidor Ubuntu (Bitacora Grupos)
 
 Repositorio oficial:
-- https://github.com/RayCiavato/Bitacora_gestor_tareas.git
+- https://github.com/RayCiavato/Bitacora_Grupos.git
 
 Ruta recomendada en servidor:
-- `~/apps/Bitacora_gestor_tareas`
+- `~/apps/Bitacora_Grupos`
+
+---
+
+## Modelo multi-area incluido
+
+Esta version convierte Bitacora en una plataforma por grupos/areas:
+
+- `General`: compatibilidad para datos historicos.
+- `Soporte`
+- `Infraestructura`
+- `Seguridad Tecnologica`
+- `Gerencia`
+
+El backend aplica RBAC + ABAC:
+
+1. Primero valida permiso del rol sobre el modulo.
+2. Luego valida permiso de grupo sobre el recurso.
+3. Si una condicion falla, se niega el acceso.
+
+La migracion `db/migrations/008_groups_abac.sql`:
+- crea `groups`, `user_groups`, `group_access_policies`
+- agrega `group_id` a bitacoras, tareas y adjuntos
+- asigna datos existentes a `General`
+- configura politicas iniciales sin borrar data
+
+No uses `docker compose down -v`, no borres volumenes y no ejecutes scripts `fresh-db` en servidores con data.
 
 ---
 
@@ -31,7 +57,7 @@ Importante:
 No se deja una password fija en el repositorio. Si quieres evitar errores, deja que el servidor genere passwords temporales fuertes:
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas
+cd ~/apps/Bitacora_Grupos
 chmod +x scripts/*.sh
 
 bash scripts/setup-env.sh \
@@ -119,8 +145,8 @@ ssh -T github-bitacora
 ```bash
 mkdir -p ~/apps
 cd ~/apps
-git clone git@github-bitacora:RayCiavato/Bitacora_gestor_tareas.git Bitacora_gestor_tareas
-cd ~/apps/Bitacora_gestor_tareas
+git clone git@github-bitacora:RayCiavato/Bitacora_Grupos.git Bitacora_Grupos
+cd ~/apps/Bitacora_Grupos
 ```
 
 ---
@@ -131,7 +157,7 @@ Este flujo es SOLO para servidor nuevo, sin datos que preservar.
 Si el servidor ya tiene bitacoras, tareas, usuarios o adjuntos cargados, NO uses este flujo: usa la seccion `8) Actualizacion segura`.
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas
+cd ~/apps/Bitacora_Grupos
 chmod +x scripts/*.sh
 
 read -r -s -p "Admin password inicial: " ADMIN_PASSWORD; echo
@@ -165,7 +191,7 @@ Importante:
 ## 6) Verificacion post-despliegue
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas
+cd ~/apps/Bitacora_Grupos
 docker compose ps
 docker compose logs --tail=150 app
 docker compose logs --tail=100 caddy
@@ -185,7 +211,7 @@ Esperado:
 Si el stack ya existe y solo quieres activar Telegram:
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas
+cd ~/apps/Bitacora_Grupos
 
 unset TELEGRAM_BOT_TOKEN_VALUE TELEGRAM_CHAT_ID_VALUE
 read -r -s -p "Pega token Telegram: " TELEGRAM_BOT_TOKEN_VALUE; echo
@@ -244,7 +270,7 @@ Nota de seguridad:
 Para actualizar version en servidor ya productivo:
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas
+cd ~/apps/Bitacora_Grupos
 
 if docker compose version >/dev/null 2>&1; then
   DC="docker compose"
@@ -265,6 +291,16 @@ fi
 git checkout main
 git pull --ff-only origin main
 
+mkdir -p backups
+POSTGRES_USER_VALUE="$(grep -E '^POSTGRES_USER=' .env 2>/dev/null | tail -n1 | cut -d= -f2-)"
+POSTGRES_DB_VALUE="$(grep -E '^POSTGRES_DB=' .env 2>/dev/null | tail -n1 | cut -d= -f2-)"
+
+# Backup previo obligatorio antes de migraciones.
+$DC exec -T postgres pg_dump -U "${POSTGRES_USER_VALUE:-bitacora_user}" "${POSTGRES_DB_VALUE:-bitacora}" | gzip > "backups/pre-groups-update-$(date +%F-%H%M%S).sql.gz"
+
+# Migracion incremental multi-area. No borra tablas ni datos.
+cat db/migrations/008_groups_abac.sql | $DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}"
+
 # Rebuild solo app, no tocar DB ni volumenes.
 docker ps -aq --filter "name=bitacora-app" | xargs -r docker rm -f
 $DC build --no-cache app
@@ -275,6 +311,14 @@ $DC logs --tail=120 app
 curl -sS http://127.0.0.1/health
 ```
 
+Validacion de migracion:
+
+```bash
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT slug, is_active FROM groups ORDER BY id;"
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS tareas_sin_grupo FROM tasks WHERE group_id IS NULL;"
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS bitacoras_sin_grupo FROM events WHERE group_id IS NULL;"
+```
+
 Validacion de UI nueva:
 
 ```bash
@@ -283,6 +327,22 @@ curl -sS http://10.156.99.35/sw.js | grep "bitacora-v32"
 ```
 
 Si usas HTTPS interno, cambia `http` por `https` y agrega `-k` a `curl`.
+
+Rollback logico si algo falla:
+
+```bash
+cd ~/apps/Bitacora_Grupos
+if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
+
+# 1) Volver al commit anterior de app, sin tocar volumenes.
+git log --oneline -5
+git checkout <COMMIT_ANTERIOR_ESTABLE>
+$DC build app
+$DC up -d --no-deps --force-recreate app
+
+# 2) Si necesitas restaurar DB, hazlo solo desde backup validado y en ventana de mantenimiento.
+# Nunca uses docker compose down -v.
+```
 
 ---
 
@@ -301,7 +361,7 @@ docker compose logs --tail=120 caddy
 Si ves error de politica de password admin:
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas
+cd ~/apps/Bitacora_Grupos
 read -r -s -p "Nuevo password admin: " ADMIN_PASSWORD; echo
 bash scripts/provision-admin.sh admin@n1njahack.local "$ADMIN_PASSWORD" 'Administrador N1njaHack'
 docker compose restart app
@@ -314,7 +374,7 @@ La DB quedo inicializada con otro password.
 No borres volumenes si el servidor tiene data real. Primero genera backup:
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas
+cd ~/apps/Bitacora_Grupos
 if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
 mkdir -p backups
 POSTGRES_USER_VALUE="$(grep -E '^POSTGRES_USER=' .env 2>/dev/null | tail -n1 | cut -d= -f2-)"
@@ -331,7 +391,7 @@ No uses `docker compose down -v` ni `docker volume rm` en produccion.
 Si ves `fatal: not a git repository` o `no configuration file provided`:
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas
+cd ~/apps/Bitacora_Grupos
 pwd
 ls -la
 git status --short
@@ -348,7 +408,7 @@ docker compose version
 ### E) Pull bloqueado por cambios locales
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas
+cd ~/apps/Bitacora_Grupos
 mkdir -p ~/bitacora-backups
 [ -f infra/Caddyfile.internal-https ] && cp infra/Caddyfile.internal-https ~/bitacora-backups/Caddyfile.internal-https.$(date +%Y%m%d-%H%M%S).bak
 git stash push -u -m "pre-pull-$(date +%F-%H%M%S)"
@@ -360,7 +420,7 @@ git pull --ff-only origin main
 Quedo un contenedor viejo con nombre fijo (por ejemplo `bitacora-node-exporter`) y Compose no puede recrearlo.
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas
+cd ~/apps/Bitacora_Grupos
 docker rm -f bitacora-node-exporter 2>/dev/null || true
 if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
 $DC up -d --remove-orphans
@@ -374,7 +434,7 @@ Nota:
 ## 10) Checklist final
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas
+cd ~/apps/Bitacora_Grupos
 git rev-parse --short HEAD
 docker compose ps
 curl -I http://127.0.0.1
@@ -392,7 +452,7 @@ Validar en UI:
 ## 11) Comandos de operacion diaria
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas
+cd ~/apps/Bitacora_Grupos
 docker compose ps
 docker compose logs -f app
 docker compose restart app
@@ -402,6 +462,6 @@ bash scripts/check-latest-backup.sh
 Restore de backup:
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas
+cd ~/apps/Bitacora_Grupos
 bash scripts/restore-db.sh backups/<archivo>.sql.gz
 ```

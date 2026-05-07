@@ -487,6 +487,10 @@
                         <option value="">Sin plantilla</option>
                       </select>
                     </label>
+                    <label id="eventGroupSelectWrap" class="hidden">
+                      Grupo / area
+                      <select id="eventGroupSelect"></select>
+                    </label>
                     <label>
                       Fecha
                       <input id="fecha" type="date" required />
@@ -619,6 +623,12 @@
                           Encargado
                           <select id="userFilter">
                             <option value="">Todos</option>
+                          </select>
+                        </label>
+                        <label id="reportGroupFilterWrap" class="hidden">
+                          Grupo
+                          <select id="reportGroupFilter">
+                            <option value="">Todos visibles</option>
                           </select>
                         </label>
                         <label>
@@ -841,6 +851,10 @@
                           <option value="alta">Alta</option>
                         </select>
                       </label>
+                      <label id="taskGroupSelectWrap" class="hidden">
+                        Grupo / area
+                        <select id="taskGroupSelect"></select>
+                      </label>
                       <label>
                         Fecha de inicio
                         <input id="taskStartDate" type="date" />
@@ -896,6 +910,12 @@
                             <option value="baja">Baja</option>
                             <option value="media">Media</option>
                             <option value="alta">Alta</option>
+                          </select>
+                        </label>
+                        <label id="tasksFilterGroupWrap" class="hidden">
+                          Grupo
+                          <select id="tasksFilterGroup">
+                            <option value="">Todos visibles</option>
                           </select>
                         </label>
                         <label>
@@ -978,6 +998,7 @@
                             <th>Titulo</th>
                             <th>Estado</th>
                             <th>Prioridad</th>
+                            <th>Grupo</th>
                             <th>Creador</th>
                             <th>Asignado</th>
                             <th>Inicio</th>
@@ -1080,32 +1101,106 @@
                   <p class="help-text">Gestiona capacidades por modulo con controles anti-escalado.</p>
                 </div>
 
-                <div class="rbac-toolbar">
-                  <label>
-                    Rol
-                    <select id="rbacRoleSelect"></select>
-                  </label>
-                  <div class="rbac-toolbar-actions">
-                    <button id="rbacReloadBtn" type="button" class="btn btn-ghost">Recargar</button>
-                    <button id="rbacSaveBtn" type="button" class="btn btn-primary">Guardar permisos</button>
+                <div class="rbac-tabs" role="tablist" aria-label="Administracion de permisos">
+                  <button type="button" class="rbac-tab is-active" data-rbac-tab="roles">Roles y modulos</button>
+                  <button type="button" class="rbac-tab" data-rbac-tab="groups">Grupos</button>
+                  <button type="button" class="rbac-tab" data-rbac-tab="visibility">Matriz de visibilidad</button>
+                  <button type="button" class="rbac-tab" data-rbac-tab="members">Usuarios por grupo</button>
+                  <button type="button" class="rbac-tab" data-rbac-tab="audit">Auditoria de permisos</button>
+                </div>
+
+                <div id="rbacRolesPane" class="rbac-pane">
+                  <div class="rbac-toolbar">
+                    <label>
+                      Rol
+                      <select id="rbacRoleSelect"></select>
+                    </label>
+                    <div class="rbac-toolbar-actions">
+                      <button id="rbacReloadBtn" type="button" class="btn btn-ghost">Recargar</button>
+                      <button id="rbacSaveBtn" type="button" class="btn btn-primary">Guardar permisos</button>
+                    </div>
+                  </div>
+
+                  <div class="table-wrap rbac-table-wrap">
+                    <table class="rbac-policy-table">
+                      <thead>
+                        <tr>
+                          <th>Modulo</th>
+                          <th>Ver</th>
+                          <th>Crear</th>
+                          <th>Editar</th>
+                          <th>Eliminar</th>
+                          <th>Exportar</th>
+                          <th>Administrar</th>
+                        </tr>
+                      </thead>
+                      <tbody id="rbacTableBody"></tbody>
+                    </table>
                   </div>
                 </div>
 
-                <div class="table-wrap rbac-table-wrap">
-                  <table class="rbac-policy-table">
-                    <thead>
-                      <tr>
-                        <th>Modulo</th>
-                        <th>Ver</th>
-                        <th>Crear</th>
-                        <th>Editar</th>
-                        <th>Eliminar</th>
-                        <th>Exportar</th>
-                        <th>Administrar</th>
-                      </tr>
-                    </thead>
-                    <tbody id="rbacTableBody"></tbody>
-                  </table>
+                <div id="rbacGroupsPane" class="rbac-pane hidden">
+                  <form id="groupCreateForm" class="rbac-inline-form">
+                    <label>
+                      Nombre del grupo
+                      <input id="groupNameInput" type="text" minlength="2" maxlength="120" placeholder="Ej: Soporte N2" />
+                    </label>
+                    <label>
+                      Descripcion
+                      <input id="groupDescriptionInput" type="text" maxlength="500" placeholder="Alcance operativo del grupo" />
+                    </label>
+                    <button type="submit" class="btn btn-primary">Crear grupo</button>
+                  </form>
+                  <div id="groupsList" class="group-admin-grid"></div>
+                </div>
+
+                <div id="rbacVisibilityPane" class="rbac-pane hidden">
+                  <div class="rbac-toolbar">
+                    <label>
+                      Grupo origen
+                      <select id="groupPolicySourceSelect"></select>
+                    </label>
+                    <button id="groupPolicyReloadBtn" type="button" class="btn btn-ghost">Recargar matriz</button>
+                  </div>
+                  <div class="table-wrap rbac-table-wrap">
+                    <table class="rbac-policy-table">
+                      <thead>
+                        <tr>
+                          <th>Grupo destino</th>
+                          <th>Ver</th>
+                          <th>Crear</th>
+                          <th>Editar</th>
+                          <th>Eliminar</th>
+                          <th>Exportar</th>
+                          <th>Administrar</th>
+                        </tr>
+                      </thead>
+                      <tbody id="groupPolicyTableBody"></tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div id="rbacMembersPane" class="rbac-pane hidden">
+                  <div class="rbac-toolbar">
+                    <label>
+                      Grupo
+                      <select id="groupMembersSelect"></select>
+                    </label>
+                    <label>
+                      Usuario
+                      <select id="groupMemberUserSelect"></select>
+                    </label>
+                    <button id="groupMemberAddBtn" type="button" class="btn btn-primary">Agregar usuario</button>
+                  </div>
+                  <div id="groupMembersList" class="group-admin-grid"></div>
+                </div>
+
+                <div id="rbacAuditPane" class="rbac-pane hidden">
+                  <p class="help-text">
+                    Los cambios de grupos, membresias y matriz quedan auditados como
+                    groups.created, groups.updated, groups.policy_updated, groups.user_added y
+                    groups.user_removed. Consulta el panel Auditoria para trazabilidad completa.
+                  </p>
                 </div>
 
                 <p id="rbacMeta" class="help-text">Cargando permisos...</p>

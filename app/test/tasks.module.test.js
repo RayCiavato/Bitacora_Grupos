@@ -42,6 +42,33 @@ const USERS_FIXTURE = Object.freeze([
   }
 ]);
 
+const GROUPS_FIXTURE = Object.freeze([
+  {
+    id: 1,
+    name: "General",
+    slug: "general",
+    description: "Grupo base de pruebas",
+    is_system: true,
+    is_active: true,
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z"
+  }
+]);
+
+const GROUP_POLICIES_FIXTURE = Object.freeze([
+  {
+    source_group_id: 1,
+    target_group_id: 1,
+    resource_type: "all",
+    can_view: true,
+    can_create: true,
+    can_edit: true,
+    can_delete: true,
+    can_export: true,
+    can_administer: false
+  }
+]);
+
 const TASKS_FIXTURE = Object.freeze([
   {
     id: 101,
@@ -55,6 +82,7 @@ const TASKS_FIXTURE = Object.freeze([
     assigned_to: null,
     assignee_ids: [],
     allow_assignees_edit: false,
+    group_id: 1,
     metadata: {},
     created_at: "2026-04-01T10:00:00.000Z",
     updated_at: "2026-04-01T10:00:00.000Z",
@@ -72,6 +100,7 @@ const TASKS_FIXTURE = Object.freeze([
     assigned_to: 3,
     assignee_ids: [3, 4],
     allow_assignees_edit: false,
+    group_id: 1,
     metadata: {},
     created_at: "2026-04-02T10:00:00.000Z",
     updated_at: "2026-04-02T10:00:00.000Z",
@@ -89,6 +118,7 @@ const TASKS_FIXTURE = Object.freeze([
     assigned_to: null,
     assignee_ids: [],
     allow_assignees_edit: false,
+    group_id: 1,
     metadata: {},
     created_at: "2026-04-03T10:00:00.000Z",
     updated_at: "2026-04-03T10:00:00.000Z",
@@ -106,6 +136,7 @@ const TASKS_FIXTURE = Object.freeze([
     assigned_to: 2,
     assignee_ids: [2],
     allow_assignees_edit: true,
+    group_id: 1,
     metadata: {},
     created_at: "2026-04-04T10:00:00.000Z",
     updated_at: "2026-04-04T10:00:00.000Z",
@@ -123,6 +154,7 @@ const TASKS_FIXTURE = Object.freeze([
     assigned_to: null,
     assignee_ids: [],
     allow_assignees_edit: false,
+    group_id: 1,
     metadata: {},
     created_at: "2026-03-01T10:00:00.000Z",
     updated_at: "2026-03-05T10:00:00.000Z",
@@ -137,6 +169,7 @@ function clone(value) {
 function toTaskSelectRow(task, usersById) {
   const creator = usersById.get(task.created_by) || null;
   const assignee = task.assigned_to ? usersById.get(task.assigned_to) || null : null;
+  const group = GROUPS_FIXTURE.find((item) => Number(item.id) === Number(task.group_id)) || GROUPS_FIXTURE[0];
   return {
     id: task.id,
     title: task.title,
@@ -148,6 +181,9 @@ function toTaskSelectRow(task, usersById) {
     assigneeIds: clone(task.assignee_ids || []),
     allowAssigneesEdit: Boolean(task.allow_assignees_edit),
     metadata: clone(task.metadata || {}),
+    groupId: task.group_id || 1,
+    groupName: group?.name || "General",
+    groupSlug: group?.slug || "general",
     createdAt: task.created_at,
     updatedAt: task.updated_at,
     createdById: task.created_by || null,
@@ -170,6 +206,9 @@ function createFakeTasksDb() {
   let usersById = new Map();
   let tasks = [];
   let auditLogs = [];
+  let groups = [];
+  let userGroups = [];
+  let groupPolicies = [];
   let nextTaskId = 200;
 
   function reset() {
@@ -177,6 +216,15 @@ function createFakeTasksDb() {
     usersById = new Map(users.map((user) => [user.id, user]));
     tasks = clone(TASKS_FIXTURE);
     auditLogs = [];
+    groups = clone(GROUPS_FIXTURE);
+    userGroups = users.map((user) => ({
+      user_id: user.id,
+      group_id: 1,
+      role_in_group: "miembro",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z"
+    }));
+    groupPolicies = clone(GROUP_POLICIES_FIXTURE);
     nextTaskId = 200;
   }
 
@@ -247,6 +295,20 @@ function createFakeTasksDb() {
     if (priorityMatch) {
       const expected = String(getParam(params, priorityMatch[1]));
       filtered = filtered.filter((task) => task.priority === expected);
+    }
+
+    const groupScopeMatch = whereSql.match(/t\.group_id\s*=\s*any\(\$(\d+)::bigint\[\]\)/i);
+    if (groupScopeMatch) {
+      const allowedGroupIds = Array.isArray(getParam(params, groupScopeMatch[1]))
+        ? getParam(params, groupScopeMatch[1]).map((value) => Number(value))
+        : [];
+      filtered = filtered.filter((task) => allowedGroupIds.includes(Number(task.group_id || 1)));
+    }
+
+    const groupFilterMatch = whereSql.match(/and\s+t\.group_id\s*=\s*\$(\d+)/i);
+    if (groupFilterMatch) {
+      const expected = Number(getParam(params, groupFilterMatch[1]));
+      filtered = filtered.filter((task) => Number(task.group_id || 1) === expected);
     }
 
     const createdByFilterMatch = whereSql.match(/and t\.created_by = \$(\d+)/i);
@@ -399,6 +461,54 @@ function createFakeTasksDb() {
       };
     }
 
+    if (
+      lower.startsWith("select id, name, slug, description, is_system, is_active, created_at, updated_at from groups")
+    ) {
+      const activeOnly = lower.includes("where is_active = true");
+      const rows = groups.filter((group) => !activeOnly || group.is_active);
+      return {
+        rowCount: rows.length,
+        rows: clone(rows)
+      };
+    }
+
+    if (lower.includes("from user_groups ug join groups g on g.id = ug.group_id")) {
+      const userId = Number(params[0]);
+      const rows = userGroups
+        .filter((membership) => Number(membership.user_id) === userId)
+        .map((membership) => {
+          const group = groups.find((item) => Number(item.id) === Number(membership.group_id));
+          if (!group || !group.is_active) {
+            return null;
+          }
+          return {
+            id: group.id,
+            name: group.name,
+            slug: group.slug,
+            description: group.description,
+            is_system: group.is_system,
+            is_active: group.is_active,
+            role_in_group: membership.role_in_group,
+            created_at: membership.created_at,
+            updated_at: membership.updated_at
+          };
+        })
+        .filter(Boolean);
+      return {
+        rowCount: rows.length,
+        rows
+      };
+    }
+
+    if (lower.includes("from group_access_policies p")) {
+      const resourceType = String(params[0] || "all");
+      const rows = groupPolicies.filter((policy) => policy.resource_type === resourceType);
+      return {
+        rowCount: rows.length,
+        rows: clone(rows)
+      };
+    }
+
     if (lower.startsWith("select id, name, email from users")) {
       if (lower.includes("where id = any($1::bigint[])")) {
         const ids = Array.isArray(params[0]) ? params[0].map((value) => Number(value)) : [];
@@ -460,7 +570,8 @@ function createFakeTasksDb() {
         assigned_to: params[7] ? Number(params[7]) : null,
         assignee_ids: Array.isArray(params[8]) ? params[8].map((value) => Number(value)) : [],
         allow_assignees_edit: Boolean(params[9]),
-        metadata: params[10] ? JSON.parse(params[10]) : {},
+        group_id: params[10] ? Number(params[10]) : 1,
+        metadata: params[11] ? JSON.parse(params[11]) : {},
         deleted_at: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
@@ -547,6 +658,9 @@ function createFakeTasksDb() {
         }
         if (column === "allow_assignees_edit") {
           task.allow_assignees_edit = Boolean(value);
+        }
+        if (column === "group_id") {
+          task.group_id = value ? Number(value) : 1;
         }
         if (column === "metadata") {
           task.metadata = value ? JSON.parse(value) : {};

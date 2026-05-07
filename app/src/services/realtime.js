@@ -10,7 +10,9 @@ function normalizeRealtimeUser(user) {
     id: user?.id ?? user?.sub ?? null,
     role: user?.role || null,
     name: user?.name || "",
-    email: user?.email || ""
+    email: user?.email || "",
+    groups: Array.isArray(user?.groups) ? user.groups : [],
+    groupAccess: user?.groupAccess || null
   };
 }
 

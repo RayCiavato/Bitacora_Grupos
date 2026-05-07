@@ -13,6 +13,7 @@ const { validateFullName } = require("../services/namePolicy");
 const { normalizeEmail, validateRegistrationEmail } = require("../services/emailPolicy");
 const { createAuditLog } = require("../services/audit");
 const { buildSessionUser } = require("../services/authorization");
+const { addUserToGroup, enrichUserWithGroupAccess, getDefaultGroup } = require("../services/groups");
 const { getSystemSettings } = require("../services/systemSettings");
 const {
   createAccessToken,
@@ -238,9 +239,11 @@ async function issueSession({ user, req, res, auditAction = "auth.session_create
     req
   });
 
+  const enrichedUser = await enrichUserWithGroupAccess(user);
+
   return {
     accessToken,
-    user: buildSessionUser(user)
+    user: buildSessionUser(enrichedUser)
   };
 }
 
@@ -383,6 +386,14 @@ router.post("/register", async (req, res, next) => {
     );
 
     const user = insertResult.rows[0];
+    const defaultGroup = await getDefaultGroup();
+    if (defaultGroup?.id) {
+      await addUserToGroup({
+        userId: user.id,
+        groupId: defaultGroup.id,
+        roleInGroup: "miembro"
+      });
+    }
 
     const setupToken = createMfaSetupToken(user);
     await createAuditLog({

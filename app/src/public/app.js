@@ -195,6 +195,33 @@ const rbacReloadBtn = document.getElementById("rbacReloadBtn");
 const rbacSaveBtn = document.getElementById("rbacSaveBtn");
 const rbacTableBody = document.getElementById("rbacTableBody");
 const rbacMeta = document.getElementById("rbacMeta");
+const rbacTabs = Array.from(document.querySelectorAll("[data-rbac-tab]"));
+const rbacPanes = {
+  roles: document.getElementById("rbacRolesPane"),
+  groups: document.getElementById("rbacGroupsPane"),
+  visibility: document.getElementById("rbacVisibilityPane"),
+  members: document.getElementById("rbacMembersPane"),
+  audit: document.getElementById("rbacAuditPane")
+};
+const groupCreateForm = document.getElementById("groupCreateForm");
+const groupNameInput = document.getElementById("groupNameInput");
+const groupDescriptionInput = document.getElementById("groupDescriptionInput");
+const groupsList = document.getElementById("groupsList");
+const groupPolicySourceSelect = document.getElementById("groupPolicySourceSelect");
+const groupPolicyReloadBtn = document.getElementById("groupPolicyReloadBtn");
+const groupPolicyTableBody = document.getElementById("groupPolicyTableBody");
+const groupMembersSelect = document.getElementById("groupMembersSelect");
+const groupMemberUserSelect = document.getElementById("groupMemberUserSelect");
+const groupMemberAddBtn = document.getElementById("groupMemberAddBtn");
+const groupMembersList = document.getElementById("groupMembersList");
+const eventGroupSelectWrap = document.getElementById("eventGroupSelectWrap");
+const eventGroupSelect = document.getElementById("eventGroupSelect");
+const reportGroupFilterWrap = document.getElementById("reportGroupFilterWrap");
+const reportGroupFilter = document.getElementById("reportGroupFilter");
+const taskGroupSelectWrap = document.getElementById("taskGroupSelectWrap");
+const taskGroupSelect = document.getElementById("taskGroupSelect");
+const tasksFilterGroupWrap = document.getElementById("tasksFilterGroupWrap");
+const tasksFilterGroup = document.getElementById("tasksFilterGroup");
 
 const templateTools = document.getElementById("templateTools");
 const templateForm = document.getElementById("templateForm");
@@ -408,6 +435,14 @@ const state = {
   rpLimits: {},
   rpUpdated: {},
   selectedRolePolicy: "funcionario",
+  groupAdmin: {
+    groups: [],
+    policies: [],
+    members: [],
+    activeTab: "roles",
+    selectedPolicySourceId: "",
+    selectedMembersGroupId: ""
+  },
   sysCfg: null,
   telegramLink: {
     linked: false,
@@ -1369,6 +1404,461 @@ function renderRolePolicyTable() {
   setRbacMetaMessage(formatRbacUpdatedMeta(roleKey));
 }
 
+function setRbacActiveTab(tabKey) {
+  const safeTab = rbacPanes[tabKey] ? tabKey : "roles";
+  state.groupAdmin.activeTab = safeTab;
+  rbacTabs.forEach((button) => {
+    const isActive = button.dataset.rbacTab === safeTab;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-selected", isActive ? "true" : "false");
+  });
+  Object.entries(rbacPanes).forEach(([key, pane]) => {
+    setElementVisible(pane, key === safeTab);
+  });
+}
+
+function getActiveGroupsForUi() {
+  const adminGroups = Array.isArray(state.groupAdmin?.groups) ? state.groupAdmin.groups : [];
+  const visibleGroups = Array.isArray(state.user?.groupAccess?.visibleGroups)
+    ? state.user.groupAccess.visibleGroups
+    : [];
+  const userGroups = Array.isArray(state.user?.groups) ? state.user.groups : [];
+  const source = adminGroups.length ? adminGroups : visibleGroups.length ? visibleGroups : userGroups;
+  return source.filter((group) => group && group.isActive !== false);
+}
+
+function getCreatableGroupsForUi() {
+  const adminGroups = Array.isArray(state.groupAdmin?.groups) ? state.groupAdmin.groups : [];
+  const createGroups = Array.isArray(state.user?.groupAccess?.creatableGroups)
+    ? state.user.groupAccess.creatableGroups
+    : [];
+  const userGroups = Array.isArray(state.user?.groups) ? state.user.groups : [];
+  const source = adminGroups.length ? adminGroups : createGroups.length ? createGroups : userGroups;
+  return source.filter((group) => group && group.isActive !== false);
+}
+
+function populateGroupSelect(select, groups, options = {}) {
+  if (!select) {
+    return;
+  }
+
+  const includeAll = Boolean(options.includeAll);
+  const allLabel = options.allLabel || "Todos visibles";
+  const selectedValue = String(options.selectedValue || select.value || "");
+  clearElement(select);
+
+  if (includeAll) {
+    const allOption = document.createElement("option");
+    allOption.value = "";
+    allOption.textContent = allLabel;
+    select.appendChild(allOption);
+  }
+
+  groups.forEach((group) => {
+    const option = document.createElement("option");
+    option.value = String(group.id);
+    option.textContent = group.name || group.slug || `Grupo #${group.id}`;
+    select.appendChild(option);
+  });
+
+  if (selectedValue && Array.from(select.options).some((option) => option.value === selectedValue)) {
+    select.value = selectedValue;
+  }
+}
+
+function syncResourceGroupControls() {
+  const visibleGroups = getActiveGroupsForUi();
+  const createGroups = getCreatableGroupsForUi();
+  populateGroupSelect(eventGroupSelect, createGroups);
+  populateGroupSelect(taskGroupSelect, createGroups);
+  populateGroupSelect(reportGroupFilter, visibleGroups, { includeAll: true });
+  populateGroupSelect(tasksFilterGroup, visibleGroups, { includeAll: true });
+  setElementVisible(eventGroupSelectWrap, createGroups.length > 1);
+  setElementVisible(taskGroupSelectWrap, createGroups.length > 1);
+  setElementVisible(reportGroupFilterWrap, visibleGroups.length > 1);
+  setElementVisible(tasksFilterGroupWrap, visibleGroups.length > 1);
+}
+
+function renderGroupsList() {
+  if (!groupsList) {
+    return;
+  }
+  clearElement(groupsList);
+  const groups = Array.isArray(state.groupAdmin?.groups) ? state.groupAdmin.groups : [];
+  if (!groups.length) {
+    const empty = document.createElement("p");
+    empty.className = "help-text";
+    empty.textContent = "No hay grupos configurados.";
+    groupsList.appendChild(empty);
+    return;
+  }
+
+  groups.forEach((group) => {
+    const card = document.createElement("article");
+    card.className = "group-admin-card";
+
+    const title = document.createElement("strong");
+    title.textContent = group.name || `Grupo #${group.id}`;
+    card.appendChild(title);
+
+    const meta = document.createElement("p");
+    meta.className = "help-text";
+    meta.textContent = `${group.slug || "sin-slug"} | ${group.isActive ? "Activo" : "Inactivo"}`;
+    card.appendChild(meta);
+
+    if (group.description) {
+      const description = document.createElement("p");
+      description.textContent = group.description;
+      card.appendChild(description);
+    }
+
+    if (!group.isSystem) {
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "btn btn-ghost";
+      toggle.textContent = group.isActive ? "Desactivar" : "Activar";
+      toggle.addEventListener("click", () => handleGroupActiveToggle(group));
+      card.appendChild(toggle);
+    }
+
+    groupsList.appendChild(card);
+  });
+}
+
+function findGroupPolicy(sourceGroupId, targetGroupId) {
+  const source = Number(sourceGroupId);
+  const target = Number(targetGroupId);
+  return (state.groupAdmin.policies || []).find(
+    (policy) => Number(policy.sourceGroupId) === source && Number(policy.targetGroupId) === target
+  );
+}
+
+function renderGroupPolicySelectors() {
+  const groups = getActiveGroupsForUi();
+  populateGroupSelect(groupPolicySourceSelect, groups, {
+    selectedValue: state.groupAdmin.selectedPolicySourceId
+  });
+  if (!state.groupAdmin.selectedPolicySourceId && groupPolicySourceSelect?.value) {
+    state.groupAdmin.selectedPolicySourceId = groupPolicySourceSelect.value;
+  }
+}
+
+function renderGroupPolicyTable() {
+  if (!groupPolicyTableBody) {
+    return;
+  }
+  clearElement(groupPolicyTableBody);
+  const groups = getActiveGroupsForUi();
+  const sourceGroupId = Number(state.groupAdmin.selectedPolicySourceId || groupPolicySourceSelect?.value || 0);
+  if (!groups.length || !sourceGroupId) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 7;
+    cell.textContent = "Selecciona un grupo origen.";
+    row.appendChild(cell);
+    groupPolicyTableBody.appendChild(row);
+    return;
+  }
+
+  const actionMap = [
+    ["canView", "Ver"],
+    ["canCreate", "Crear"],
+    ["canEdit", "Editar"],
+    ["canDelete", "Eliminar"],
+    ["canExport", "Exportar"],
+    ["canAdminister", "Administrar"]
+  ];
+
+  groups.forEach((targetGroup) => {
+    const policy = findGroupPolicy(sourceGroupId, targetGroup.id) || {};
+    const row = document.createElement("tr");
+    const nameCell = document.createElement("td");
+    const name = document.createElement("strong");
+    name.textContent = targetGroup.name || `Grupo #${targetGroup.id}`;
+    nameCell.appendChild(name);
+    const slug = document.createElement("p");
+    slug.className = "help-text rbac-module-description";
+    slug.textContent = targetGroup.slug || "";
+    nameCell.appendChild(slug);
+    row.appendChild(nameCell);
+
+    actionMap.forEach(([key, label]) => {
+      const cell = document.createElement("td");
+      cell.className = "rbac-action-cell";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = Boolean(policy[key]);
+      checkbox.dataset.sourceGroupId = String(sourceGroupId);
+      checkbox.dataset.targetGroupId = String(targetGroup.id);
+      checkbox.dataset.policyKey = key;
+      checkbox.title = label;
+      checkbox.disabled = !canManageUsers();
+      cell.appendChild(checkbox);
+      row.appendChild(cell);
+    });
+
+    groupPolicyTableBody.appendChild(row);
+  });
+}
+
+function renderGroupMemberUserOptions() {
+  if (!groupMemberUserSelect) {
+    return;
+  }
+  clearElement(groupMemberUserSelect);
+  const users = Array.isArray(state.users) ? state.users : [];
+  users.forEach((user) => {
+    const option = document.createElement("option");
+    option.value = String(user.id);
+    option.textContent = `${user.name} (${user.email}) - ${formatRoleLabel(user.role)}`;
+    groupMemberUserSelect.appendChild(option);
+  });
+}
+
+function renderGroupMembersControls() {
+  const groups = getActiveGroupsForUi();
+  populateGroupSelect(groupMembersSelect, groups, {
+    selectedValue: state.groupAdmin.selectedMembersGroupId
+  });
+  if (!state.groupAdmin.selectedMembersGroupId && groupMembersSelect?.value) {
+    state.groupAdmin.selectedMembersGroupId = groupMembersSelect.value;
+  }
+  renderGroupMemberUserOptions();
+}
+
+function renderGroupMembersList() {
+  if (!groupMembersList) {
+    return;
+  }
+  clearElement(groupMembersList);
+  const members = Array.isArray(state.groupAdmin.members) ? state.groupAdmin.members : [];
+  if (!members.length) {
+    const empty = document.createElement("p");
+    empty.className = "help-text";
+    empty.textContent = "Este grupo no tiene miembros asignados.";
+    groupMembersList.appendChild(empty);
+    return;
+  }
+
+  members.forEach((member) => {
+    const card = document.createElement("article");
+    card.className = "group-admin-card";
+    const title = document.createElement("strong");
+    title.textContent = member.name || `Usuario #${member.userId}`;
+    card.appendChild(title);
+    const meta = document.createElement("p");
+    meta.className = "help-text";
+    meta.textContent = `${member.email || ""} | ${formatRoleLabel(member.role)} | ${member.roleInGroup || "miembro"}`;
+    card.appendChild(meta);
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "btn btn-ghost";
+    removeBtn.textContent = "Remover";
+    removeBtn.addEventListener("click", () => handleRemoveGroupMember(member));
+    card.appendChild(removeBtn);
+    groupMembersList.appendChild(card);
+  });
+}
+
+async function loadGroupMembers(groupId = state.groupAdmin.selectedMembersGroupId) {
+  const safeGroupId = Number(groupId || 0);
+  if (!safeGroupId) {
+    state.groupAdmin.members = [];
+    renderGroupMembersList();
+    return;
+  }
+  const { response, data, networkError } = await apiAuth(`/groups/${safeGroupId}/members`);
+  if (networkError || !response.ok) {
+    state.groupAdmin.members = [];
+    renderGroupMembersList();
+    return;
+  }
+  state.groupAdmin.members = Array.isArray(data?.members) ? data.members : [];
+  renderGroupMembersList();
+}
+
+async function loadGroupsAdministrationPanel() {
+  if (!canManageUsers()) {
+    return;
+  }
+  const { response, data, networkError } = await apiAuth("/groups");
+  if (networkError) {
+    setRbacMetaMessage("No hay conexion para cargar grupos.");
+    return;
+  }
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    setRbacMetaMessage(resolveErrorMessage(data?.error, data?.details));
+    return;
+  }
+  state.groupAdmin.groups = Array.isArray(data?.groups) ? data.groups : [];
+  state.groupAdmin.policies = Array.isArray(data?.policies) ? data.policies : [];
+  if (state.groupAdmin.activeTab === "members" && (!Array.isArray(state.users) || state.users.length === 0)) {
+    await loadUsers();
+  }
+  renderGroupsList();
+  renderGroupPolicySelectors();
+  renderGroupPolicyTable();
+  renderGroupMembersControls();
+  syncResourceGroupControls();
+  if (state.groupAdmin.activeTab === "members") {
+    await loadGroupMembers();
+  }
+}
+
+async function handleGroupCreate(event) {
+  event.preventDefault();
+  if (!canManageUsers()) {
+    return;
+  }
+  const name = String(groupNameInput?.value || "").trim();
+  const description = String(groupDescriptionInput?.value || "").trim();
+  if (!name) {
+    showToast("Indica el nombre del grupo.", "error");
+    return;
+  }
+  const { response, data, networkError } = await apiAuth("/groups", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, description })
+  });
+  if (networkError || !response.ok) {
+    showToast(resolveErrorMessage(data?.error, data?.details) || "No se pudo crear el grupo.", "error");
+    return;
+  }
+  if (groupCreateForm) {
+    groupCreateForm.reset();
+  }
+  showToast("Grupo creado correctamente.", "success");
+  await loadGroupsAdministrationPanel();
+}
+
+async function handleGroupActiveToggle(group) {
+  if (!group || !canManageUsers()) {
+    return;
+  }
+  const nextActive = !group.isActive;
+  const { response, data, networkError } = await apiAuth(`/groups/${group.id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ isActive: nextActive })
+  });
+  if (networkError || !response.ok) {
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+  showToast(nextActive ? "Grupo activado." : "Grupo desactivado.", "success");
+  await loadGroupsAdministrationPanel();
+}
+
+async function handleGroupPolicyChange(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
+    return;
+  }
+  const sourceGroupId = Number(target.dataset.sourceGroupId || 0);
+  const targetGroupId = Number(target.dataset.targetGroupId || 0);
+  const policyKey = String(target.dataset.policyKey || "");
+  if (!sourceGroupId || !targetGroupId || !policyKey) {
+    return;
+  }
+  const currentPolicy = findGroupPolicy(sourceGroupId, targetGroupId) || {
+    sourceGroupId,
+    targetGroupId,
+    canView: false,
+    canCreate: false,
+    canEdit: false,
+    canDelete: false,
+    canExport: false,
+    canAdminister: false
+  };
+  const nextPermissions = {
+    canView: Boolean(currentPolicy.canView),
+    canCreate: Boolean(currentPolicy.canCreate),
+    canEdit: Boolean(currentPolicy.canEdit),
+    canDelete: Boolean(currentPolicy.canDelete),
+    canExport: Boolean(currentPolicy.canExport),
+    canAdminister: Boolean(currentPolicy.canAdminister),
+    [policyKey]: target.checked
+  };
+
+  if (["canEdit", "canDelete", "canAdminister"].includes(policyKey) && target.checked) {
+    const confirmed = window.confirm("Estas habilitando un permiso critico entre grupos. Deseas continuar?");
+    if (!confirmed) {
+      target.checked = false;
+      return;
+    }
+  }
+
+  const { response, data, networkError } = await apiAuth("/groups/policies/access", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sourceGroupId,
+      targetGroupId,
+      resourceType: "all",
+      permissions: nextPermissions
+    })
+  });
+
+  if (networkError || !response.ok) {
+    target.checked = !target.checked;
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  const policyIndex = state.groupAdmin.policies.findIndex(
+    (policy) => Number(policy.sourceGroupId) === sourceGroupId && Number(policy.targetGroupId) === targetGroupId
+  );
+  if (policyIndex >= 0) {
+    state.groupAdmin.policies[policyIndex] = data;
+  } else {
+    state.groupAdmin.policies.push(data);
+  }
+  showToast("Matriz de visibilidad actualizada.", "success");
+}
+
+async function handleAddGroupMember() {
+  const groupId = Number(groupMembersSelect?.value || 0);
+  const userId = Number(groupMemberUserSelect?.value || 0);
+  if (!groupId || !userId) {
+    showToast("Selecciona grupo y usuario.", "error");
+    return;
+  }
+  const { response, data, networkError } = await apiAuth(`/groups/${groupId}/members`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId, roleInGroup: "miembro" })
+  });
+  if (networkError || !response.ok) {
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+  showToast("Usuario agregado al grupo.", "success");
+  await loadGroupMembers(groupId);
+}
+
+async function handleRemoveGroupMember(member) {
+  const groupId = Number(groupMembersSelect?.value || 0);
+  const userId = Number(member?.userId || 0);
+  if (!groupId || !userId) {
+    return;
+  }
+  const { response, data, networkError } = await apiAuth(`/groups/${groupId}/members/${userId}`, {
+    method: "DELETE"
+  });
+  if (networkError || !response.ok) {
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+  showToast("Usuario removido del grupo.", "success");
+  await loadGroupMembers(groupId);
+}
+
 function getSystemSettingsPayloadFromForm() {
   const payload = {
     pagination: {
@@ -2312,14 +2802,21 @@ function applySessionUser(userPayload) {
 
   state.user = {
     id: userId,
+    sub: userId,
     name: String(userPayload.name || ""),
     email: String(userPayload.email || ""),
-    role: String(userPayload.role || "")
+    role: String(userPayload.role || ""),
+    groups: Array.isArray(userPayload.groups) ? userPayload.groups : [],
+    groupAccess:
+      userPayload.groupAccess && typeof userPayload.groupAccess === "object"
+        ? userPayload.groupAccess
+        : null
   };
   state.uiCaps = userPayload.capabilities && typeof userPayload.capabilities === "object"
     ? userPayload.capabilities
     : null;
 
+  syncResourceGroupControls();
   return Boolean(state.uiCaps);
 }
 
@@ -2443,7 +2940,9 @@ function renderReportRows(report) {
         item.templateId === null || item.templateId === undefined
           ? null
           : Number(item.templateId),
-      encargado: item.encargado || "-"
+      encargado: item.encargado || "-",
+      groupId: item.group?.id || item.groupId || null,
+      group: item.group || null
     };
 
     const viewButton = document.createElement("button");
@@ -3419,6 +3918,7 @@ async function loadRolePermissionsPanel() {
 
   renderRolePolicyRoleOptions();
   renderRolePolicyTable();
+  await loadGroupsAdministrationPanel();
 }
 
 async function handleRbacRoleChange(event) {
@@ -4173,6 +4673,10 @@ function buildReportParams(includePagination = true) {
     params.set("encargadoId", userFilterInput.value);
   }
 
+  if (reportGroupFilter?.value) {
+    params.set("groupId", reportGroupFilter.value);
+  }
+
   if (reportSortByInput instanceof HTMLSelectElement && reportSortByInput.value) {
     params.set("sortBy", reportSortByInput.value);
   }
@@ -4597,6 +5101,10 @@ async function loadTrends() {
     from: fromDateInput.value,
     to: toDateInput.value
   });
+
+  if (reportGroupFilter?.value) {
+    params.set("groupId", reportGroupFilter.value);
+  }
 
   const { response, data, networkError } = await apiAuth(`/events/trends?${params.toString()}`);
 
@@ -5779,6 +6287,10 @@ async function handleCreateEvent(event) {
     templateId: isEditMode ? selectedTemplateId : selectedTemplateId || undefined
   };
 
+  if (eventGroupSelect?.value) {
+    payload.groupId = Number(eventGroupSelect.value);
+  }
+
   const endpoint = isEditMode ? `/events/${state.editingEventId}` : "/events";
   const method = isEditMode ? "PATCH" : "POST";
   const { response, data, networkError } = await apiAuth(endpoint, {
@@ -6110,6 +6622,9 @@ async function handleEventEdit(button) {
   document.getElementById("observacion").value = current.observacion || "";
   document.getElementById("prioridad").value = normalizePriority(current.prioridad);
   eventTemplateSelect.value = current.templateId ? String(current.templateId) : "";
+  if (eventGroupSelect && current.groupId) {
+    eventGroupSelect.value = String(current.groupId);
+  }
   if (eventFilesInput) {
     eventFilesInput.value = "";
   }
@@ -7867,6 +8382,38 @@ async function bootstrap() {
   if (rbacSaveBtn) {
     rbacSaveBtn.addEventListener("click", handleRbacSave);
   }
+  rbacTabs.forEach((button) => {
+    button.addEventListener("click", async () => {
+      setRbacActiveTab(button.dataset.rbacTab || "roles");
+      if (state.groupAdmin.activeTab !== "roles") {
+        await loadGroupsAdministrationPanel();
+      }
+    });
+  });
+  if (groupCreateForm) {
+    groupCreateForm.addEventListener("submit", handleGroupCreate);
+  }
+  if (groupPolicySourceSelect) {
+    groupPolicySourceSelect.addEventListener("change", () => {
+      state.groupAdmin.selectedPolicySourceId = groupPolicySourceSelect.value;
+      renderGroupPolicyTable();
+    });
+  }
+  if (groupPolicyReloadBtn) {
+    groupPolicyReloadBtn.addEventListener("click", loadGroupsAdministrationPanel);
+  }
+  if (groupPolicyTableBody) {
+    groupPolicyTableBody.addEventListener("change", handleGroupPolicyChange);
+  }
+  if (groupMembersSelect) {
+    groupMembersSelect.addEventListener("change", async () => {
+      state.groupAdmin.selectedMembersGroupId = groupMembersSelect.value;
+      await loadGroupMembers();
+    });
+  }
+  if (groupMemberAddBtn) {
+    groupMemberAddBtn.addEventListener("click", handleAddGroupMember);
+  }
 
   if (systemSettingsForm) {
     systemSettingsForm.addEventListener("submit", handleSystemSettingsSave);
@@ -7907,7 +8454,14 @@ async function bootstrap() {
 
   fromDateInput.addEventListener("change", syncDateConstraints);
   toDateInput.addEventListener("change", syncDateConstraints);
-  [searchTextInput, priorityFilterInput, userFilterInput, reportSortByInput, reportSortOrderInput].forEach((input) => {
+  [
+    searchTextInput,
+    priorityFilterInput,
+    userFilterInput,
+    reportGroupFilter,
+    reportSortByInput,
+    reportSortOrderInput
+  ].forEach((input) => {
     if (input instanceof HTMLInputElement) {
       input.addEventListener("input", scheduleReportReload);
       return;

@@ -1,7 +1,7 @@
-﻿# Bitacora (Docker + Seguridad + Observabilidad)
+# Bitacora (Docker + Seguridad + Observabilidad)
 
 Repositorio oficial:
-- https://github.com/RayCiavato/Bitacora_gestor_tareas.git
+- https://github.com/RayCiavato/Bitacora_Grupos.git
 
 Guia principal de despliegue:
 - [MANUAL_DESPLIEGUE_SERVIDOR.md](MANUAL_DESPLIEGUE_SERVIDOR.md)
@@ -11,6 +11,40 @@ Guia de hardening:
 
 Guia HTTPS interno con CA propia:
 - [docs/HTTPS_INTERNO_CA.md](docs/HTTPS_INTERNO_CA.md)
+
+---
+
+## Modelo multi-area / grupos
+
+Esta version agrega una capa ABAC por grupos sobre el RBAC existente.
+
+Grupos iniciales:
+- `General`: grupo de compatibilidad para datos historicos.
+- `Soporte`
+- `Infraestructura`
+- `Seguridad Tecnologica`
+- `Gerencia`
+
+Reglas base:
+- El permiso final combina rol + permiso del modulo + visibilidad del grupo.
+- Por defecto, un grupo no ve datos de otro grupo.
+- `Seguridad Tecnologica` queda preparada para visibilidad transversal de Soporte e Infraestructura.
+- `Admin` conserva override tecnico y administra grupos, membresias y matriz de visibilidad.
+- Si un usuario no tiene grupos visibles, el backend niega por defecto.
+
+Recursos con `group_id`:
+- Bitacoras
+- Tareas
+- Adjuntos
+
+Panel UI:
+- `Roles y permisos > Roles y modulos`
+- `Roles y permisos > Grupos`
+- `Roles y permisos > Matriz de visibilidad`
+- `Roles y permisos > Usuarios por grupo`
+- `Roles y permisos > Auditoria de permisos`
+
+La migracion es incremental y asigna datos existentes a `General` sin borrar historico.
 
 ---
 
@@ -33,7 +67,7 @@ Usa passwords fuertes y guardalos solo en el `.env` del servidor o en tu gestor 
 No se publica una password fija en GitHub. Para evitar errores al escribir credenciales, usa el generador del servidor: crea valores temporales fuertes, los guarda solo en `.env` y los muestra en consola para que puedas anotarlos y cambiarlos luego.
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas
+cd ~/apps/Bitacora_Grupos
 chmod +x scripts/*.sh
 
 bash scripts/setup-env.sh \
@@ -55,7 +89,7 @@ Si prefieres una password temporal definida por ti, pasala solo al script en el 
 ## Despliegue rapido recomendado
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas
+cd ~/apps/Bitacora_Grupos
 chmod +x scripts/*.sh
 
 read -r -s -p "Admin password inicial: " ADMIN_PASSWORD; echo
@@ -84,7 +118,7 @@ curl -I http://127.0.0.1
 ## Actualizacion segura (sin romper)
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas
+cd ~/apps/Bitacora_Grupos
 
 if docker compose version >/dev/null 2>&1; then
   DC="docker compose"
@@ -105,12 +139,28 @@ fi
 git checkout main
 git pull --ff-only origin main
 
+mkdir -p backups
+POSTGRES_USER_VALUE="$(grep -E '^POSTGRES_USER=' .env 2>/dev/null | tail -n1 | cut -d= -f2-)"
+POSTGRES_DB_VALUE="$(grep -E '^POSTGRES_DB=' .env 2>/dev/null | tail -n1 | cut -d= -f2-)"
+$DC exec -T postgres pg_dump -U "${POSTGRES_USER_VALUE:-bitacora_user}" "${POSTGRES_DB_VALUE:-bitacora}" | gzip > "backups/pre-groups-update-$(date +%F-%H%M%S).sql.gz"
+
+# Migracion incremental multi-area. No borra tablas ni datos.
+cat db/migrations/008_groups_abac.sql | $DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}"
+
 docker ps -aq --filter "name=bitacora-app" | xargs -r docker rm -f
 $DC build --no-cache app
 $DC up -d --no-deps --force-recreate app
 
 $DC ps app
 curl -sS http://127.0.0.1/health
+```
+
+Validacion rapida de grupos:
+
+```bash
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT slug, is_active FROM groups ORDER BY id;"
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS tareas_sin_grupo FROM tasks WHERE group_id IS NULL;"
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS bitacoras_sin_grupo FROM events WHERE group_id IS NULL;"
 ```
 
 ---
@@ -145,7 +195,7 @@ El modo `webhook` sigue disponible para un futuro dominio HTTPS usando `TELEGRAM
 ### Cargar token y chat ID en un servidor existente
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas
+cd ~/apps/Bitacora_Grupos
 
 unset TELEGRAM_BOT_TOKEN_VALUE TELEGRAM_CHAT_ID_VALUE
 read -r -s -p "Pega token Telegram: " TELEGRAM_BOT_TOKEN_VALUE; echo

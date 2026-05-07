@@ -41,6 +41,35 @@ const USERS_FIXTURE = Object.freeze([
   }
 ]);
 
+const GROUPS_FIXTURE = Object.freeze([
+  {
+    id: 1,
+    name: "General",
+    slug: "general",
+    description: "Grupo base para pruebas",
+    is_system: true,
+    is_active: true,
+    created_at: "2026-04-01T00:00:00.000Z",
+    updated_at: "2026-04-01T00:00:00.000Z"
+  }
+]);
+
+const GROUP_POLICIES_FIXTURE = Object.freeze([
+  {
+    id: 1,
+    source_group_id: 1,
+    target_group_id: 1,
+    resource_type: "all",
+    can_view: true,
+    can_create: true,
+    can_edit: true,
+    can_delete: true,
+    can_export: true,
+    can_administer: true,
+    updated_at: "2026-04-01T00:00:00.000Z"
+  }
+]);
+
 const TEMPLATES_FIXTURE = Object.freeze([
   {
     id: 11,
@@ -95,6 +124,9 @@ function attachSession(requestBuilder, user, options = {}) {
 
 function createRbacSettingsDbDouble() {
   let usersById = new Map();
+  let groups = [];
+  let userGroups = [];
+  let groupPolicies = [];
   let rolePoliciesByRole = new Map();
   let systemSettings = null;
   let eventTemplates = [];
@@ -112,6 +144,15 @@ function createRbacSettingsDbDouble() {
 
   function reset() {
     usersById = new Map(USERS_FIXTURE.map((user) => [Number(user.id), clone(user)]));
+    groups = clone(GROUPS_FIXTURE);
+    userGroups = USERS_FIXTURE.map((user) => ({
+      user_id: Number(user.id),
+      group_id: 1,
+      role_in_group: user.role === "admin" ? "admin" : "member",
+      created_at: "2026-04-01T00:00:00.000Z",
+      updated_at: "2026-04-01T00:00:00.000Z"
+    }));
+    groupPolicies = clone(GROUP_POLICIES_FIXTURE);
     rolePoliciesByRole = new Map();
     systemSettings = null;
     eventTemplates = clone(TEMPLATES_FIXTURE);
@@ -128,6 +169,75 @@ function createRbacSettingsDbDouble() {
       return {
         rowCount: user ? 1 : 0,
         rows: user ? [clone(user)] : []
+      };
+    }
+
+    if (lower.startsWith("select id, name, slug, description, is_system, is_active, created_at, updated_at from groups")) {
+      let rows = groups.slice();
+      if (lower.includes("where is_active = true")) {
+        rows = rows.filter((group) => Boolean(group.is_active));
+      }
+      return {
+        rowCount: rows.length,
+        rows: rows.map((group) => ({
+          id: group.id,
+          name: group.name,
+          slug: group.slug,
+          description: group.description,
+          is_system: group.is_system,
+          is_active: group.is_active,
+          created_at: group.created_at,
+          updated_at: group.updated_at
+        }))
+      };
+    }
+
+    if (lower.includes("from user_groups ug join groups g on g.id = ug.group_id")) {
+      const userId = Number(params[0]);
+      const rows = userGroups
+        .filter((membership) => Number(membership.user_id) === userId)
+        .map((membership) => {
+          const group = groups.find((item) => Number(item.id) === Number(membership.group_id));
+          if (!group || !group.is_active) {
+            return null;
+          }
+          return {
+            id: group.id,
+            name: group.name,
+            slug: group.slug,
+            description: group.description,
+            isSystem: group.is_system,
+            isActive: group.is_active,
+            roleInGroup: membership.role_in_group,
+            createdAt: membership.created_at,
+            updatedAt: membership.updated_at
+          };
+        })
+        .filter(Boolean);
+      return {
+        rowCount: rows.length,
+        rows
+      };
+    }
+
+    if (lower.includes("from group_access_policies p")) {
+      const resourceType = String(params[0] || "all");
+      const rows = groupPolicies
+        .filter((policy) => String(policy.resource_type) === resourceType)
+        .map((policy) => ({
+          source_group_id: policy.source_group_id,
+          target_group_id: policy.target_group_id,
+          resource_type: policy.resource_type,
+          can_view: policy.can_view,
+          can_create: policy.can_create,
+          can_edit: policy.can_edit,
+          can_delete: policy.can_delete,
+          can_export: policy.can_export,
+          can_administer: policy.can_administer
+        }));
+      return {
+        rowCount: rows.length,
+        rows
       };
     }
 

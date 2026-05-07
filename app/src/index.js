@@ -16,6 +16,7 @@ const { templatesRouter } = require("./routes/templates");
 const { auditRouter } = require("./routes/audit");
 const { rolesPermissionsRouter } = require("./routes/rolesPermissions");
 const { settingsRouter } = require("./routes/settings");
+const { groupsRouter } = require("./routes/groups");
 const { notificationsRouter } = require("./routes/notifications");
 const { realtimeRouter } = require("./routes/realtime");
 const { telegramIntegrationRouter } = require("./routes/telegramIntegration");
@@ -143,6 +144,7 @@ function createApp() {
       "/templates",
       "/audit",
       "/roles-permissions",
+      "/groups",
       "/settings",
       "/notifications",
       "/realtime",
@@ -160,6 +162,7 @@ function createApp() {
       req.path.startsWith("/templates") ||
       req.path.startsWith("/audit") ||
       req.path.startsWith("/roles-permissions") ||
+      req.path.startsWith("/groups") ||
       req.path.startsWith("/settings") ||
       req.path.startsWith("/notifications") ||
       req.path.startsWith("/realtime") ||
@@ -358,6 +361,7 @@ function createApp() {
   app.use("/users", usersRouter);
   app.use("/audit", auditRouter);
   app.use("/roles-permissions", rolesPermissionsRouter);
+  app.use("/groups", groupsRouter);
   app.use("/settings", settingsRouter);
   app.use("/notifications", notificationsRouter);
   app.use("/realtime", realtimeRouter);

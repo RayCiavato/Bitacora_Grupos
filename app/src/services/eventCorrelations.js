@@ -4,6 +4,7 @@ const {
   getBitacoraViewScope,
   resolveActorId
 } = require("./authorization");
+const { buildGroupScopeCondition } = require("./groups");
 
 const RELATION_TYPES = Object.freeze([
   "seguimiento",
@@ -60,8 +61,9 @@ function normalizeSearchText(value) {
 
 function buildEventVisibilityClause(user, alias, params) {
   const scope = getBitacoraViewScope(user);
+  const groupClause = buildGroupScopeCondition({ alias, user, params, action: "view" });
   if (scope.canViewAny) {
-    return "TRUE";
+    return groupClause;
   }
 
   if (scope.canViewOwnCreated) {
@@ -70,7 +72,7 @@ function buildEventVisibilityClause(user, alias, params) {
       return "FALSE";
     }
     const actorIndex = params.push(actorId);
-    return `${alias}.encargado_id = $${actorIndex}`;
+    return `(${groupClause} AND ${alias}.encargado_id = $${actorIndex})`;
   }
 
   return "FALSE";
@@ -90,6 +92,9 @@ function mapEventRow(row) {
     templateId: row.templateId === null || row.templateId === undefined ? null : Number(row.templateId),
     templateName: row.templateName || null,
     encargadoId: Number(row.encargadoId || 0) || null,
+    groupId: Number(row.groupId || row.group_id || 0) || null,
+    groupName: row.groupName || null,
+    groupSlug: row.groupSlug || null,
     encargado: row.encargado || "Usuario eliminado",
     encargadoEmail: row.encargadoEmail || null,
     createdAt: row.createdAt || null,
@@ -114,9 +119,12 @@ async function getVisibleEventById(eventId, user, client = pool) {
         e.observacion,
         e.prioridad,
         e.template_id AS "templateId",
+        e.group_id AS "groupId",
         e.created_at AS "createdAt",
         e.updated_at AS "updatedAt",
         t.name AS "templateName",
+        g.name AS "groupName",
+        g.slug AS "groupSlug",
         u.id AS "encargadoId",
         CASE
           WHEN u.id IS NULL THEN 'Usuario eliminado'
@@ -128,6 +136,7 @@ async function getVisibleEventById(eventId, user, client = pool) {
       FROM events e
       LEFT JOIN users u ON u.id = e.encargado_id
       LEFT JOIN event_templates t ON t.id = e.template_id
+      LEFT JOIN groups g ON g.id = e.group_id
       WHERE e.id = $1
         AND ${visibilityClause}
       LIMIT 1
@@ -148,6 +157,9 @@ function mapCorrelationRow(row, user) {
     prioridad: row.relatedPrioridad,
     templateId: row.relatedTemplateId,
     templateName: row.relatedTemplateName,
+    groupId: row.relatedGroupId,
+    groupName: row.relatedGroupName,
+    groupSlug: row.relatedGroupSlug,
     encargadoId: row.relatedEncargadoId,
     encargado: row.relatedEncargado,
     encargadoEmail: row.relatedEncargadoEmail,
@@ -174,7 +186,10 @@ function mapCorrelationRow(row, user) {
         },
     relatedEvent,
     permissions: {
-      canDelete: canUserEditEvent(user, Number(row.sourceOwnerId || 0))
+      canDelete: canUserEditEvent(user, {
+        encargadoId: Number(row.sourceOwnerId || 0),
+        groupId: Number(row.sourceGroupId || 0)
+      })
     }
   };
 }
@@ -202,6 +217,7 @@ async function listEventCorrelations({ eventId, user, client = pool } = {}) {
           ELSE 'incoming'
         END AS direction,
         se.encargado_id AS "sourceOwnerId",
+        se.group_id AS "sourceGroupId",
         cu.name AS "createdByName",
         re.id AS "relatedEventId",
         re.fecha AS "relatedFecha",
@@ -209,9 +225,12 @@ async function listEventCorrelations({ eventId, user, client = pool } = {}) {
         re.observacion AS "relatedObservacion",
         re.prioridad AS "relatedPrioridad",
         re.template_id AS "relatedTemplateId",
+        re.group_id AS "relatedGroupId",
         re.created_at AS "relatedCreatedAt",
         re.updated_at AS "relatedUpdatedAt",
         rt.name AS "relatedTemplateName",
+        rg.name AS "relatedGroupName",
+        rg.slug AS "relatedGroupSlug",
         ru.id AS "relatedEncargadoId",
         CASE
           WHEN ru.id IS NULL THEN 'Usuario eliminado'
@@ -230,6 +249,7 @@ async function listEventCorrelations({ eventId, user, client = pool } = {}) {
       LEFT JOIN users cu ON cu.id = c.created_by
       LEFT JOIN users ru ON ru.id = re.encargado_id
       LEFT JOIN event_templates rt ON rt.id = re.template_id
+      LEFT JOIN groups rg ON rg.id = re.group_id
       WHERE c.deleted_at IS NULL
         AND (c.source_event_id = $1 OR c.target_event_id = $1)
         AND ${relatedVisibilityClause}
@@ -300,9 +320,12 @@ async function searchCorrelatableEvents({
         e.observacion,
         e.prioridad,
         e.template_id AS "templateId",
+        e.group_id AS "groupId",
         e.created_at AS "createdAt",
         e.updated_at AS "updatedAt",
         t.name AS "templateName",
+        g.name AS "groupName",
+        g.slug AS "groupSlug",
         u.id AS "encargadoId",
         CASE
           WHEN u.id IS NULL THEN 'Usuario eliminado'
@@ -314,6 +337,7 @@ async function searchCorrelatableEvents({
       FROM events e
       LEFT JOIN users u ON u.id = e.encargado_id
       LEFT JOIN event_templates t ON t.id = e.template_id
+      LEFT JOIN groups g ON g.id = e.group_id
       WHERE ${whereParts.join(" AND ")}
       ORDER BY e.fecha DESC, e.created_at DESC, e.id DESC
       LIMIT $${limitIndex}
@@ -352,7 +376,7 @@ async function createEventCorrelation({
     throw new EventCorrelationError(404, "event_not_found");
   }
 
-  if (!canUserEditEvent(user, source.encargadoId)) {
+  if (!canUserEditEvent(user, source)) {
     throw new EventCorrelationError(403, "forbidden");
   }
 
@@ -420,6 +444,7 @@ async function deleteEventCorrelation({ eventId, correlationId, user, client = p
         c.relation_type AS "relationType",
         c.note,
         se.encargado_id AS "sourceOwnerId",
+        se.group_id AS "sourceGroupId",
         te.encargado_id AS "targetOwnerId"
       FROM event_correlations c
       JOIN events se ON se.id = c.source_event_id
@@ -443,7 +468,10 @@ async function deleteEventCorrelation({ eventId, correlationId, user, client = p
     throw new EventCorrelationError(404, "correlation_not_found");
   }
 
-  if (!canUserEditEvent(user, Number(correlation.sourceOwnerId || 0))) {
+  if (!canUserEditEvent(user, {
+    encargadoId: Number(correlation.sourceOwnerId || 0),
+    groupId: Number(correlation.sourceGroupId || 0)
+  })) {
     throw new EventCorrelationError(403, "forbidden");
   }
 

@@ -8,6 +8,10 @@ const {
   canUserManageTaskSharedEdit,
   buildTaskPermissions
 } = require("./authorization");
+const {
+  buildGroupScopeCondition,
+  canUserCreateInGroup
+} = require("./groups");
 
 const TASK_STATUSES = Object.freeze([
   "sin_realizar",
@@ -92,6 +96,7 @@ function buildTaskIdentityFromRow(row) {
   }
 
   return {
+    groupId: toPositiveInteger(row.groupId ?? row.group_id),
     createdById,
     assignedToId,
     assignedUserIds: assigneeIds,
@@ -111,6 +116,8 @@ function normalizeSort(sortBy, sortOrder) {
 function buildTaskFilters(query, user) {
   const whereParts = ["t.deleted_at IS NULL"];
   const params = [];
+
+  whereParts.push(buildGroupScopeCondition({ alias: "t", user, params, action: "view" }));
 
   const viewScope = getTaskViewScope(user);
   if (!viewScope.canViewAny) {
@@ -143,6 +150,11 @@ function buildTaskFilters(query, user) {
   if (query.priority) {
     const priorityIndex = params.push(query.priority);
     whereParts.push(`t.priority = $${priorityIndex}`);
+  }
+
+  if (query.groupId) {
+    const groupIndex = params.push(query.groupId);
+    whereParts.push(`t.group_id = $${groupIndex}`);
   }
 
   if (query.createdById) {
@@ -224,6 +236,12 @@ function mapTaskRow(row, user) {
     assignedUserIds: taskIdentity.assignedUserIds,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    groupId: toPositiveInteger(row.groupId ?? row.group_id),
+    group: {
+      id: toPositiveInteger(row.groupId ?? row.group_id),
+      name: String(row.groupName || ""),
+      slug: String(row.groupSlug || "")
+    },
     createdBy: {
       id: createdById,
       name: createdByInactive
@@ -259,6 +277,9 @@ function taskRowSelectSql() {
       t.assignee_ids AS "assigneeIds",
       t.allow_assignees_edit AS "allowAssigneesEdit",
       t.metadata,
+      t.group_id AS "groupId",
+      g.name AS "groupName",
+      g.slug AS "groupSlug",
       t.created_at AS "createdAt",
       t.updated_at AS "updatedAt",
       t.created_by AS "createdById",
@@ -276,6 +297,7 @@ function taskRowSelectSql() {
     FROM tasks t
     LEFT JOIN users creator ON creator.id = t.created_by
     LEFT JOIN users assignee ON assignee.id = t.assigned_to
+    LEFT JOIN groups g ON g.id = t.group_id
   `;
 }
 
@@ -462,9 +484,10 @@ async function createTask({ user, payload }) {
         assigned_to,
         assignee_ids,
         allow_assignees_edit,
+        group_id,
         metadata
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::bigint[], $10, $11::jsonb)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::bigint[], $10, $11, $12::jsonb)
       RETURNING id
     `,
     [
@@ -478,6 +501,7 @@ async function createTask({ user, payload }) {
       primaryAssignedTo,
       assigneeIds,
       allowAssigneesEdit,
+      payload.groupId,
       JSON.stringify(metadata)
     ]
   );
@@ -565,6 +589,16 @@ async function patchTask({ taskId, user, payload }) {
     nextAllowAssigneesEdit = Boolean(payload.allowAssigneesEdit);
     values.push(nextAllowAssigneesEdit);
     fields.push(`allow_assignees_edit = $${values.length}`);
+  }
+  if (payload.groupId !== undefined) {
+    const nextGroupId = toPositiveInteger(payload.groupId);
+    if (!nextGroupId || !canUserCreateInGroup(user, nextGroupId)) {
+      return {
+        error: "group_forbidden"
+      };
+    }
+    values.push(nextGroupId);
+    fields.push(`group_id = $${values.length}`);
   }
   if (payload.metadata !== undefined) {
     values.push(JSON.stringify(normalizeMetadata(payload.metadata)));
@@ -756,6 +790,7 @@ function toDashboardTaskItem(task) {
     updatedAt: task.updatedAt,
     createdBy: task.createdBy ? { id: task.createdBy.id, name: task.createdBy.name } : null,
     assignedTo: task.assignedTo ? { id: task.assignedTo.id, name: task.assignedTo.name } : null,
+    group: task.group || null,
     permissions: task.permissions
   };
 }

@@ -25,6 +25,8 @@
   const taskDescription = document.getElementById("taskDescription");
   const taskStatus = document.getElementById("taskStatus");
   const taskPriority = document.getElementById("taskPriority");
+  const taskGroupSelectWrap = document.getElementById("taskGroupSelectWrap");
+  const taskGroupSelect = document.getElementById("taskGroupSelect");
   const taskStartDate = document.getElementById("taskStartDate");
   const taskDueDate = document.getElementById("taskDueDate");
   const taskAssignedTo = document.getElementById("taskAssignedTo");
@@ -44,6 +46,8 @@
   const tasksFilterSearch = document.getElementById("tasksFilterSearch");
   const tasksFilterStatus = document.getElementById("tasksFilterStatus");
   const tasksFilterPriority = document.getElementById("tasksFilterPriority");
+  const tasksFilterGroupWrap = document.getElementById("tasksFilterGroupWrap");
+  const tasksFilterGroup = document.getElementById("tasksFilterGroup");
   const tasksFilterCreatedBy = document.getElementById("tasksFilterCreatedBy");
   const tasksFilterAssignedTo = document.getElementById("tasksFilterAssignedTo");
   const tasksFilterStartFrom = document.getElementById("tasksFilterStartFrom");
@@ -103,6 +107,8 @@
     user: null,
     access: null,
     users: [],
+    visibleGroups: [],
+    creatableGroups: [],
     page: 1,
     pageSize: Number(tasksPageSize?.value || 20),
     totalPages: 1,
@@ -415,9 +421,10 @@
     }
 
     entityModalTitle.textContent = `${task.title || "Tarea"} (#${task.id})`;
+    const groupText = task.group?.name ? ` | Grupo: ${task.group.name}` : "";
     entityModalMeta.textContent =
       `Estado: ${statusLabel(task.status)} | Prioridad: ${priorityLabel(task.priority)} | ` +
-      `Creada por: ${task.createdBy?.name || "-"} | Asignado: ${task.assignedTo?.name || "-"}`;
+      `Creada por: ${task.createdBy?.name || "-"} | Asignado: ${task.assignedTo?.name || "-"}${groupText}`;
     entityModalBody.textContent =
       `Descripcion:\n${task.description || "-"}\n\nInicio: ${formatDate(task.startDate)}\n` +
       `Vence: ${formatDate(task.dueDate)}\nActualizada: ${formatDateTime(task.updatedAt)}`;
@@ -514,7 +521,7 @@
       `Estado: ${statusLabel(task.status)} | Prioridad: ${priorityLabel(task.priority)} | ` +
       `Creado por: ${task.createdBy?.name || "-"} | Asignado principal: ${
         task.assignedTo?.name || "-"
-      } | Total asignados: ${assigneesCount} | ${sharedEditText}`;
+      } | Total asignados: ${assigneesCount} | Grupo: ${task.group?.name || "-"} | ${sharedEditText}`;
     taskDetailBody.textContent = task.description || "";
     taskDetail.classList.remove("hidden");
   }
@@ -524,6 +531,63 @@
     option.value = String(value);
     option.textContent = label;
     return option;
+  }
+
+  function normalizeGroupList(groups) {
+    return (Array.isArray(groups) ? groups : [])
+      .map((group) => ({
+        id: Number(group.id),
+        name: String(group.name || group.slug || "").trim(),
+        slug: String(group.slug || "").trim(),
+        isActive: group.isActive !== false
+      }))
+      .filter((group) => Number.isInteger(group.id) && group.id > 0 && group.isActive);
+  }
+
+  function populateGroupSelect(select, groups, options = {}) {
+    if (!(select instanceof HTMLSelectElement)) {
+      return;
+    }
+    const selectedValue = String(options.selectedValue || select.value || "");
+    clearNode(select);
+
+    if (options.includeAll) {
+      select.appendChild(createOption("", options.allLabel || "Todos visibles"));
+    }
+
+    normalizeGroupList(groups).forEach((group) => {
+      select.appendChild(createOption(group.id, group.name || `Grupo #${group.id}`));
+    });
+
+    if (selectedValue && Array.from(select.options).some((option) => option.value === selectedValue)) {
+      select.value = selectedValue;
+    }
+  }
+
+  function syncGroupControls() {
+    const visibleGroups = normalizeGroupList(
+      state.user?.groupAccess?.visibleGroups?.length
+        ? state.user.groupAccess.visibleGroups
+        : state.user?.groups
+    );
+    const creatableGroups = normalizeGroupList(
+      state.user?.groupAccess?.creatableGroups?.length
+        ? state.user.groupAccess.creatableGroups
+        : state.user?.groups
+    );
+
+    state.visibleGroups = visibleGroups;
+    state.creatableGroups = creatableGroups;
+
+    populateGroupSelect(tasksFilterGroup, visibleGroups, { includeAll: true });
+    populateGroupSelect(taskGroupSelect, creatableGroups);
+
+    if (tasksFilterGroupWrap) {
+      tasksFilterGroupWrap.classList.toggle("hidden", visibleGroups.length <= 1);
+    }
+    if (taskGroupSelectWrap) {
+      taskGroupSelectWrap.classList.toggle("hidden", creatableGroups.length <= 1);
+    }
   }
 
   function getSelectedAssigneeIds() {
@@ -638,6 +702,10 @@
       params.set("priority", tasksFilterPriority.value);
     }
 
+    if (tasksFilterGroup?.value) {
+      params.set("groupId", tasksFilterGroup.value);
+    }
+
     if (canViewAnyTasks() && tasksFilterCreatedBy?.value) {
       params.set("createdById", tasksFilterCreatedBy.value);
     }
@@ -699,7 +767,7 @@
       const row = document.createElement("tr");
       row.className = "tasks-loading-row";
       const cell = document.createElement("td");
-      cell.colSpan = 10;
+      cell.colSpan = 11;
       cell.textContent = message;
       row.appendChild(cell);
       tasksTableBody.appendChild(row);
@@ -718,7 +786,7 @@
     const row = document.createElement("tr");
     row.className = rowClass;
     const cell = document.createElement("td");
-    cell.colSpan = 10;
+    cell.colSpan = 11;
     cell.textContent = message;
     row.appendChild(cell);
     tasksTableBody.appendChild(row);
@@ -754,6 +822,9 @@
       priorityBadge.className = `task-priority-pill task-priority-${task.priority}`;
       priorityBadge.textContent = priorityLabel(task.priority);
       tdPriority.appendChild(priorityBadge);
+
+      const tdGroup = document.createElement("td");
+      tdGroup.textContent = task.group?.name || "-";
 
       const tdCreator = document.createElement("td");
       tdCreator.textContent = task.createdBy?.name || "-";
@@ -843,6 +914,7 @@
       row.appendChild(tdTitle);
       row.appendChild(tdStatus);
       row.appendChild(tdPriority);
+      row.appendChild(tdGroup);
       row.appendChild(tdCreator);
       row.appendChild(tdAssigned);
       row.appendChild(tdStart);
@@ -906,6 +978,7 @@
 
     state.user = data;
     state.access = data.capabilities || null;
+    syncGroupControls();
     if (!canViewTasks()) {
       window.location.href = "/dashboard";
       return false;
@@ -941,6 +1014,9 @@
     }
     if (tasksFilterPriority && PRIORITY_LABELS[String(params.get("priority") || "")]) {
       tasksFilterPriority.value = String(params.get("priority"));
+    }
+    if (tasksFilterGroup && params.get("groupId")) {
+      tasksFilterGroup.value = String(params.get("groupId"));
     }
     if (tasksFilterStartFrom) {
       tasksFilterStartFrom.value = String(params.get("startFrom") || "");
@@ -982,6 +1058,9 @@
     }
     if (tasksFilterPriority) {
       tasksFilterPriority.value = "";
+    }
+    if (tasksFilterGroup) {
+      tasksFilterGroup.value = "";
     }
     if (tasksFilterCreatedBy) {
       tasksFilterCreatedBy.value = "";
@@ -1152,6 +1231,9 @@
     if (canAssignTask()) {
       payload.assigneeIds = getSelectedAssigneeIds();
     }
+    if (taskGroupSelect?.value) {
+      payload.groupId = Number(taskGroupSelect.value);
+    }
 
     return payload;
   }
@@ -1169,6 +1251,9 @@
     taskDescription.value = task.description || "";
     taskStatus.value = task.status || "sin_realizar";
     taskPriority.value = task.priority || "media";
+    if (taskGroupSelect && task.group?.id) {
+      taskGroupSelect.value = String(task.group.id);
+    }
     taskStartDate.value = task.startDate || "";
     taskDueDate.value = task.dueDate || "";
     setSelectedAssigneeIds(task.assignedUserIds || []);
@@ -1488,6 +1573,7 @@
   const immediateFilterElements = [
     tasksFilterStatus,
     tasksFilterPriority,
+    tasksFilterGroup,
     tasksFilterCreatedBy,
     tasksFilterAssignedTo,
     tasksFilterSortBy,

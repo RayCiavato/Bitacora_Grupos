@@ -41,6 +41,10 @@ const {
   notifyTaskPriorityChanged,
   notifyTaskCompleted
 } = require("../services/telegramNotifier");
+const {
+  canUserCreateInGroup,
+  resolveTargetGroupIdForCreate
+} = require("../services/groups");
 
 const router = express.Router();
 
@@ -83,6 +87,7 @@ const listQuerySchema = z.object({
   priority: taskPriorityEnum.optional(),
   createdById: z.coerce.number().int().positive().optional(),
   assignedToId: z.coerce.number().int().positive().optional(),
+  groupId: z.coerce.number().int().positive().optional(),
   startFrom: z.string().date().optional(),
   startTo: z.string().date().optional(),
   dueFrom: z.string().date().optional(),
@@ -172,6 +177,7 @@ const createTaskBaseSchema = z.object({
   assignedTo: z.coerce.number().int().positive().optional(),
   assigneeIds: z.array(z.coerce.number().int().positive()).max(25).optional(),
   allowAssigneesEdit: z.boolean().default(false),
+  groupId: z.coerce.number().int().positive().optional(),
   metadata: z.record(z.unknown()).optional()
 }).strict();
 
@@ -200,6 +206,7 @@ const updateTaskSchema = createTaskBaseSchema
     assignedTo: z.union([z.coerce.number().int().positive(), z.null()]).optional(),
     assigneeIds: z.union([z.array(z.coerce.number().int().positive()).max(25), z.null()]).optional(),
     allowAssigneesEdit: z.boolean().optional(),
+    groupId: z.coerce.number().int().positive().optional(),
     metadata: z.record(z.unknown()).optional()
   })
   .strict()
@@ -317,6 +324,8 @@ function normalizeRealtimeActorId(req) {
 function emitTaskRealtimeEvent(kind, req, { after = null, before = null, extraPayload = {} } = {}) {
   const taskId = Number(after?.id || before?.id || extraPayload?.taskId || extraPayload?.entityId || 0);
   const safeTaskId = Number.isInteger(taskId) && taskId > 0 ? taskId : null;
+  const groupId = Number(after?.groupId || before?.groupId || after?.group?.id || before?.group?.id || 0);
+  const safeGroupId = Number.isInteger(groupId) && groupId > 0 ? groupId : null;
 
   publishRealtimeEvent({
     kind,
@@ -324,6 +333,7 @@ function emitTaskRealtimeEvent(kind, req, { after = null, before = null, extraPa
       entity: "task",
       taskId: safeTaskId,
       entityId: safeTaskId,
+      groupId: safeGroupId,
       actorId: normalizeRealtimeActorId(req),
       ...extraPayload
     },
@@ -581,6 +591,15 @@ router.post("/", authenticate, async (req, res, next) => {
 
     const rawPayload = createTaskSchema.parse(req.body);
     const payload = buildPayloadWithAssignees(rawPayload, { keepAssigneesWhenMissing: true });
+    const groupResolution = await resolveTargetGroupIdForCreate(req.user, payload.groupId);
+    if (groupResolution.error === "forbidden") {
+      await auditTaskAccessDenied(req, { reason: "group_create_forbidden" });
+      return res.status(403).json({ error: "forbidden" });
+    }
+    if (groupResolution.error) {
+      return res.status(400).json({ error: "validation_error" });
+    }
+    payload.groupId = groupResolution.groupId;
     const currentDateIso = resolveCurrentISODate(req);
     if (hasPastTaskDates(payload, currentDateIso)) {
       return res.status(400).json({ error: "past_date_not_allowed" });
@@ -676,6 +695,10 @@ router.patch("/:id", authenticate, async (req, res, next) => {
     const { id } = taskIdSchema.parse(req.params);
     const rawPayload = updateTaskSchema.parse(req.body);
     const payload = buildPayloadWithAssignees(rawPayload);
+    if (payload.groupId !== undefined && !canUserCreateInGroup(req.user, payload.groupId)) {
+      await auditTaskAccessDenied(req, { taskId: id, reason: "group_update_forbidden" });
+      return res.status(403).json({ error: "forbidden" });
+    }
     const currentDateIso = resolveCurrentISODate(req);
     if (hasPastTaskDates(payload, currentDateIso)) {
       return res.status(400).json({ error: "past_date_not_allowed" });
@@ -724,6 +747,10 @@ router.patch("/:id", authenticate, async (req, res, next) => {
     }
     if (result.error === "invalid_shared_edit_state") {
       return res.status(400).json({ error: "validation_error" });
+    }
+    if (result.error === "group_forbidden") {
+      await auditTaskAccessDenied(req, { taskId: id, reason: "group_update_forbidden" });
+      return res.status(403).json({ error: "forbidden" });
     }
     if (result.error === "no_changes") {
       return res.status(400).json({ error: "validation_error" });

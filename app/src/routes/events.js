@@ -47,6 +47,12 @@ const {
   listEventCorrelations,
   searchCorrelatableEvents
 } = require("../services/eventCorrelations");
+const {
+  buildGroupScopeCondition,
+  canUserCreateInGroup,
+  canUserDeleteGroupResource,
+  resolveTargetGroupIdForCreate
+} = require("../services/groups");
 
 const router = express.Router();
 
@@ -55,7 +61,8 @@ const createEventSchema = z.object({
   descripcionActividad: z.string().min(3).max(3000),
   observacion: z.string().min(3).max(3000),
   prioridad: z.enum(["baja", "media", "alta", "observacion"]).default("media"),
-  templateId: z.coerce.number().int().positive().optional()
+  templateId: z.coerce.number().int().positive().optional(),
+  groupId: z.coerce.number().int().positive().optional()
 });
 
 const updateEventSchema = z
@@ -63,8 +70,9 @@ const updateEventSchema = z
     fecha: z.string().date().optional(),
     descripcionActividad: z.string().min(3).max(3000).optional(),
     observacion: z.string().min(3).max(3000).optional(),
-    prioridad: z.enum(["baja", "media", "alta", "observacion"]).optional(),
-    templateId: z.number().int().positive().nullable().optional()
+  prioridad: z.enum(["baja", "media", "alta", "observacion"]).optional(),
+    templateId: z.number().int().positive().nullable().optional(),
+    groupId: z.coerce.number().int().positive().optional()
   })
   .refine((payload) => Object.keys(payload).length > 0, {
     message: "at_least_one_field_required"
@@ -76,6 +84,7 @@ const reportQuerySchema = z.object({
   q: z.string().trim().max(200).optional(),
   priority: z.enum(["baja", "media", "alta", "observacion"]).optional(),
   encargadoId: z.coerce.number().int().positive().optional(),
+  groupId: z.coerce.number().int().positive().optional(),
   sortBy: z
     .enum(["fecha", "createdAt", "updatedAt", "prioridad", "encargado", "actividad"])
     .default("fecha"),
@@ -96,7 +105,8 @@ const exportBodySchema = exportQuerySchema.extend(exportPdfBrandingSchema.shape)
 
 const trendsQuerySchema = z.object({
   from: z.string().date().optional(),
-  to: z.string().date().optional()
+  to: z.string().date().optional(),
+  groupId: z.coerce.number().int().positive().optional()
 });
 const dashboardQuerySchema = z.object({
   days: z.coerce.number().int().min(7).max(90).default(30)
@@ -177,6 +187,7 @@ const attachmentRepositoryQuerySchema = z.object({
   q: z.string().trim().max(180).optional(),
   mimeType: z.string().trim().max(160).optional(),
   ownerId: z.coerce.number().int().positive().optional(),
+  groupId: z.coerce.number().int().positive().optional(),
   from: z.string().date().optional(),
   to: z.string().date().optional(),
   page: z.coerce.number().int().min(1).default(1),
@@ -500,13 +511,21 @@ function hasInvertedDateRange(from, to) {
   return String(from || "") > String(to || "");
 }
 
-function buildReportFilters(query) {
+function buildReportFilters(query, user = null) {
   const params = [];
   const whereParts = [];
 
   const fromIndex = params.push(query.from);
   const toIndex = params.push(query.to);
   whereParts.push(`e.fecha BETWEEN $${fromIndex} AND $${toIndex}`);
+  if (user) {
+    whereParts.push(buildGroupScopeCondition({ alias: "e", user, params, action: "view" }));
+  }
+
+  if (query.groupId) {
+    const groupIndex = params.push(query.groupId);
+    whereParts.push(`e.group_id = $${groupIndex}`);
+  }
 
   if (query.q) {
     const qIndex = params.push(`%${query.q.toLowerCase()}%`);
@@ -578,8 +597,10 @@ function emitBitacoraRealtimeEvent(kind, req, bitacora, extraPayload = {}) {
   const ownerId = Number(
     bitacora?.encargadoId ?? bitacora?.encargado_id ?? bitacora?.ownerId ?? bitacora?.owner_id ?? 0
   );
+  const groupId = Number(bitacora?.groupId ?? bitacora?.group_id ?? bitacora?.eventGroupId ?? 0);
   const safeBitacoraId = Number.isInteger(bitacoraId) && bitacoraId > 0 ? bitacoraId : null;
   const safeOwnerId = Number.isInteger(ownerId) && ownerId > 0 ? ownerId : null;
+  const safeGroupId = Number.isInteger(groupId) && groupId > 0 ? groupId : null;
 
   publishRealtimeEvent({
     kind,
@@ -588,13 +609,15 @@ function emitBitacoraRealtimeEvent(kind, req, bitacora, extraPayload = {}) {
       eventId: safeBitacoraId,
       entityId: safeBitacoraId,
       ownerId: safeOwnerId,
+      groupId: safeGroupId,
       actorId: normalizeRealtimeActorId(req),
       ...extraPayload
     },
     visibility: (viewer) =>
       canUserViewBitacora(viewer, {
         id: safeBitacoraId,
-        encargadoId: safeOwnerId
+        encargadoId: safeOwnerId,
+        groupId: safeGroupId
       })
   });
 }
@@ -605,6 +628,8 @@ function emitBitacoraCorrelationRealtimeEvent(kind, req, { correlation, source, 
   const targetEventId = Number(target?.id || correlation?.targetEventId || 0) || null;
   const sourceOwnerId = Number(source?.encargadoId || source?.encargado_id || 0) || null;
   const targetOwnerId = Number(target?.encargadoId || target?.encargado_id || 0) || null;
+  const sourceGroupId = Number(source?.groupId || source?.group_id || 0) || null;
+  const targetGroupId = Number(target?.groupId || target?.group_id || 0) || null;
 
   publishRealtimeEvent({
     kind,
@@ -621,11 +646,13 @@ function emitBitacoraCorrelationRealtimeEvent(kind, req, { correlation, source, 
     visibility: (viewer) =>
       canUserViewBitacora(viewer, {
         id: sourceEventId,
-        encargadoId: sourceOwnerId
+        encargadoId: sourceOwnerId,
+        groupId: sourceGroupId
       }) ||
       canUserViewBitacora(viewer, {
         id: targetEventId,
-        encargadoId: targetOwnerId
+        encargadoId: targetOwnerId,
+        groupId: targetGroupId
       })
   });
 }
@@ -857,6 +884,7 @@ async function getEventById(eventId) {
         prioridad,
         template_id AS "templateId",
         encargado_id AS "encargadoId",
+        group_id AS "groupId",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM events
@@ -880,7 +908,8 @@ async function getEventWithOwner(eventId) {
   }
   return {
     id: event.id,
-    encargado_id: event.encargadoId
+    encargado_id: event.encargadoId,
+    group_id: event.groupId
   };
 }
 
@@ -897,7 +926,9 @@ async function getAttachmentById(attachmentId, client = pool) {
         ea.mime_type AS "mimeType",
         ea.size_bytes AS "sizeBytes",
         ea.created_at AS "createdAt",
-        e.encargado_id AS "encargadoId"
+        ea.group_id AS "groupId",
+        e.encargado_id AS "encargadoId",
+        e.group_id AS "eventGroupId"
       FROM event_attachments ea
       JOIN events e ON e.id = ea.event_id
       WHERE ea.id = $1
@@ -953,11 +984,10 @@ function ensureEventAttachmentPermissionOrNotFound(
   permission,
   notFoundCode = "event_not_found"
 ) {
-  const ownerId = Number(event?.encargado_id || 0);
   const isAllowed =
     permission === "upload"
-      ? canUserUploadEventAttachment(req.user, ownerId)
-      : canUserViewEventAttachments(req.user, ownerId);
+      ? canUserUploadEventAttachment(req.user, event)
+      : canUserViewEventAttachments(req.user, event);
 
   if (!isAllowed) {
     res.status(404).json({ error: notFoundCode });
@@ -971,6 +1001,7 @@ function sendEventCorrelationError(res, error) {
   if (error instanceof EventCorrelationError) {
     return res.status(error.status).json({ error: error.code, details: error.details || undefined });
   }
+
   return null;
 }
 
@@ -981,6 +1012,13 @@ router.post("/", authenticate, async (req, res, next) => {
     }
 
     const payload = createEventSchema.parse(req.body);
+    const groupResolution = await resolveTargetGroupIdForCreate(req.user, payload.groupId);
+    if (groupResolution.error === "forbidden") {
+      return res.status(403).json({ error: "forbidden" });
+    }
+    if (groupResolution.error) {
+      return res.status(400).json({ error: "validation_error" });
+    }
     const currentDateIso = resolveCurrentISODate(req);
     if (isPastDate(payload.fecha, currentDateIso)) {
       return res.status(400).json({ error: "past_date_not_allowed" });
@@ -1001,8 +1039,8 @@ router.post("/", authenticate, async (req, res, next) => {
 
     const result = await pool.query(
       `
-        INSERT INTO events (fecha, descripcion_actividad, observacion, prioridad, encargado_id, template_id)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO events (fecha, descripcion_actividad, observacion, prioridad, encargado_id, template_id, group_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING
           id,
           fecha,
@@ -1011,6 +1049,7 @@ router.post("/", authenticate, async (req, res, next) => {
           prioridad,
           template_id AS "templateId",
           encargado_id AS "encargadoId",
+          group_id AS "groupId",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
       `,
@@ -1020,7 +1059,8 @@ router.post("/", authenticate, async (req, res, next) => {
         payload.observacion,
         payload.prioridad,
         req.user.sub,
-        payload.templateId || null
+        payload.templateId || null,
+        groupResolution.groupId
       ]
     );
 
@@ -1083,7 +1123,7 @@ router.get("/report", authenticate, async (req, res, next) => {
       pageSize: effectivePageSize,
       encargadoId: getScopedEncargadoId(req, query.encargadoId)
     };
-    const { whereSql, params } = buildReportFilters(scopedQuery);
+    const { whereSql, params } = buildReportFilters(scopedQuery, req.user);
     const orderBySql = buildReportOrderBy(scopedQuery);
 
     const countResult = await pool.query(
@@ -1117,6 +1157,9 @@ router.get("/report", authenticate, async (req, res, next) => {
           e.updated_at AS "updatedAt",
           e.template_id AS "templateId",
           t.name AS "templateName",
+          e.group_id AS "groupId",
+          g.name AS "groupName",
+          g.slug AS "groupSlug",
           u.id AS "encargadoId",
           CASE
             WHEN u.is_active = FALSE OR u.deleted_at IS NOT NULL
@@ -1132,6 +1175,7 @@ router.get("/report", authenticate, async (req, res, next) => {
         FROM events e
         JOIN users u ON u.id = e.encargado_id
         LEFT JOIN event_templates t ON t.id = e.template_id
+        LEFT JOIN groups g ON g.id = e.group_id
         WHERE ${whereSql}
         ORDER BY ${orderBySql}
         LIMIT $${limitIndex} OFFSET $${offsetIndex}
@@ -1155,7 +1199,10 @@ router.get("/report", authenticate, async (req, res, next) => {
 
     const events = eventsResult.rows.map((event) => ({
       ...event,
-      permissions: buildEventPermissions(req.user, event.encargadoId)
+      group: event.groupId
+        ? { id: Number(event.groupId), name: event.groupName || "", slug: event.groupSlug || "" }
+        : null,
+      permissions: buildEventPermissions(req.user, event)
     }));
 
     return res.json({
@@ -1204,7 +1251,7 @@ async function handleReportExport(req, res, next, source) {
       ...payload,
       encargadoId: getScopedEncargadoId(req, payload.encargadoId)
     };
-    const { whereSql, params } = buildReportFilters(scopedPayload);
+    const { whereSql, params } = buildReportFilters(scopedPayload, req.user);
     const orderBySql = buildReportOrderBy(scopedPayload);
 
     const eventsResult = await pool.query(
@@ -1216,6 +1263,8 @@ async function handleReportExport(req, res, next, source) {
           e.observacion,
           e.prioridad,
           t.name AS "templateName",
+          e.group_id AS "groupId",
+          g.name AS "groupName",
           CASE
             WHEN u.is_active = FALSE OR u.deleted_at IS NOT NULL
               THEN CONCAT(u.name, ' (Usuario inactivo)')
@@ -1224,6 +1273,7 @@ async function handleReportExport(req, res, next, source) {
         FROM events e
         JOIN users u ON u.id = e.encargado_id
         LEFT JOIN event_templates t ON t.id = e.template_id
+        LEFT JOIN groups g ON g.id = e.group_id
         WHERE ${whereSql}
         ORDER BY ${orderBySql}
       `,
@@ -1291,12 +1341,13 @@ router.get("/trends", authenticate, async (req, res, next) => {
       to,
       q: undefined,
       priority: undefined,
+      groupId: query.groupId,
       encargadoId: getScopedEncargadoId(req, undefined),
       page: 1,
       pageSize: 50
     };
 
-    const { whereSql, params } = buildReportFilters(reportQuery);
+    const { whereSql, params } = buildReportFilters(reportQuery, req.user);
 
     const byDateResult = await pool.query(
       `
@@ -1369,24 +1420,35 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
     const from = toISODate(new Date(Date.now() - (days - 1) * 24 * 60 * 60 * 1000));
     const scopedEncargadoId = getScopedEncargadoId(req, undefined);
     const hasScope = Number.isInteger(Number(scopedEncargadoId)) && Number(scopedEncargadoId) > 0;
-    const scopeWhere = hasScope ? "WHERE encargado_id = $1" : "";
-    const scopeParams = hasScope ? [Number(scopedEncargadoId)] : [];
+    const buildEventScope = (alias = "e", initialParams = []) => {
+      const params = [...initialParams];
+      const clauses = [buildGroupScopeCondition({ alias, user: req.user, params, action: "view" })];
+      if (hasScope) {
+        const ownerIndex = params.push(Number(scopedEncargadoId));
+        clauses.push(`${alias}.encargado_id = $${ownerIndex}`);
+      }
+      return {
+        params,
+        whereSql: `WHERE ${clauses.join(" AND ")}`
+      };
+    };
+    const totalsScope = buildEventScope("e");
 
     const totalsResult = await pool.query(
       `
         SELECT
           COUNT(*)::int AS total,
-          COUNT(*) FILTER (WHERE fecha = CURRENT_DATE)::int AS hoy,
-          COUNT(*) FILTER (WHERE prioridad = 'alta')::int AS alta,
-          COUNT(*) FILTER (WHERE prioridad = 'media')::int AS media,
-          COUNT(*) FILTER (WHERE prioridad = 'baja')::int AS baja
-        FROM events
-        ${scopeWhere}
+          COUNT(*) FILTER (WHERE e.fecha = CURRENT_DATE)::int AS hoy,
+          COUNT(*) FILTER (WHERE e.prioridad = 'alta')::int AS alta,
+          COUNT(*) FILTER (WHERE e.prioridad = 'media')::int AS media,
+          COUNT(*) FILTER (WHERE e.prioridad = 'baja')::int AS baja
+        FROM events e
+        ${totalsScope.whereSql}
       `,
-      scopeParams
+      totalsScope.params
     );
 
-    const byUserParams = hasScope ? [days, Number(scopedEncargadoId)] : [days];
+    const byUserScope = buildEventScope("e", [days]);
     const byUserResult = await pool.query(
       `
         SELECT
@@ -1398,31 +1460,37 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
           COUNT(*)::int AS total
         FROM events e
         JOIN users u ON u.id = e.encargado_id
-        WHERE e.fecha >= CURRENT_DATE - ($1::int - 1)
-        ${hasScope ? "AND e.encargado_id = $2" : ""}
+        ${byUserScope.whereSql}
+          AND e.fecha >= CURRENT_DATE - ($1::int - 1)
         GROUP BY u.name, u.is_active, u.deleted_at
         ORDER BY total DESC, encargado ASC
         LIMIT 12
       `,
-      byUserParams
+      byUserScope.params
     );
 
-    const byPriorityParams = hasScope ? [Number(scopedEncargadoId)] : [];
+    const byPriorityScope = buildEventScope("e");
     const byPriorityResult = await pool.query(
       `
         SELECT
-          prioridad,
+          e.prioridad,
           COUNT(*)::int AS total
-        FROM events
-        ${hasScope ? "WHERE encargado_id = $1" : ""}
-        ${hasScope ? "AND" : "WHERE"} prioridad IN ('alta', 'media', 'baja')
-        GROUP BY prioridad
+        FROM events e
+        ${byPriorityScope.whereSql}
+          AND e.prioridad IN ('alta', 'media', 'baja')
+        GROUP BY e.prioridad
       `,
-      byPriorityParams
+      byPriorityScope.params
     );
 
-    const byDateJoinScope = hasScope ? "AND e.encargado_id = $2" : "";
-    const byDateParams = hasScope ? [days, Number(scopedEncargadoId)] : [days];
+    const byDateParams = [days];
+    const byDateJoinClauses = [
+      buildGroupScopeCondition({ alias: "e", user: req.user, params: byDateParams, action: "view" })
+    ];
+    if (hasScope) {
+      const ownerIndex = byDateParams.push(Number(scopedEncargadoId));
+      byDateJoinClauses.push(`e.encargado_id = $${ownerIndex}`);
+    }
     const byDateResult = await pool.query(
       `
         WITH calendar AS (
@@ -1437,7 +1505,7 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
           to_char(c.fecha, 'YYYY-MM-DD') AS fecha,
           COALESCE(COUNT(e.id), 0)::int AS total
         FROM calendar c
-        LEFT JOIN events e ON e.fecha = c.fecha ${byDateJoinScope}
+        LEFT JOIN events e ON e.fecha = c.fecha AND ${byDateJoinClauses.join(" AND ")}
         GROUP BY c.fecha
         ORDER BY c.fecha ASC
       `,
@@ -1477,7 +1545,10 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
       }
 
       const taskAlertsWhere = (() => {
-        const baseClauses = ["t.deleted_at IS NULL"];
+        const baseClauses = [
+          "t.deleted_at IS NULL",
+          buildGroupScopeCondition({ alias: "t", user: req.user, params: taskAlertsParams, action: "view" })
+        ];
         if (!taskViewScope.canViewAny) {
           if (taskVisibilityClauses.length === 0) {
             baseClauses.push("1 = 0");
@@ -1533,15 +1604,16 @@ router.get("/dashboard", authenticate, async (req, res, next) => {
       taskAlertsRow = taskAlertsResult.rows[0] || emptyTaskAlerts;
     }
 
+    const criticalScope = buildEventScope("e");
     const criticalEventsResult = await pool.query(
       `
         SELECT COUNT(*)::int AS bitacoras_criticas
         FROM events e
-        WHERE e.prioridad = 'alta'
+        ${criticalScope.whereSql}
+          AND e.prioridad = 'alta'
           AND e.fecha >= CURRENT_DATE - INTERVAL '6 day'
-          ${hasScope ? "AND e.encargado_id = $1" : ""}
       `,
-      hasScope ? [Number(scopedEncargadoId)] : []
+      criticalScope.params
     );
 
     const privilegedActivity = ["admin", "supervisor"].includes(String(req.user?.role || ""));
@@ -1774,8 +1846,12 @@ router.patch("/:id", authenticate, async (req, res, next) => {
       return res.status(404).json({ error: "event_not_found" });
     }
 
-    if (!ensureCanEditEventsOrForbidden(req, res, event.encargadoId)) {
+    if (!ensureCanEditEventsOrForbidden(req, res, event)) {
       return;
+    }
+
+    if (payload.groupId !== undefined && !canUserCreateInGroup(req.user, payload.groupId)) {
+      return res.status(403).json({ error: "forbidden" });
     }
 
     const currentDateIso = resolveCurrentISODate(req);
@@ -1819,6 +1895,10 @@ router.patch("/:id", authenticate, async (req, res, next) => {
       values.push(payload.templateId);
       fields.push(`template_id = $${values.length}`);
     }
+    if (payload.groupId !== undefined) {
+      values.push(payload.groupId);
+      fields.push(`group_id = $${values.length}`);
+    }
 
     const updateResult = await pool.query(
       `
@@ -1833,6 +1913,7 @@ router.patch("/:id", authenticate, async (req, res, next) => {
           prioridad,
           template_id AS "templateId",
           encargado_id AS "encargadoId",
+          group_id AS "groupId",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
       `,
@@ -1897,6 +1978,10 @@ router.delete("/:id", authenticate, async (req, res, next) => {
 
     if (!event) {
       return res.status(404).json({ error: "event_not_found" });
+    }
+
+    if (!canUserDeleteGroupResource(req.user, event)) {
+      return res.status(403).json({ error: "forbidden" });
     }
 
     client = await pool.connect();
@@ -1992,19 +2077,21 @@ router.post("/:id/attachments", authenticate, async (req, res, next) => {
           event_id,
           uploaded_by,
           owner_id,
+          group_id,
           original_name,
           stored_name,
           mime_type,
           size_bytes
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id, event_id AS "eventId", original_name AS "originalName", mime_type AS "mimeType",
-                  size_bytes AS "sizeBytes", created_at AS "createdAt"
+                  size_bytes AS "sizeBytes", group_id AS "groupId", created_at AS "createdAt"
       `,
       [
         params.id,
         req.user.sub,
         req.user.sub,
+        event.group_id,
         req.file.originalname,
         req.file.filename,
         req.file.mimetype,
@@ -2098,6 +2185,7 @@ router.get("/:id/attachments", authenticate, async (req, res, next) => {
           event_id AS "eventId",
           owner_id AS "ownerId",
           uploaded_by AS "uploadedBy",
+          group_id AS "groupId",
           original_name AS "originalName",
           mime_type AS "mimeType",
           size_bytes AS "sizeBytes",
@@ -2168,6 +2256,8 @@ router.get("/attachments", authenticate, async (req, res, next) => {
       addCondition("ea.owner_id = ?", actorId);
     }
 
+    conditions.push(buildGroupScopeCondition({ alias: "e", user: req.user, params: values, action: "view" }));
+
     if (query.q) {
       addCondition("LOWER(ea.original_name) LIKE LOWER(?)", `%${query.q}%`);
     }
@@ -2178,6 +2268,10 @@ router.get("/attachments", authenticate, async (req, res, next) => {
 
     if (query.ownerId) {
       addCondition("ea.owner_id = ?", query.ownerId);
+    }
+
+    if (query.groupId) {
+      addCondition("e.group_id = ?", query.groupId);
     }
 
     if (query.from) {
@@ -2197,6 +2291,7 @@ router.get("/attachments", authenticate, async (req, res, next) => {
       `
         SELECT COUNT(*)::int AS total
         FROM event_attachments ea
+        JOIN events e ON e.id = ea.event_id
         ${whereClause}
       `,
       values
@@ -2215,13 +2310,18 @@ router.get("/attachments", authenticate, async (req, res, next) => {
           ea.mime_type AS "mimeType",
           ea.size_bytes AS "sizeBytes",
           ea.created_at AS "createdAt",
+          ea.group_id AS "groupId",
           e.fecha AS "eventDate",
+          e.group_id AS "eventGroupId",
+          g.name AS "groupName",
+          g.slug AS "groupSlug",
           owner_user.name AS "ownerName",
           owner_user.email AS "ownerEmail",
           uploaded_user.name AS "uploadedByName",
           uploaded_user.email AS "uploadedByEmail"
         FROM event_attachments ea
         JOIN events e ON e.id = ea.event_id
+        LEFT JOIN groups g ON g.id = e.group_id
         LEFT JOIN users owner_user ON owner_user.id = ea.owner_id
         LEFT JOIN users uploaded_user ON uploaded_user.id = ea.uploaded_by
         ${whereClause}
@@ -2401,6 +2501,7 @@ router.patch("/attachments/:attachmentId", authenticate, async (req, res, next) 
           event_id AS "eventId",
           owner_id AS "ownerId",
           uploaded_by AS "uploadedBy",
+          group_id AS "groupId",
           original_name AS "originalName",
           mime_type AS "mimeType",
           size_bytes AS "sizeBytes",

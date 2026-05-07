@@ -14,6 +14,7 @@ const {
   getTaskDashboardSummary,
   getTaskOperationalAlerts
 } = require("./tasks");
+const { buildGroupScopeCondition, enrichUserWithGroupAccess } = require("./groups");
 
 const APP_TIMEZONE = "America/Caracas";
 const MENU_CALLBACK_PREFIX = "menu:";
@@ -1113,7 +1114,7 @@ async function getLinkedUserByTelegramUserId(telegramUserId) {
   }
 
   const row = result.rows[0];
-  return {
+  return enrichUserWithGroupAccess({
     id: Number(row.id),
     sub: String(row.id),
     name: row.name,
@@ -1127,7 +1128,7 @@ async function getLinkedUserByTelegramUserId(telegramUserId) {
       lastUsedAt: row.lastUsedAt || null,
       sessionExpiresAt: row.sessionExpiresAt || null
     }
-  };
+  });
 }
 
 async function clearExpiredTelegramLinkByTelegramUserId(telegramUserId) {
@@ -1441,7 +1442,7 @@ async function listRecentBitacorasForUser(user, limit = 5) {
   const safeLimit = Math.max(1, Math.min(Number(limit || 5), 10));
   const scope = getBitacoraViewScope(user);
   const params = [];
-  const whereParts = [];
+  const whereParts = [buildGroupScopeCondition({ alias: "e", user, params, action: "view" })];
 
   if (!scope.canViewAny) {
     const actorId = resolveActorId(user);
@@ -1452,7 +1453,7 @@ async function listRecentBitacorasForUser(user, limit = 5) {
     whereParts.push(`e.encargado_id = $${actorIndex}`);
   }
 
-  const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+  const whereSql = `WHERE ${whereParts.join(" AND ")}`;
   const limitIndex = params.push(safeLimit);
   const result = await pool.query(
     `
@@ -1483,7 +1484,7 @@ async function listRecentBitacorasForUser(user, limit = 5) {
 async function getBitacoraTotalsForUser(user) {
   const scope = getBitacoraViewScope(user);
   const params = [];
-  const whereParts = [];
+  const whereParts = [buildGroupScopeCondition({ alias: "e", user, params, action: "view" })];
 
   if (!scope.canViewAny) {
     const actorId = resolveActorId(user);
@@ -1495,20 +1496,20 @@ async function getBitacoraTotalsForUser(user) {
       };
     }
     const actorIndex = params.push(actorId);
-    whereParts.push(`encargado_id = $${actorIndex}`);
+    whereParts.push(`e.encargado_id = $${actorIndex}`);
   }
 
-  const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+  const whereSql = `WHERE ${whereParts.join(" AND ")}`;
   const result = await pool.query(
     `
       SELECT
         COUNT(*)::int AS total,
-        COUNT(*) FILTER (WHERE fecha = CURRENT_DATE)::int AS today,
+        COUNT(*) FILTER (WHERE e.fecha = CURRENT_DATE)::int AS today,
         COUNT(*) FILTER (
-          WHERE prioridad = 'alta'
-            AND fecha >= CURRENT_DATE - INTERVAL '6 day'
+          WHERE e.prioridad = 'alta'
+            AND e.fecha >= CURRENT_DATE - INTERVAL '6 day'
         )::int AS critical
-      FROM events
+      FROM events e
       ${whereSql}
     `,
     params

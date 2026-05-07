@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const { config } = require("../config");
 const { pool } = require("../db");
+const { enrichUserWithGroupAccess } = require("../services/groups");
 const { verifyAccessToken } = require("../services/tokens");
 
 function parseBearerToken(headerValue) {
@@ -101,14 +102,16 @@ async function authenticate(req, res, next) {
       return res.status(403).json({ error: "invalid_csrf_token" });
     }
 
-    req.user = {
+    const baseUser = {
       sub: String(user.id),
+      id: Number(user.id),
       role: user.role,
       name: user.name,
       email: user.email,
       purpose: payload.purpose || null,
       tokenVersion: user.token_version
     };
+    req.user = await enrichUserWithGroupAccess(baseUser);
     return next();
   } catch (_error) {
     return res.status(401).json({ error: "invalid_token" });
