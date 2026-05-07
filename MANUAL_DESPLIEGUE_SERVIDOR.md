@@ -269,8 +269,13 @@ Nota de seguridad:
 
 Para actualizar version en servidor ya productivo:
 
+Importante para servidores con data:
+- Mantén la carpeta actual que ya usa Docker Compose.
+- Si tu servidor esta en `~/apps/Bitacora_gestor_tareas`, entra ahi y solo cambia el remote al repo nuevo.
+- No clones en otra carpeta sobre el mismo servidor productivo sin fijar `COMPOSE_PROJECT_NAME`, porque Docker Compose puede crear volumenes nuevos vacios.
+
 ```bash
-cd ~/apps/Bitacora_Grupos
+cd ~/apps/Bitacora_gestor_tareas  # o la carpeta actual productiva
 
 if docker compose version >/dev/null 2>&1; then
   DC="docker compose"
@@ -278,6 +283,7 @@ else
   DC="docker-compose"
 fi
 
+git remote set-url origin git@github-bitacora:RayCiavato/Bitacora_Grupos.git
 git config core.filemode false
 git fetch origin main
 

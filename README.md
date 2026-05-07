@@ -117,8 +117,13 @@ curl -I http://127.0.0.1
 
 ## Actualizacion segura (sin romper)
 
+Servidor existente con datos:
+- Mantén la carpeta actual del servidor para preservar el nombre de proyecto de Docker Compose y sus volumenes.
+- Si hoy el server vive en `~/apps/Bitacora_gestor_tareas`, puedes seguir usando esa ruta y solo cambiar el `origin` al repo nuevo.
+- No clones el repo nuevo en otra carpeta sobre un servidor con data sin fijar `COMPOSE_PROJECT_NAME`, porque Compose podria crear volumenes nuevos vacios.
+
 ```bash
-cd ~/apps/Bitacora_Grupos
+cd ~/apps/Bitacora_gestor_tareas  # o la carpeta actual que ya tiene los volumenes productivos
 
 if docker compose version >/dev/null 2>&1; then
   DC="docker compose"
@@ -126,6 +131,7 @@ else
   DC="docker-compose"
 fi
 
+git remote set-url origin git@github-bitacora:RayCiavato/Bitacora_Grupos.git
 git config core.filemode false
 git fetch origin main
 
