@@ -1,94 +1,68 @@
-# Bitacora (Docker + Seguridad + Observabilidad)
+﻿# Bitacora Grupos
+
+Plataforma interna de bitacoras, tareas, adjuntos, reportes, auditoria, Telegram polling y modelo multi-area con RBAC + ABAC.
 
 Repositorio oficial:
 - https://github.com/RayCiavato/Bitacora_Grupos.git
 
-Guia principal de despliegue:
-- [MANUAL_DESPLIEGUE_SERVIDOR.md](MANUAL_DESPLIEGUE_SERVIDOR.md)
-
-Guia de hardening:
-- [HARDENING_PASO_A_PASO_NOVATOS.md](HARDENING_PASO_A_PASO_NOVATOS.md)
-
-Guia HTTPS interno con CA propia:
-- [docs/HTTPS_INTERNO_CA.md](docs/HTTPS_INTERNO_CA.md)
+Manuales principales:
+- [MANUAL_DESPLIEGUE_SERVIDOR.md](MANUAL_DESPLIEGUE_SERVIDOR.md): instalacion, actualizacion, backup, Telegram, troubleshooting.
+- [HARDENING_PASO_A_PASO_NOVATOS.md](HARDENING_PASO_A_PASO_NOVATOS.md): endurecimiento del servidor paso a paso.
+- [docs/HTTPS_INTERNO_CA.md](docs/HTTPS_INTERNO_CA.md): HTTPS interno con CA propia.
 
 ---
 
-## Modelo multi-area / grupos
+## Que incluye
 
-Esta version agrega una capa ABAC por grupos sobre el RBAC existente.
-
-Grupos iniciales:
-- `General`: grupo de compatibilidad para datos historicos.
-- `Soporte`
-- `Infraestructura`
-- `Seguridad Tecnologica`
-- `Gerencia`
-
-Reglas base:
-- El permiso final combina rol + permiso del modulo + visibilidad del grupo.
-- Por defecto, un grupo no ve datos de otro grupo.
-- `Seguridad Tecnologica` queda preparada para visibilidad transversal de Soporte e Infraestructura.
-- `Admin` conserva override tecnico y administra grupos, membresias y matriz de visibilidad.
-- Si un usuario no tiene grupos visibles, el backend niega por defecto.
-
-Recursos con `group_id`:
-- Bitacoras
-- Tareas
-- Adjuntos
-
-Panel UI:
-- `Roles y permisos > Roles y modulos`
-- `Roles y permisos > Grupos`
-- `Roles y permisos > Matriz de visibilidad`
-- `Roles y permisos > Usuarios por grupo`
-- `Roles y permisos > Auditoria de permisos`
-
-La migracion es incremental y asigna datos existentes a `General` sin borrar historico.
+- Node.js + Express + PostgreSQL.
+- Frontend HTML/CSS/JS servido por la app.
+- Caddy como reverse proxy.
+- Docker Compose.
+- RBAC por roles: `admin`, `supervisor`, `funcionario`.
+- ABAC por grupos/areas: `General`, `Soporte`, `Infraestructura`, `Seguridad Tecnologica`, `Gerencia`.
+- Dashboard, tareas, bitacoras, adjuntos, reportes, auditoria y notificaciones.
+- Telegram en modo polling para no depender de dominio publico ni HTTPS publico.
+- SSE/realtime autenticado y filtrado por permisos.
+- Exportes Excel/PDF/CSV con control por grupo exportable.
+- Soft delete de usuarios para conservar historico.
 
 ---
 
-## Credenciales iniciales
+## Modelo multi-area
 
-- Admin email: `admin@n1njahack.local`
-- Admin password: definir en el servidor, no se publica en GitHub.
-- DB password: definir en el servidor, no se publica en GitHub.
+Regla base:
 
-Nota de registro: la web y el alta manual de usuarios aceptan nuevos correos solo de `gmail.com` y `hotmail.com`. El admin inicial de provisioning puede seguir usando el correo interno documentado porque se crea por script operativo, no por registro publico.
-- Grafana user: `admin`
-- Grafana password: definir en el servidor, no se publica en GitHub.
+1. El rol debe permitir la accion sobre el modulo.
+2. La matriz de grupo debe permitir la accion sobre el grupo del recurso.
+3. Si cualquiera falla, el backend niega la operacion.
 
-Usa passwords fuertes y guardalos solo en el `.env` del servidor o en tu gestor de secretos.
+Comportamiento inicial recomendado:
+
+- Soporte ve Soporte.
+- Infraestructura ve Infraestructura.
+- Seguridad Tecnologica puede ver Soporte, Infraestructura y su propio grupo si la matriz lo permite.
+- Gerencia tiene visibilidad ejecutiva segun configuracion, sin ser admin tecnico por defecto.
+- Admin conserva control tecnico total.
+- Datos antiguos se asignan a `General` mediante migracion incremental.
+
+Panel web:
+
+- Roles y permisos > Roles y modulos.
+- Roles y permisos > Grupos.
+- Roles y permisos > Matriz de visibilidad.
+- Roles y permisos > Usuarios por grupo.
+- Roles y permisos > Auditoria de permisos.
 
 ---
 
-## Passwords temporales sin errores de tipeo
+## Instalacion nueva rapida
 
-No se publica una password fija en GitHub. Para evitar errores al escribir credenciales, usa el generador del servidor: crea valores temporales fuertes, los guarda solo en `.env` y los muestra en consola para que puedas anotarlos y cambiarlos luego.
+Usa esto solo en servidor nuevo sin data previa.
 
 ```bash
-cd ~/apps/Bitacora_Grupos
-chmod +x scripts/*.sh
-
-bash scripts/setup-env.sh \
-  --app-domain 10.156.99.35 \
-  --admin-email admin@n1njahack.local \
-  --admin-name "Administrador Principal" \
-  --force
-
-bash scripts/deploy-safe.sh --ensure-admin
-
-# Ver solo en el servidor. No pegues este output en GitHub ni en chats publicos.
-grep -E '^(ADMIN_DEFAULT_EMAIL|ADMIN_DEFAULT_PASSWORD|POSTGRES_PASSWORD|GRAFANA_ADMIN_PASSWORD)=' .env
-```
-
-Si prefieres una password temporal definida por ti, pasala solo al script en el servidor con `--admin-password`, `--db-password` y `--grafana-password`.
-
----
-
-## Despliegue rapido recomendado
-
-```bash
+mkdir -p ~/apps
+cd ~/apps
+git clone git@github-bitacora:RayCiavato/Bitacora_Grupos.git Bitacora_Grupos
 cd ~/apps/Bitacora_Grupos
 chmod +x scripts/*.sh
 
@@ -105,37 +79,39 @@ bash scripts/install-server-safe.sh \
   --force
 ```
 
-Verifica:
+Verificar:
 
 ```bash
-docker compose ps
-docker compose logs --tail=120 app
-curl -I http://127.0.0.1
+cd ~/apps/Bitacora_Grupos
+if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
+$DC ps
+curl -sS http://127.0.0.1/health
 ```
 
 ---
 
-## Actualizacion segura (sin romper)
+## Actualizacion de una Bitacora vieja
 
-Servidor existente con datos:
-- Mantén la carpeta actual del servidor para preservar el nombre de proyecto de Docker Compose y sus volumenes.
-- Si hoy el server vive en `~/apps/Bitacora_gestor_tareas`, puedes seguir usando esa ruta y solo cambiar el `origin` al repo nuevo.
-- No clones el repo nuevo en otra carpeta sobre un servidor con data sin fijar `COMPOSE_PROJECT_NAME`, porque Compose podria crear volumenes nuevos vacios.
+Si ya tienes data cargada, no reinstales desde cero y no borres volumenes.
+
+Reglas criticas:
+
+- No usar `docker compose down -v`.
+- No borrar `postgres_data` ni volumenes.
+- No usar `--fresh-db`.
+- Mantener la carpeta productiva actual si ya tiene los volumenes de Docker Compose.
+- Hacer backup antes de migrar.
+
+Flujo recomendado:
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas  # o la carpeta actual que ya tiene los volumenes productivos
+cd ~/apps/Bitacora_gestor_tareas  # o la carpeta productiva actual
 
-if docker compose version >/dev/null 2>&1; then
-  DC="docker compose"
-else
-  DC="docker-compose"
-fi
+if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
 
 git remote set-url origin git@github-bitacora:RayCiavato/Bitacora_Grupos.git
-git config core.filemode false
 git fetch origin main
 
-# Si hay cambios locales (por ejemplo Caddyfile interno), guardalos sin perderlos.
 if [ -n "$(git status --porcelain)" ]; then
   mkdir -p ~/bitacora-backups
   [ -f infra/Caddyfile.internal-https ] && cp infra/Caddyfile.internal-https ~/bitacora-backups/Caddyfile.internal-https.$(date +%Y%m%d-%H%M%S).bak
@@ -148,9 +124,9 @@ git pull --ff-only origin main
 mkdir -p backups
 POSTGRES_USER_VALUE="$(grep -E '^POSTGRES_USER=' .env 2>/dev/null | tail -n1 | cut -d= -f2-)"
 POSTGRES_DB_VALUE="$(grep -E '^POSTGRES_DB=' .env 2>/dev/null | tail -n1 | cut -d= -f2-)"
-$DC exec -T postgres pg_dump -U "${POSTGRES_USER_VALUE:-bitacora_user}" "${POSTGRES_DB_VALUE:-bitacora}" | gzip > "backups/pre-groups-update-$(date +%F-%H%M%S).sql.gz"
 
-# Migracion incremental multi-area. No borra tablas ni datos.
+$DC exec -T postgres pg_dump -U "${POSTGRES_USER_VALUE:-bitacora_user}" "${POSTGRES_DB_VALUE:-bitacora}" | gzip > "backups/pre-update-$(date +%F-%H%M%S).sql.gz"
+
 cat db/migrations/008_groups_abac.sql | $DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}"
 
 docker ps -aq --filter "name=bitacora-app" | xargs -r docker rm -f
@@ -161,24 +137,23 @@ $DC ps app
 curl -sS http://127.0.0.1/health
 ```
 
-Validacion rapida de grupos:
+Validar grupos:
 
 ```bash
 $DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT slug, is_active FROM groups ORDER BY id;"
-$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS tareas_sin_grupo FROM tasks WHERE group_id IS NULL;"
-$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS bitacoras_sin_grupo FROM events WHERE group_id IS NULL;"
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS tasks_sin_grupo FROM tasks WHERE group_id IS NULL;"
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS events_sin_grupo FROM events WHERE group_id IS NULL;"
 ```
 
 ---
 
-## Telegram interactivo sin dominio publico
+## Telegram
 
-Para usar `/menu`, botones inline y `/buscar` dentro de un grupo privado sin HTTPS ni dominio publico,
-activa long polling en el `.env` del servidor:
+Para servidores internos sin dominio publico usa polling.
 
-> Seguridad: el token real del bot no se sube a GitHub. Guardalo solo en `.env` del servidor.
+Variables minimas en `.env`:
 
-```bash
+```env
 TELEGRAM_ENABLED=true
 TELEGRAM_BOT_TOKEN=REEMPLAZAR_TOKEN
 TELEGRAM_CHAT_ID=REEMPLAZAR_CHAT_ID
@@ -189,59 +164,92 @@ TELEGRAM_POLLING_INTERVAL_MS=1000
 TELEGRAM_POLLING_ALLOWED_UPDATES=message,callback_query
 ```
 
-Antes de iniciar polling, elimina cualquier webhook previo:
+Si usas grupos separados por area:
+
+```env
+TELEGRAM_GROUP_CHAT_IDS=soporte=-100111,infraestructura=-100222,seguridad-tecnologica=-100333,gerencia=-100444
+```
+
+Antes de activar polling:
 
 ```bash
+set -a
+. ./.env
+set +a
 curl -sS "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/deleteWebhook?drop_pending_updates=false"
 ```
 
-En modo `polling`, ejecuta una sola instancia de `app` para evitar doble lectura de updates.
-El modo `webhook` sigue disponible para un futuro dominio HTTPS usando `TELEGRAM_BOT_MODE=webhook`.
+Para vincular usuario:
 
-### Cargar token y chat ID en un servidor existente
+1. Iniciar sesion en la web.
+2. Ir a Configuracion > Telegram.
+3. Generar codigo.
+4. En Telegram enviar `/start CODIGO`.
+5. Usar `/menu`.
+
+---
+
+## Comandos de validacion local del repo
 
 ```bash
-cd ~/apps/Bitacora_Grupos
-
-unset TELEGRAM_BOT_TOKEN_VALUE TELEGRAM_CHAT_ID_VALUE
-read -r -s -p "Pega token Telegram: " TELEGRAM_BOT_TOKEN_VALUE; echo
-read -r -p "Pega chat id Telegram: " TELEGRAM_CHAT_ID_VALUE
-
-export TELEGRAM_BOT_TOKEN_VALUE="$(printf '%s' "$TELEGRAM_BOT_TOKEN_VALUE" | tr -cd 'A-Za-z0-9_:-')"
-export TELEGRAM_CHAT_ID_VALUE="$(printf '%s' "$TELEGRAM_CHAT_ID_VALUE" | tr -cd '0-9-')"
-
-python3 - <<'PY'
-import os
-from pathlib import Path
-
-env_path = Path(".env")
-values = {
-    "TELEGRAM_ENABLED": "true",
-    "TELEGRAM_BOT_TOKEN": os.environ["TELEGRAM_BOT_TOKEN_VALUE"],
-    "TELEGRAM_CHAT_ID": os.environ["TELEGRAM_CHAT_ID_VALUE"],
-    "TELEGRAM_BOT_INTERACTIVE_ENABLED": "true",
-    "TELEGRAM_BOT_MODE": "polling",
-    "TELEGRAM_POLLING_TIMEOUT": "30",
-    "TELEGRAM_POLLING_INTERVAL_MS": "1000",
-    "TELEGRAM_POLLING_ALLOWED_UPDATES": "message,callback_query",
-}
-lines = env_path.read_text().splitlines() if env_path.exists() else []
-out, seen = [], set()
-for line in lines:
-    key = line.split("=", 1)[0] if "=" in line else None
-    if key in values:
-        out.append(f"{key}={values[key]}")
-        seen.add(key)
-    else:
-        out.append(line)
-for key, value in values.items():
-    if key not in seen:
-        out.append(f"{key}={value}")
-env_path.write_text("\n".join(out) + "\n")
-PY
-
-curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_VALUE}/deleteWebhook?drop_pending_updates=false"
+npm --prefix app run lint
+npm test --prefix app
+npm --prefix app run build:assets
+npm --prefix app audit --omit=dev --audit-level=moderate
 ```
 
-Despues de iniciar sesion en la web, ve a **Configuracion > Telegram** para generar el codigo de vinculacion o desvincular el dispositivo actual.
-El sistema genera el codigo temporal y te muestra el comando `/start CODIGO` para pegarlo en Telegram.
+---
+
+## Troubleshooting rapido
+
+### `docker: unknown command: docker compose`
+
+Usa fallback:
+
+```bash
+if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
+$DC version
+```
+
+Si no tienes ninguno, instala Docker Compose plugin desde el manual principal.
+
+### `KeyError: 'ContainerConfig'`
+
+Suele pasar con `docker-compose` v1 y contenedores viejos.
+
+```bash
+docker ps -aq --filter "name=bitacora-app" | xargs -r docker rm -f
+$DC build --no-cache app
+$DC up -d --no-deps --force-recreate app
+```
+
+### `502 Bad Gateway`
+
+```bash
+$DC ps
+$DC logs --tail=200 app
+$DC logs --tail=120 caddy
+```
+
+Normalmente la app no arranco, Caddy no ve `app:3000`, o se clono en otra carpeta y Compose creo otra red/volumen.
+
+### `Permission denied (publickey)` con GitHub
+
+Revisa `MANUAL_DESPLIEGUE_SERVIDOR.md`, seccion GitHub SSH.
+
+### Backup `Permission denied`
+
+```bash
+mkdir -p backups
+sudo chown -R "$USER:$USER" backups
+```
+
+---
+
+## Seguridad basica
+
+- Nunca subir `.env` a GitHub.
+- Nunca subir tokens Telegram reales.
+- Nunca compartir `server.key`, `ca.key` ni backups de DB.
+- No usar `down -v` en servidores con data.
+- Hacer backup antes de migraciones.

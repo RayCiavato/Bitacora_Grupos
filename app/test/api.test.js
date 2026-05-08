@@ -382,8 +382,8 @@ test("Permisos: administrador puede editar cualquier registro", () => {
 
 test("Permisos bitacora: funcionario puede ver bitacoras del panel", () => {
   const canView = canUserViewBitacora(
-    { sub: 10, role: "funcionario" },
-    { id: 55, encargado_id: 11 }
+    { sub: 10, role: "funcionario", groupAccess: { viewGroupIds: [1] } },
+    { id: 55, encargado_id: 11, groupId: 1 }
   );
   assert.equal(canView, true);
 });
@@ -401,16 +401,21 @@ test("Permisos adjuntos: usuario normal puede subir adjuntos solo a sus registro
 });
 
 test("Permisos archivos: cualquier usuario autenticado puede visualizar", () => {
-  const canView = canUserViewFile({ sub: 10, role: "funcionario" }, { owner_id: 99 });
+  const canView = canUserViewFile(
+    { sub: 10, role: "funcionario", groupAccess: { viewGroupIds: [1] } },
+    { owner_id: 99, groupId: 1 }
+  );
   assert.equal(canView, true);
 });
 
 test("Permisos archivos: solo owner o admin puede editar/eliminar", () => {
-  const file = { owner_id: 44 };
-  assert.equal(canUserEditFile({ sub: 44, role: "funcionario" }, file), true);
-  assert.equal(canUserDeleteFile({ sub: 44, role: "funcionario" }, file), true);
-  assert.equal(canUserEditFile({ sub: 11, role: "funcionario" }, file), false);
-  assert.equal(canUserDeleteFile({ sub: 11, role: "funcionario" }, file), false);
+  const file = { owner_id: 44, groupId: 1 };
+  const owner = { sub: 44, role: "funcionario", groupAccess: { editGroupIds: [1], deleteGroupIds: [1] } };
+  const other = { sub: 11, role: "funcionario", groupAccess: { editGroupIds: [1], deleteGroupIds: [1] } };
+  assert.equal(canUserEditFile(owner, file), true);
+  assert.equal(canUserDeleteFile(owner, file), true);
+  assert.equal(canUserEditFile(other, file), false);
+  assert.equal(canUserDeleteFile(other, file), false);
   assert.equal(canUserEditFile({ sub: 1, role: "admin" }, file), true);
   assert.equal(canUserDeleteFile({ sub: 1, role: "admin" }, file), true);
 });

@@ -1,6 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { config } = require("../src/config");
+const { pool } = require("../src/db");
+const { notifyTaskCreated } = require("../src/services/telegramNotifier");
 const {
   isTelegramInteractiveEnabled,
   isTelegramWebhookModeEnabled,
@@ -164,5 +166,78 @@ test("Callback Volver al menu responde sin requerir consulta sensible", async ()
     );
   } finally {
     global.fetch = previousFetch;
+  }
+});
+
+test("Telegram saliente: detalle solo va a chats autorizados por grupo y global recibe minimo", async () => {
+  const previousFetch = global.fetch;
+  const originalPoolQuery = pool.query.bind(pool);
+  const calls = [];
+
+  global.fetch = async (url, options = {}) => {
+    calls.push({
+      url: String(url),
+      body: JSON.parse(String(options.body || "{}"))
+    });
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, result: { message_id: calls.length } })
+    };
+  };
+  pool.query = async (sqlText, params = []) => {
+    const sql = String(sqlText).toLowerCase();
+    if (sql.includes("from group_access_policies")) {
+      assert.deepEqual(params, [10]);
+      return {
+        rowCount: 2,
+        rows: [
+          { id: 10, name: "Soporte", slug: "soporte" },
+          { id: 30, name: "Seguridad Tecnologica", slug: "seguridad-tecnologica" }
+        ]
+      };
+    }
+    if (sql.startsWith("insert into audit_logs")) {
+      return { rowCount: 1, rows: [] };
+    }
+    return { rowCount: 0, rows: [] };
+  };
+
+  try {
+    await withConfigAsync(
+      {
+        telegramEnabled: true,
+        telegramBotToken: "test-token",
+        telegramChatId: "global-chat",
+        telegramChatIds: [],
+        telegramGroupChatIds: ["soporte:soporte-chat", "seguridad-tecnologica:seguridad-chat"]
+      },
+      async () => {
+        const result = await notifyTaskCreated({
+          task: {
+            id: 501,
+            title: "Dato sensible de Soporte",
+            priority: "alta",
+            status: "sin_realizar",
+            dueDate: "2026-06-01",
+            group: { id: 10, name: "Soporte", slug: "soporte" },
+            createdBy: { name: "Operador Soporte" },
+            assignedTo: { name: "Responsable Soporte" }
+          },
+          actorName: "Operador Soporte",
+          actorId: 7
+        });
+
+        assert.equal(result.ok, true);
+        const byChat = new Map(calls.map((call) => [call.body.chat_id, call.body.text]));
+        assert.match(byChat.get("soporte-chat"), /Dato sensible de Soporte/);
+        assert.match(byChat.get("seguridad-chat"), /Dato sensible de Soporte/);
+        assert.match(byChat.get("global-chat"), /Detalle disponible solo/);
+        assert.doesNotMatch(byChat.get("global-chat"), /Dato sensible de Soporte/);
+      }
+    );
+  } finally {
+    global.fetch = previousFetch;
+    pool.query = originalPoolQuery;
   }
 });

@@ -64,6 +64,7 @@ const config = {
   telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || "",
   telegramChatId: process.env.TELEGRAM_CHAT_ID || "",
   telegramChatIds: readCsvList(process.env.TELEGRAM_CHAT_IDS || ""),
+  telegramGroupChatIds: readCsvList(process.env.TELEGRAM_GROUP_CHAT_IDS || ""),
   telegramTaskAlertCron: process.env.TELEGRAM_TASK_ALERT_CRON || "*/15 * * * *",
   telegramNotifyEventCorrelations: readBool(process.env.TELEGRAM_NOTIFY_EVENT_CORRELATIONS, false),
   telegramBotInteractiveEnabled: readBool(process.env.TELEGRAM_BOT_INTERACTIVE_ENABLED, false),

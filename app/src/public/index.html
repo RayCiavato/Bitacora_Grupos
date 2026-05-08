@@ -1196,11 +1196,11 @@
                 </div>
 
                 <div id="rbacAuditPane" class="rbac-pane hidden">
-                  <p class="help-text">
-                    Los cambios de grupos, membresias y matriz quedan auditados como
-                    groups.created, groups.updated, groups.policy_updated, groups.user_added y
-                    groups.user_removed. Consulta el panel Auditoria para trazabilidad completa.
-                  </p>
+                  <div class="rbac-toolbar">
+                    <button id="groupAuditReloadBtn" type="button" class="btn btn-ghost">Recargar auditoria</button>
+                    <span id="groupAuditMeta" class="help-text">Ultimos cambios de permisos y grupos.</span>
+                  </div>
+                  <div id="groupAuditList" class="group-audit-list"></div>
                 </div>
 
                 <p id="rbacMeta" class="help-text">Cargando permisos...</p>

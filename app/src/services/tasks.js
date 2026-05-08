@@ -113,11 +113,12 @@ function normalizeSort(sortBy, sortOrder) {
   };
 }
 
-function buildTaskFilters(query, user) {
+function buildTaskFilters(query, user, options = {}) {
   const whereParts = ["t.deleted_at IS NULL"];
   const params = [];
+  const groupAction = options.groupAction || "view";
 
-  whereParts.push(buildGroupScopeCondition({ alias: "t", user, params, action: "view" }));
+  whereParts.push(buildGroupScopeCondition({ alias: "t", user, params, action: groupAction }));
 
   const viewScope = getTaskViewScope(user);
   if (!viewScope.canViewAny) {
@@ -429,7 +430,7 @@ async function listTasks({ user, query }) {
 }
 
 async function listTasksForExport({ user, query, limit = 5000 }) {
-  const { whereSql, params } = buildTaskFilters(query, user);
+  const { whereSql, params } = buildTaskFilters(query, user, { groupAction: "export" });
   const { sortColumn, sortOrder } = normalizeSort(query.sortBy, query.sortOrder);
   const cappedLimit = Math.max(1, Math.min(Number(limit || 5000), 10000));
   const listParams = [...params];

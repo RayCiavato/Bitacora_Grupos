@@ -28,6 +28,7 @@ const {
   canUserViewFile,
   canUserEditFile,
   canUserDeleteFile,
+  getSessionCapabilities,
   canUserViewTasks,
   getTaskViewScope,
   buildEventPermissions
@@ -511,15 +512,16 @@ function hasInvertedDateRange(from, to) {
   return String(from || "") > String(to || "");
 }
 
-function buildReportFilters(query, user = null) {
+function buildReportFilters(query, user = null, options = {}) {
   const params = [];
   const whereParts = [];
+  const groupAction = options.groupAction || "view";
 
   const fromIndex = params.push(query.from);
   const toIndex = params.push(query.to);
   whereParts.push(`e.fecha BETWEEN $${fromIndex} AND $${toIndex}`);
   if (user) {
-    whereParts.push(buildGroupScopeCondition({ alias: "e", user, params, action: "view" }));
+    whereParts.push(buildGroupScopeCondition({ alias: "e", user, params, action: groupAction }));
   }
 
   if (query.groupId) {
@@ -664,13 +666,14 @@ function escapeCsvValue(value) {
 }
 
 function buildCsvBuffer(rows) {
-  const header = ["Fecha", "Encargado", "Actividad", "Observacion", "Prioridad", "Plantilla"]; 
+  const header = ["Fecha", "Grupo/Area", "Encargado", "Actividad", "Observacion", "Prioridad", "Plantilla"];
   const lines = [header.map(escapeCsvValue).join(",")];
 
   for (const row of rows) {
     lines.push(
       [
         row.fecha,
+        row.groupName || "",
         row.encargado,
         row.descripcionActividad,
         row.observacion,
@@ -693,6 +696,7 @@ async function buildXlsxBuffer(rows) {
   const worksheet = workbook.addWorksheet("Reporte");
   worksheet.columns = [
     { header: "Fecha", key: "fecha", width: 14 },
+    { header: "Grupo/Area", key: "groupName", width: 22 },
     { header: "Encargado", key: "encargado", width: 22 },
     { header: "Actividad", key: "descripcionActividad", width: 52 },
     { header: "Observacion", key: "observacion", width: 52 },
@@ -703,6 +707,7 @@ async function buildXlsxBuffer(rows) {
   rows.forEach((row) => {
     worksheet.addRow({
       fecha: row.fecha,
+      groupName: row.groupName || "",
       encargado: row.encargado,
       descripcionActividad: row.descripcionActividad,
       observacion: row.observacion,
@@ -792,7 +797,7 @@ async function buildPdfBuffer(rows, query, branding = {}) {
       doc
         .fontSize(10)
         .text(
-          `${index + 1}. ${row.fecha} | ${row.encargado} | ${row.prioridad.toUpperCase()}`
+          `${index + 1}. ${row.fecha} | ${row.groupName || "-"} | ${row.encargado} | ${row.prioridad.toUpperCase()}`
         );
       doc
         .fontSize(9)
@@ -1251,7 +1256,9 @@ async function handleReportExport(req, res, next, source) {
       ...payload,
       encargadoId: getScopedEncargadoId(req, payload.encargadoId)
     };
-    const { whereSql, params } = buildReportFilters(scopedPayload, req.user);
+    const { whereSql, params } = buildReportFilters(scopedPayload, req.user, {
+      groupAction: "export"
+    });
     const orderBySql = buildReportOrderBy(scopedPayload);
 
     const eventsResult = await pool.query(
@@ -2229,7 +2236,9 @@ router.get("/attachments", authenticate, async (req, res, next) => {
 
     const query = attachmentRepositoryQuerySchema.parse(req.query);
     const actorId = Number(req.user?.sub);
-    const canViewAnyAttachments = canUserViewFile(req.user, { ownerId: -1 });
+    const canViewAnyAttachments = Boolean(
+      getSessionCapabilities(req.user?.role)?.actions?.attachments?.viewAny
+    );
 
     if (!canViewAnyAttachments && (!Number.isInteger(actorId) || actorId <= 0)) {
       return res.status(403).json({ error: "forbidden" });

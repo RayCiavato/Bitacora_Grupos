@@ -53,6 +53,74 @@ function getTelegramTargetChatIds() {
   return legacy ? [legacy] : [];
 }
 
+function normalizeGroupKey(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function getTelegramGroupChatMap() {
+  const entries = Array.isArray(config.telegramGroupChatIds) ? config.telegramGroupChatIds : [];
+  const map = new Map();
+  for (const entry of entries) {
+    const [rawKey, ...rawChatParts] = String(entry || "").split(":");
+    const key = normalizeGroupKey(rawKey);
+    const chatId = normalizeChatId(rawChatParts.join(":"));
+    if (!key || !chatId) {
+      continue;
+    }
+    map.set(key, Array.from(new Set([...(map.get(key) || []), chatId])));
+  }
+  return map;
+}
+
+function getTelegramGroupChatIds(group = {}) {
+  const map = getTelegramGroupChatMap();
+  const keys = [group?.slug, group?.id, group?.name].map(normalizeGroupKey).filter(Boolean);
+  const chatIds = [];
+  for (const key of keys) {
+    chatIds.push(...(map.get(key) || []));
+  }
+  return Array.from(new Set(chatIds));
+}
+
+async function getAuthorizedTelegramChatIdsForGroup(group = {}) {
+  const chatIds = [...getTelegramGroupChatIds(group)];
+  const groupId = Number(group?.id || 0);
+  if (!Number.isInteger(groupId) || groupId <= 0) {
+    return Array.from(new Set(chatIds));
+  }
+
+  try {
+    const result = await pool.query(
+      `
+        SELECT
+          source.id,
+          source.name,
+          source.slug
+        FROM group_access_policies p
+        JOIN groups source ON source.id = p.source_group_id
+        WHERE p.target_group_id = $1
+          AND p.resource_type = 'all'
+          AND p.can_view = TRUE
+          AND source.is_active = TRUE
+      `,
+      [groupId]
+    );
+    for (const row of result.rows) {
+      chatIds.push(...getTelegramGroupChatIds(row));
+    }
+  } catch (error) {
+    logger.warn({ err: error, groupId }, "No se pudo resolver visibilidad Telegram por grupo");
+  }
+
+  return Array.from(new Set(chatIds));
+}
+
 function sanitizeText(value, fallback = "-", maxLength = 300) {
   const normalized = String(value || "").replace(/\s+/g, " ").trim();
   if (!normalized) {
@@ -143,7 +211,8 @@ async function sendTelegramMessage({
   userId = null,
   entity = "notification",
   entityId = null,
-  metadata = {}
+  metadata = {},
+  targetChatIds = null
 } = {}) {
   if (!isTelegramEnabled()) {
     return { ok: false, skipped: true, reason: "telegram_disabled" };
@@ -151,15 +220,17 @@ async function sendTelegramMessage({
 
   const normalizedText = sanitizeTelegramMessage(text, "-", 3900);
   const url = `https://api.telegram.org/bot${config.telegramBotToken}/sendMessage`;
-  const targetChatIds = getTelegramTargetChatIds();
-  if (!targetChatIds.length) {
+  const resolvedTargetChatIds = Array.isArray(targetChatIds)
+    ? targetChatIds.map((chatId) => normalizeChatId(chatId)).filter(Boolean)
+    : getTelegramTargetChatIds();
+  if (!resolvedTargetChatIds.length) {
     return { ok: false, skipped: true, reason: "telegram_chat_missing" };
   }
 
   let sentCount = 0;
   let lastMessageId = null;
   let lastError = null;
-  for (const targetChatId of targetChatIds) {
+  for (const targetChatId of resolvedTargetChatIds) {
     let delivered = false;
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {
@@ -213,7 +284,7 @@ async function sendTelegramMessage({
       metadata: {
         channel: "telegram",
         sentCount,
-        targetChats: targetChatIds,
+        targetChats: resolvedTargetChatIds,
         ...metadata
       }
     });
@@ -231,7 +302,7 @@ async function sendTelegramMessage({
     entityId,
     metadata: {
       channel: "telegram",
-      targetChats: targetChatIds,
+      targetChats: resolvedTargetChatIds,
       error: sanitizeErrorForAudit(lastError),
       ...metadata
     }
@@ -252,6 +323,62 @@ async function sendTelegramMessage({
   };
 }
 
+async function sendGroupAwareTelegramMessage({
+  detailedText,
+  safeText,
+  group,
+  userId = null,
+  entity = "notification",
+  entityId = null,
+  metadata = {}
+} = {}) {
+  const groupChatIds = await getAuthorizedTelegramChatIdsForGroup(group);
+  const globalChatIds = getTelegramTargetChatIds();
+  const globalOnlyChatIds = globalChatIds.filter((chatId) => !groupChatIds.includes(chatId));
+  const scopedMetadata = {
+    ...metadata,
+    groupId: group?.id || null,
+    groupName: group?.name || null,
+    groupSlug: group?.slug || null
+  };
+
+  let detailedResult = null;
+  if (groupChatIds.length > 0) {
+    detailedResult = await sendTelegramMessage({
+      text: detailedText,
+      userId,
+      entity,
+      entityId,
+      metadata: {
+        ...scopedMetadata,
+        deliveryScope: "group_detail"
+      },
+      targetChatIds: groupChatIds
+    });
+  }
+
+  let summaryResult = null;
+  if (globalOnlyChatIds.length > 0) {
+    summaryResult = await sendTelegramMessage({
+      text: safeText,
+      userId,
+      entity,
+      entityId,
+      metadata: {
+        ...scopedMetadata,
+        deliveryScope: groupChatIds.length > 0 ? "global_minimal_copy" : "global_minimal_only"
+      },
+      targetChatIds: globalOnlyChatIds
+    });
+  }
+
+  if (detailedResult?.ok || summaryResult?.ok) {
+    return { ok: true, detailed: detailedResult, summary: summaryResult };
+  }
+
+  return detailedResult || summaryResult || { ok: false, skipped: true, reason: "no_authorized_chat" };
+}
+
 function runDetached(asyncWork, contextLabel) {
   setImmediate(() => {
     Promise.resolve()
@@ -270,7 +397,12 @@ function extractTaskCore(task) {
     status: sanitizeText(task?.status, "sin_realizar", 32),
     dueDate: task?.dueDate || null,
     createdBy: sanitizeText(task?.createdBy?.name || task?.createdByName || "Sistema", "Sistema", 120),
-    assignedTo: sanitizeText(task?.assignedTo?.name || task?.assignedToName || "Sin asignar", "Sin asignar", 120)
+    assignedTo: sanitizeText(task?.assignedTo?.name || task?.assignedToName || "Sin asignar", "Sin asignar", 120),
+    group: {
+      id: Number(task?.group?.id || task?.groupId || task?.group_id || 0) || null,
+      name: sanitizeText(task?.group?.name || task?.groupName || "Sin grupo", "Sin grupo", 120),
+      slug: sanitizeText(task?.group?.slug || task?.groupSlug || "", "", 120)
+    }
   };
 }
 
@@ -279,8 +411,25 @@ function extractBitacoraCore(event) {
     id: Number(event?.id || 0) || null,
     actividad: sanitizeText(event?.descripcionActividad || event?.actividad || "-", "-", 220),
     observacion: sanitizeText(event?.observacion || "-", "-", 260),
-    prioridad: sanitizeText(event?.prioridad || "media", "media", 20)
+    prioridad: sanitizeText(event?.prioridad || "media", "media", 20),
+    group: {
+      id: Number(event?.group?.id || event?.groupId || event?.group_id || 0) || null,
+      name: sanitizeText(event?.group?.name || event?.groupName || "Sin grupo", "Sin grupo", 120),
+      slug: sanitizeText(event?.group?.slug || event?.groupSlug || "", "", 120)
+    }
   };
+}
+
+function buildMinimalGroupMessage({ title, kind, group } = {}) {
+  return [
+    sanitizeText(title, "Actualizacion operativa", 120),
+    "",
+    `Area: ${sanitizeText(group?.name || "Sin grupo", "Sin grupo", 120)}`,
+    `Tipo: ${sanitizeText(kind, "notificacion", 80)}`,
+    `Fecha: ${formatDateTimeCaracas(new Date())}`,
+    "",
+    "Detalle disponible solo en el panel o en el chat autorizado del area."
+  ].join("\n");
 }
 
 function buildTaskCreatedMessage(taskCore) {
@@ -400,8 +549,14 @@ function notifyTaskCreated({ task, actorName, actorId } = {}) {
   if (actorName) {
     taskCore.createdBy = sanitizeText(actorName, "Sistema", 120);
   }
-  return sendTelegramMessage({
-    text: buildTaskCreatedMessage(taskCore),
+  return sendGroupAwareTelegramMessage({
+    detailedText: buildTaskCreatedMessage(taskCore),
+    safeText: buildMinimalGroupMessage({
+      title: "📌 Nueva tarea registrada",
+      kind: "task_created",
+      group: taskCore.group
+    }),
+    group: taskCore.group,
     userId: actorId || null,
     entity: "task",
     entityId: taskCore.id,
@@ -413,8 +568,14 @@ function notifyTaskCreated({ task, actorName, actorId } = {}) {
 
 function notifyTaskAssigned({ task, actorName, actorId } = {}) {
   const taskCore = extractTaskCore(task);
-  return sendTelegramMessage({
-    text: buildTaskAssignedMessage(taskCore, actorName),
+  return sendGroupAwareTelegramMessage({
+    detailedText: buildTaskAssignedMessage(taskCore, actorName),
+    safeText: buildMinimalGroupMessage({
+      title: "👥 Tarea asignada",
+      kind: "task_assigned",
+      group: taskCore.group
+    }),
+    group: taskCore.group,
     userId: actorId || null,
     entity: "task",
     entityId: taskCore.id,
@@ -426,8 +587,14 @@ function notifyTaskAssigned({ task, actorName, actorId } = {}) {
 
 function notifyTaskStatusChanged({ task, actorName, actorId } = {}) {
   const taskCore = extractTaskCore(task);
-  return sendTelegramMessage({
-    text: buildTaskStatusMessage(taskCore, actorName),
+  return sendGroupAwareTelegramMessage({
+    detailedText: buildTaskStatusMessage(taskCore, actorName),
+    safeText: buildMinimalGroupMessage({
+      title: "🔄 Actualizacion de tarea",
+      kind: "task_status_changed",
+      group: taskCore.group
+    }),
+    group: taskCore.group,
     userId: actorId || null,
     entity: "task",
     entityId: taskCore.id,
@@ -440,8 +607,14 @@ function notifyTaskStatusChanged({ task, actorName, actorId } = {}) {
 
 function notifyTaskPriorityChanged({ task, actorName, actorId } = {}) {
   const taskCore = extractTaskCore(task);
-  return sendTelegramMessage({
-    text: buildTaskPriorityMessage(taskCore, actorName),
+  return sendGroupAwareTelegramMessage({
+    detailedText: buildTaskPriorityMessage(taskCore, actorName),
+    safeText: buildMinimalGroupMessage({
+      title: "⚠️ Cambio de prioridad",
+      kind: "task_priority_changed",
+      group: taskCore.group
+    }),
+    group: taskCore.group,
     userId: actorId || null,
     entity: "task",
     entityId: taskCore.id,
@@ -454,8 +627,14 @@ function notifyTaskPriorityChanged({ task, actorName, actorId } = {}) {
 
 function notifyTaskCompleted({ task, actorName, actorId } = {}) {
   const taskCore = extractTaskCore(task);
-  return sendTelegramMessage({
-    text: buildTaskCompletedMessage(taskCore, actorName),
+  return sendGroupAwareTelegramMessage({
+    detailedText: buildTaskCompletedMessage(taskCore, actorName),
+    safeText: buildMinimalGroupMessage({
+      title: "✅ Tarea completada",
+      kind: "task_completed",
+      group: taskCore.group
+    }),
+    group: taskCore.group,
     userId: actorId || null,
     entity: "task",
     entityId: taskCore.id,
@@ -467,8 +646,14 @@ function notifyTaskCompleted({ task, actorName, actorId } = {}) {
 
 function notifyBitacoraCreated({ event, actorName, actorId } = {}) {
   const bitacoraCore = extractBitacoraCore(event);
-  return sendTelegramMessage({
-    text: buildBitacoraCreatedMessage(bitacoraCore, actorName),
+  return sendGroupAwareTelegramMessage({
+    detailedText: buildBitacoraCreatedMessage(bitacoraCore, actorName),
+    safeText: buildMinimalGroupMessage({
+      title: "📓 Nueva bitacora registrada",
+      kind: "bitacora_created",
+      group: bitacoraCore.group
+    }),
+    group: bitacoraCore.group,
     userId: actorId || null,
     entity: "event",
     entityId: bitacoraCore.id,
@@ -480,8 +665,14 @@ function notifyBitacoraCreated({ event, actorName, actorId } = {}) {
 
 function notifyBitacoraUpdated({ event, actorName, actorId } = {}) {
   const bitacoraCore = extractBitacoraCore(event);
-  return sendTelegramMessage({
-    text: buildBitacoraUpdatedMessage(bitacoraCore, actorName),
+  return sendGroupAwareTelegramMessage({
+    detailedText: buildBitacoraUpdatedMessage(bitacoraCore, actorName),
+    safeText: buildMinimalGroupMessage({
+      title: "✏️ Bitacora actualizada",
+      kind: "bitacora_updated",
+      group: bitacoraCore.group
+    }),
+    group: bitacoraCore.group,
     userId: actorId || null,
     entity: "event",
     entityId: bitacoraCore.id,
@@ -500,8 +691,15 @@ function notifyBitacoraCorrelationCreated({ correlation, source, target, actorNa
     });
   }
 
-  return sendTelegramMessage({
-    text: buildBitacoraCorrelationMessage({ correlation, source, target, actorName }),
+  const sourceCore = extractBitacoraCore(source);
+  return sendGroupAwareTelegramMessage({
+    detailedText: buildBitacoraCorrelationMessage({ correlation, source, target, actorName }),
+    safeText: buildMinimalGroupMessage({
+      title: "🔗 Bitacora correlacionada",
+      kind: "bitacora_correlation_created",
+      group: sourceCore.group
+    }),
+    group: sourceCore.group,
     userId: actorId || null,
     entity: "event_correlation",
     entityId: Number(correlation?.id || 0) || null,
@@ -570,8 +768,14 @@ async function rollbackDueCheckpoint(taskId, checkpointKey, dueDate) {
 async function notifyTaskDueCheckpoint(task, checkpointKey, hoursRemaining) {
   const taskCore = extractTaskCore(task);
   if (checkpointKey === "overdue") {
-    return sendTelegramMessage({
-      text: buildTaskOverdueMessage(taskCore),
+    return sendGroupAwareTelegramMessage({
+      detailedText: buildTaskOverdueMessage(taskCore),
+      safeText: buildMinimalGroupMessage({
+        title: "🚨 Tarea vencida",
+        kind: "task_overdue",
+        group: taskCore.group
+      }),
+      group: taskCore.group,
       entity: "task",
       entityId: taskCore.id,
       metadata: {
@@ -580,8 +784,14 @@ async function notifyTaskDueCheckpoint(task, checkpointKey, hoursRemaining) {
     });
   }
 
-  return sendTelegramMessage({
-    text: buildTaskDueSoonMessage(taskCore, hoursRemaining),
+  return sendGroupAwareTelegramMessage({
+    detailedText: buildTaskDueSoonMessage(taskCore, hoursRemaining),
+    safeText: buildMinimalGroupMessage({
+      title: "⚠️ Tarea por vencer",
+      kind: "task_due_soon",
+      group: taskCore.group
+    }),
+    group: taskCore.group,
     entity: "task",
     entityId: taskCore.id,
     metadata: {
@@ -605,12 +815,16 @@ async function runTelegramDueAlertsCycle() {
         t.priority,
         t.status,
         t.due_date AS "dueDate",
+        t.group_id AS "groupId",
+        g.name AS "groupName",
+        g.slug AS "groupSlug",
         t.assigned_to AS "assignedToId",
         creator.name AS "createdByName",
         assignee.name AS "assignedToName"
       FROM tasks t
       JOIN users creator ON creator.id = t.created_by
       LEFT JOIN users assignee ON assignee.id = t.assigned_to
+      LEFT JOIN groups g ON g.id = t.group_id
       WHERE t.deleted_at IS NULL
         AND t.due_date IS NOT NULL
         AND t.status NOT IN ('completada', 'cancelada')

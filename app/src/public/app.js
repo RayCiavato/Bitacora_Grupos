@@ -214,6 +214,9 @@ const groupMembersSelect = document.getElementById("groupMembersSelect");
 const groupMemberUserSelect = document.getElementById("groupMemberUserSelect");
 const groupMemberAddBtn = document.getElementById("groupMemberAddBtn");
 const groupMembersList = document.getElementById("groupMembersList");
+const groupAuditReloadBtn = document.getElementById("groupAuditReloadBtn");
+const groupAuditMeta = document.getElementById("groupAuditMeta");
+const groupAuditList = document.getElementById("groupAuditList");
 const eventGroupSelectWrap = document.getElementById("eventGroupSelectWrap");
 const eventGroupSelect = document.getElementById("eventGroupSelect");
 const reportGroupFilterWrap = document.getElementById("reportGroupFilterWrap");
@@ -1204,6 +1207,11 @@ function canManageUsers() {
   return Boolean(state.uiCaps?.actions?.users?.manage);
 }
 
+function canManageGroups() {
+  const administerIds = state.user?.groupAccess?.administerGroupIds;
+  return canManageUsers() || (Array.isArray(administerIds) && administerIds.length > 0);
+}
+
 function canViewTasksScope() {
   const taskActions = state.uiCaps?.actions?.tasks;
   return Boolean(taskActions?.viewAny || taskActions?.viewOwnCreated || taskActions?.viewAssigned);
@@ -1533,6 +1541,101 @@ function findGroupPolicy(sourceGroupId, targetGroupId) {
   );
 }
 
+function findGroupById(groupId) {
+  const id = Number(groupId);
+  return getActiveGroupsForUi().find((group) => Number(group.id) === id) || null;
+}
+
+function getGroupPolicyLabel(policyKey) {
+  const labels = {
+    canView: "Ver",
+    canCreate: "Crear",
+    canEdit: "Editar",
+    canDelete: "Eliminar",
+    canExport: "Exportar",
+    canAdminister: "Administrar"
+  };
+  return labels[policyKey] || policyKey;
+}
+
+function confirmCriticalGroupPolicyChange({ sourceGroupId, targetGroupId, policyKey, enabled }) {
+  if (!enabled || sourceGroupId === targetGroupId) {
+    return true;
+  }
+  if (!["canView", "canExport", "canEdit", "canDelete", "canAdminister"].includes(policyKey)) {
+    return true;
+  }
+
+  const sourceGroup = findGroupById(sourceGroupId);
+  const targetGroup = findGroupById(targetGroupId);
+  const actor = state.user?.name || state.user?.email || "Usuario actual";
+  const message = [
+    "Cambio critico de visibilidad entre grupos",
+    "",
+    `Actor: ${actor}`,
+    `Grupo origen: ${sourceGroup?.name || `#${sourceGroupId}`}`,
+    `Grupo destino: ${targetGroup?.name || `#${targetGroupId}`}`,
+    `Permiso: ${getGroupPolicyLabel(policyKey)}`,
+    "",
+    "Para confirmar escribe CONFIRMAR."
+  ].join("\n");
+  return window.prompt(message) === "CONFIRMAR";
+}
+
+function renderGroupAuditItems(items = []) {
+  if (!groupAuditList) {
+    return;
+  }
+  clearElement(groupAuditList);
+  if (!items.length) {
+    const empty = document.createElement("p");
+    empty.className = "help-text";
+    empty.textContent = "No hay cambios de grupos registrados recientemente.";
+    groupAuditList.appendChild(empty);
+    return;
+  }
+
+  items.forEach((item) => {
+    const card = document.createElement("article");
+    card.className = "group-admin-card";
+    const title = document.createElement("strong");
+    title.textContent = `${item.action || "groups.audit"} | ${item.userName || "Sistema"}`;
+    card.appendChild(title);
+
+    const meta = document.createElement("p");
+    meta.className = "help-text";
+    meta.textContent = `${formatDateTime(item.createdAt)} | ${item.entity || "-"} #${item.entityId || "-"}`;
+    card.appendChild(meta);
+
+    const details = document.createElement("pre");
+    details.className = "group-audit-metadata";
+    details.textContent = JSON.stringify(item.metadata || {}, null, 2).slice(0, 1400);
+    card.appendChild(details);
+    groupAuditList.appendChild(card);
+  });
+}
+
+async function loadGroupAuditPanel() {
+  if (!groupAuditList || !groupAuditMeta || !canManageGroups()) {
+    return;
+  }
+  security.setSafeText(groupAuditMeta, "Cargando auditoria de permisos...");
+  const params = new URLSearchParams({
+    actionPrefix: "groups.",
+    page: "1",
+    pageSize: "20"
+  });
+  const { response, data, networkError } = await apiAuth(`/audit?${params.toString()}`);
+  if (networkError || !response.ok) {
+    security.setSafeText(groupAuditMeta, "No se pudo cargar la auditoria de permisos.");
+    renderGroupAuditItems([]);
+    return;
+  }
+  const items = Array.isArray(data?.items) ? data.items : [];
+  security.setSafeText(groupAuditMeta, `Mostrando ${items.length} cambio(s) reciente(s).`);
+  renderGroupAuditItems(items);
+}
+
 function renderGroupPolicySelectors() {
   const groups = getActiveGroupsForUi();
   populateGroupSelect(groupPolicySourceSelect, groups, {
@@ -1592,7 +1695,7 @@ function renderGroupPolicyTable() {
       checkbox.dataset.targetGroupId = String(targetGroup.id);
       checkbox.dataset.policyKey = key;
       checkbox.title = label;
-      checkbox.disabled = !canManageUsers();
+      checkbox.disabled = !canManageGroups();
       cell.appendChild(checkbox);
       row.appendChild(cell);
     });
@@ -1679,7 +1782,7 @@ async function loadGroupMembers(groupId = state.groupAdmin.selectedMembersGroupI
 }
 
 async function loadGroupsAdministrationPanel() {
-  if (!canManageUsers()) {
+  if (!canManageGroups()) {
     return;
   }
   const { response, data, networkError } = await apiAuth("/groups");
@@ -1707,6 +1810,8 @@ async function loadGroupsAdministrationPanel() {
   syncResourceGroupControls();
   if (state.groupAdmin.activeTab === "members") {
     await loadGroupMembers();
+  } else if (state.groupAdmin.activeTab === "audit") {
+    await loadGroupAuditPanel();
   }
 }
 
@@ -1738,7 +1843,7 @@ async function handleGroupCreate(event) {
 }
 
 async function handleGroupActiveToggle(group) {
-  if (!group || !canManageUsers()) {
+  if (!group || !canManageGroups()) {
     return;
   }
   const nextActive = !group.isActive;
@@ -1786,12 +1891,16 @@ async function handleGroupPolicyChange(event) {
     [policyKey]: target.checked
   };
 
-  if (["canEdit", "canDelete", "canAdminister"].includes(policyKey) && target.checked) {
-    const confirmed = window.confirm("Estas habilitando un permiso critico entre grupos. Deseas continuar?");
-    if (!confirmed) {
-      target.checked = false;
-      return;
-    }
+  if (
+    !confirmCriticalGroupPolicyChange({
+      sourceGroupId,
+      targetGroupId,
+      policyKey,
+      enabled: target.checked
+    })
+  ) {
+    target.checked = false;
+    return;
   }
 
   const { response, data, networkError } = await apiAuth("/groups/policies/access", {
@@ -4576,7 +4685,7 @@ function applyRouteMode() {
   setElementVisible(mainWorkspaceSection, showRegistro || showBitacoraReport);
   setElementVisible(secondaryWorkspaceSection, showTendencias || showAdjuntos || showResumen);
   setElementVisible(adminTools, showUsuarios && canManageUsers());
-  setElementVisible(rbacSection, showRolesPermisos && canManageUsers());
+  setElementVisible(rbacSection, showRolesPermisos && canManageGroups());
   setElementVisible(templateTools, showPlantillas && canManageTemplates());
   setElementVisible(auditSection, showAuditoria && canAccessPanel("/auditoria"));
   setElementVisible(settingsSection, showConfiguracion);
@@ -8413,6 +8522,9 @@ async function bootstrap() {
   }
   if (groupMemberAddBtn) {
     groupMemberAddBtn.addEventListener("click", handleAddGroupMember);
+  }
+  if (groupAuditReloadBtn) {
+    groupAuditReloadBtn.addEventListener("click", loadGroupAuditPanel);
   }
 
   if (systemSettingsForm) {

@@ -5,7 +5,11 @@ const { createAuditLog } = require("../services/audit");
 const { canUserManageUsers } = require("../services/authorization");
 const {
   addUserToGroup,
+  canUserAdministerGroup,
   createGroup,
+  getGroupById,
+  getGroupPolicy,
+  getUserGroupMembership,
   listGroupMembers,
   listGroupPolicies,
   listGroups,
@@ -68,17 +72,82 @@ const memberSchema = z
   })
   .strict();
 
-function ensureCanAdminGroups(req, res) {
-  if (!canUserManageUsers(req.user)) {
+function hasAnyGroupAdministerAccess(user) {
+  if (canUserManageUsers(user)) {
+    return true;
+  }
+  return Array.isArray(user?.groupAccess?.administerGroupIds) && user.groupAccess.administerGroupIds.length > 0;
+}
+
+async function auditGroupAdminDenied(req, details = {}) {
+  await createAuditLog({
+    userId: req.user?.sub,
+    action: "groups.access_denied",
+    entity: "group",
+    entityId: details.groupId || details.targetGroupId || null,
+    metadata: {
+      reason: details.reason || "forbidden",
+      sourceGroupId: details.sourceGroupId || null,
+      targetGroupId: details.targetGroupId || null,
+      permission: details.permission || null
+    },
+    req
+  });
+}
+
+async function ensureCanAccessGroupsPanel(req, res) {
+  if (!hasAnyGroupAdministerAccess(req.user)) {
+    await auditGroupAdminDenied(req, { reason: "groups_panel_forbidden" });
     res.status(403).json({ error: "forbidden" });
     return false;
   }
   return true;
 }
 
+async function ensureCanAdministerGroup(req, res, groupId, reason = "group_admin_forbidden") {
+  if (canUserManageUsers(req.user) || canUserAdministerGroup(req.user, groupId)) {
+    return true;
+  }
+  await auditGroupAdminDenied(req, { groupId, reason });
+  res.status(403).json({ error: "forbidden" });
+  return false;
+}
+
+async function ensureCanCreateGroups(req, res) {
+  if (canUserManageUsers(req.user)) {
+    return true;
+  }
+  await auditGroupAdminDenied(req, { reason: "group_create_forbidden" });
+  res.status(403).json({ error: "forbidden" });
+  return false;
+}
+
+async function ensureCanUpdatePolicy(req, res, payload) {
+  if (canUserManageUsers(req.user)) {
+    return true;
+  }
+
+  const canAdministerBoth =
+    canUserAdministerGroup(req.user, payload.sourceGroupId) &&
+    canUserAdministerGroup(req.user, payload.targetGroupId);
+  const isGrantingAdminister = Boolean(payload.permissions?.canAdminister);
+  if (canAdministerBoth && !isGrantingAdminister) {
+    return true;
+  }
+
+  await auditGroupAdminDenied(req, {
+    reason: isGrantingAdminister ? "policy_administer_grant_forbidden" : "policy_update_forbidden",
+    sourceGroupId: payload.sourceGroupId,
+    targetGroupId: payload.targetGroupId,
+    permission: isGrantingAdminister ? "canAdminister" : null
+  });
+  res.status(403).json({ error: "forbidden" });
+  return false;
+}
+
 router.get("/", authenticate, async (req, res, next) => {
   try {
-    if (!ensureCanAdminGroups(req, res)) {
+    if (!(await ensureCanAccessGroupsPanel(req, res))) {
       return;
     }
 
@@ -95,7 +164,7 @@ router.get("/", authenticate, async (req, res, next) => {
 
 router.post("/", authenticate, async (req, res, next) => {
   try {
-    if (!ensureCanAdminGroups(req, res)) {
+    if (!(await ensureCanCreateGroups(req, res))) {
       return;
     }
 
@@ -133,12 +202,13 @@ router.post("/", authenticate, async (req, res, next) => {
 
 router.patch("/:groupId(\\d+)", authenticate, async (req, res, next) => {
   try {
-    if (!ensureCanAdminGroups(req, res)) {
+    const { groupId } = groupIdSchema.parse(req.params);
+    if (!(await ensureCanAdministerGroup(req, res, groupId, "group_update_forbidden"))) {
       return;
     }
 
-    const { groupId } = groupIdSchema.parse(req.params);
     const payload = updateGroupSchema.parse(req.body);
+    const before = await getGroupById(groupId);
     const result = await updateGroup(groupId, payload);
     if (result.error === "group_not_found") {
       return res.status(404).json({ error: "group_not_found" });
@@ -153,6 +223,7 @@ router.patch("/:groupId(\\d+)", authenticate, async (req, res, next) => {
       entity: "group",
       entityId: result.group.id,
       metadata: {
+        before,
         after: result.group
       },
       req
@@ -169,11 +240,12 @@ router.patch("/:groupId(\\d+)", authenticate, async (req, res, next) => {
 
 router.patch("/policies/access", authenticate, async (req, res, next) => {
   try {
-    if (!ensureCanAdminGroups(req, res)) {
+    const payload = policySchema.parse(req.body);
+    if (!(await ensureCanUpdatePolicy(req, res, payload))) {
       return;
     }
 
-    const payload = policySchema.parse(req.body);
+    const before = await getGroupPolicy(payload);
     const result = await upsertGroupPolicy(payload);
     if (result.error) {
       return res.status(400).json({ error: result.error });
@@ -185,6 +257,7 @@ router.patch("/policies/access", authenticate, async (req, res, next) => {
       entity: "group_access_policy",
       entityId: result.policy.id,
       metadata: {
+        before,
         after: result.policy
       },
       req
@@ -201,11 +274,11 @@ router.patch("/policies/access", authenticate, async (req, res, next) => {
 
 router.get("/:groupId(\\d+)/members", authenticate, async (req, res, next) => {
   try {
-    if (!ensureCanAdminGroups(req, res)) {
+    const { groupId } = groupIdSchema.parse(req.params);
+    if (!(await ensureCanAdministerGroup(req, res, groupId, "group_members_view_forbidden"))) {
       return;
     }
 
-    const { groupId } = groupIdSchema.parse(req.params);
     const members = await listGroupMembers(groupId);
     return res.json({ members });
   } catch (error) {
@@ -218,12 +291,13 @@ router.get("/:groupId(\\d+)/members", authenticate, async (req, res, next) => {
 
 router.post("/:groupId(\\d+)/members", authenticate, async (req, res, next) => {
   try {
-    if (!ensureCanAdminGroups(req, res)) {
+    const { groupId } = groupIdSchema.parse(req.params);
+    if (!(await ensureCanAdministerGroup(req, res, groupId, "group_member_add_forbidden"))) {
       return;
     }
 
-    const { groupId } = groupIdSchema.parse(req.params);
     const payload = memberSchema.parse(req.body);
+    const before = await getUserGroupMembership({ groupId, userId: payload.userId });
     const result = await addUserToGroup({ groupId, ...payload });
     if (result.error) {
       return res.status(400).json({ error: result.error });
@@ -236,7 +310,12 @@ router.post("/:groupId(\\d+)/members", authenticate, async (req, res, next) => {
       entityId: payload.userId,
       metadata: {
         groupId,
-        roleInGroup: payload.roleInGroup
+        before,
+        after: {
+          groupId,
+          userId: payload.userId,
+          roleInGroup: payload.roleInGroup
+        }
       },
       req
     });
@@ -255,11 +334,12 @@ router.post("/:groupId(\\d+)/members", authenticate, async (req, res, next) => {
 
 router.delete("/:groupId(\\d+)/members/:userId(\\d+)", authenticate, async (req, res, next) => {
   try {
-    if (!ensureCanAdminGroups(req, res)) {
+    const { groupId, userId } = groupMemberParamsSchema.parse(req.params);
+    if (!(await ensureCanAdministerGroup(req, res, groupId, "group_member_remove_forbidden"))) {
       return;
     }
 
-    const { groupId, userId } = groupMemberParamsSchema.parse(req.params);
+    const before = await getUserGroupMembership({ groupId, userId });
     const result = await removeUserFromGroup({ groupId, userId });
     if (result.error) {
       return res.status(400).json({ error: result.error });
@@ -271,6 +351,8 @@ router.delete("/:groupId(\\d+)/members/:userId(\\d+)", authenticate, async (req,
       entity: "user_group",
       entityId: userId,
       metadata: {
+        before,
+        after: null,
         groupId
       },
       req

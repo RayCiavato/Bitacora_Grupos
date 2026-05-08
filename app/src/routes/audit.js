@@ -10,6 +10,7 @@ const querySchema = z.object({
   from: z.string().date().optional(),
   to: z.string().date().optional(),
   action: z.string().max(80).optional(),
+  actionPrefix: z.string().max(80).optional(),
   userId: z.coerce.number().int().positive().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25)
@@ -37,6 +38,9 @@ router.get("/", authenticate, requireRole(["admin", "supervisor"]), async (req, 
     if (query.action) {
       const index = params.push(query.action);
       where.push(`a.action = $${index}`);
+    } else if (query.actionPrefix) {
+      const index = params.push(`${query.actionPrefix}%`);
+      where.push(`a.action LIKE $${index}`);
     }
     if (query.userId) {
       const index = params.push(query.userId);

@@ -101,6 +101,7 @@ async function buildTasksXlsxBuffer(tasks) {
     { header: "Descripcion", key: "description", width: 56 },
     { header: "Estado", key: "status", width: 18 },
     { header: "Prioridad", key: "priority", width: 12 },
+    { header: "Grupo/Area", key: "groupName", width: 22 },
     { header: "Inicio", key: "startDate", width: 14 },
     { header: "Vencimiento", key: "dueDate", width: 14 },
     { header: "Creado por", key: "createdBy", width: 24 },
@@ -115,6 +116,7 @@ async function buildTasksXlsxBuffer(tasks) {
       description: sanitizeExcelCell(task.description),
       status: labelStatus(task.status),
       priority: labelPriority(task.priority),
+      groupName: sanitizeExcelCell(task.group?.name || ""),
       startDate: formatDateOnly(task.startDate),
       dueDate: formatDateOnly(task.dueDate),
       createdBy: sanitizeExcelCell(task.createdBy?.name || ""),
@@ -124,7 +126,7 @@ async function buildTasksXlsxBuffer(tasks) {
   });
 
   sheet.getRow(1).font = { bold: true };
-  sheet.autoFilter = { from: "A1", to: "J1" };
+  sheet.autoFilter = { from: "A1", to: "K1" };
   sheet.views = [{ state: "frozen", ySplit: 1 }];
 
   return workbook.xlsx.writeBuffer();
@@ -168,6 +170,7 @@ async function buildTasksPdfBuffer(tasks, options = {}) {
         .text(
           `Estado: ${labelStatus(task.status)} | Prioridad: ${labelPriority(task.priority)} | Vencimiento: ${formatDateOnly(task.dueDate) || "-"}`
         );
+      doc.fontSize(10).fillColor("#444444").text(`Grupo/Area: ${task.group?.name || "-"}`);
       doc
         .fontSize(10)
         .fillColor("#444444")

@@ -1,122 +1,113 @@
-# Manual De Despliegue En Servidor Ubuntu (Bitacora Grupos)
+﻿# Manual De Despliegue En Servidor Ubuntu
 
-Repositorio oficial:
-- https://github.com/RayCiavato/Bitacora_Grupos.git
+Proyecto: Bitacora Grupos
+Repositorio: https://github.com/RayCiavato/Bitacora_Grupos.git
 
-Ruta recomendada en servidor:
-- `~/apps/Bitacora_Grupos`
-
----
-
-## Modelo multi-area incluido
-
-Esta version convierte Bitacora en una plataforma por grupos/areas:
-
-- `General`: compatibilidad para datos historicos.
-- `Soporte`
-- `Infraestructura`
-- `Seguridad Tecnologica`
-- `Gerencia`
-
-El backend aplica RBAC + ABAC:
-
-1. Primero valida permiso del rol sobre el modulo.
-2. Luego valida permiso de grupo sobre el recurso.
-3. Si una condicion falla, se niega el acceso.
-
-La migracion `db/migrations/008_groups_abac.sql`:
-- crea `groups`, `user_groups`, `group_access_policies`
-- agrega `group_id` a bitacoras, tareas y adjuntos
-- asigna datos existentes a `General`
-- configura politicas iniciales sin borrar data
-
-No uses `docker compose down -v`, no borres volumenes y no ejecutes scripts `fresh-db` en servidores con data.
+Este manual esta escrito para que una persona nueva pueda instalar, actualizar y diagnosticar el sistema sin perder datos.
 
 ---
 
-## 1) Credenciales iniciales seguras
+## 0) Reglas De Oro
 
-Usa estos usuarios sugeridos y define las passwords en el servidor. Las passwords no se publican en GitHub.
+Antes de ejecutar comandos en produccion:
 
-- Admin email: `admin@n1njahack.local`
-- Admin password: definir en el servidor.
-- DB user: `bitacora_user`
-- DB password: definir en el servidor.
+- No usar `docker compose down -v`.
+- No borrar volumenes Docker.
+- No borrar la base de datos.
+- No ejecutar `--fresh-db` en un servidor con data real.
+- No subir `.env`, tokens, backups ni claves privadas a GitHub.
+- Hacer backup PostgreSQL antes de migraciones.
+- Mantener Telegram interactivo en `polling` si no hay dominio publico HTTPS.
+- Si actualizas una Bitacora vieja, usa la carpeta productiva actual para no cambiar el nombre del proyecto Compose.
 
-Nota de registro: los usuarios nuevos creados desde la web o desde administracion solo aceptan correos `gmail.com` y `hotmail.com`. El admin inicial `admin@n1njahack.local` se mantiene como excepcion de provisioning por script.
-- Grafana user: `admin`
-- Grafana password: definir en el servidor.
+---
 
-Importante:
-- La password admin debe cumplir complejidad (incluye mayuscula, minuscula, numero y especial).
-- La password de DB conviene URL-safe (`A-Za-z0-9_-`) para evitar errores en `DATABASE_URL`.
-- Guarda las credenciales solo en `.env` del servidor o en tu gestor de secretos.
+## 1) Arquitectura
 
-### Opcion segura para no equivocarte tipeando passwords
-
-No se deja una password fija en el repositorio. Si quieres evitar errores, deja que el servidor genere passwords temporales fuertes:
-
-```bash
-cd ~/apps/Bitacora_Grupos
-chmod +x scripts/*.sh
-
-bash scripts/setup-env.sh \
-  --app-domain 10.156.99.35 \
-  --admin-email admin@n1njahack.local \
-  --admin-name "Administrador Principal" \
-  --force
-
-bash scripts/deploy-safe.sh --ensure-admin
-
-# Ver solo dentro del servidor. No subir ni compartir este output.
-grep -E '^(ADMIN_DEFAULT_EMAIL|ADMIN_DEFAULT_PASSWORD|POSTGRES_PASSWORD|GRAFANA_ADMIN_PASSWORD)=' .env
+```text
+Usuarios internos -> Caddy :80/:443 -> app:3000 -> PostgreSQL
+                                      -> Telegram polling saliente
+                                      -> SSE/realtime autenticado
 ```
 
-Si necesitas usar una password temporal elegida por ti, pasala solo en servidor:
+Componentes:
 
-```bash
-bash scripts/setup-env.sh \
-  --app-domain 10.156.99.35 \
-  --admin-email admin@n1njahack.local \
-  --admin-password 'TU_PASSWORD_TEMPORAL_FUERTE' \
-  --db-password 'DB_PASSWORD_URL_SAFE' \
-  --grafana-password 'GRAFANA_PASSWORD_TEMPORAL' \
-  --force
-```
+- `app`: Node.js + Express + frontend.
+- `postgres`: base de datos.
+- `caddy`: reverse proxy.
+- `backup`: jobs/servicios de respaldo si estan habilitados.
+- observabilidad: Prometheus, Grafana, Loki, etc. segun compose.
+
+Modelo de seguridad:
+
+- RBAC por rol: `admin`, `supervisor`, `funcionario`.
+- ABAC por grupo/area: `General`, `Soporte`, `Infraestructura`, `Seguridad Tecnologica`, `Gerencia`.
+- Exportes validan permiso `can_export` por grupo.
+- SSE falla cerrado si un evento no tiene visibilidad definida.
+- Telegram saliente envia detalles solo a chats autorizados por grupo; chat global recibe resumen minimo si no hay segregacion.
 
 ---
 
-## 2) Prechecks obligatorios en servidor
+## 2) Prerrequisitos Del Servidor
+
+Servidor recomendado:
+
+- Ubuntu 22.04 LTS o superior.
+- Docker instalado.
+- Docker Compose v2 recomendado.
+- Git.
+- Salida a Internet para instalar paquetes y usar Telegram polling.
+- Puertos internos: `80` y/o `443`.
+
+Precheck:
 
 ```bash
 whoami
 hostname
-pwd
+ip a | grep -E 'inet '
 docker --version
-docker compose version
+docker compose version || docker-compose version
 git --version
 ```
 
-Si `docker compose` falla:
+Elegir comando Compose en cada sesion:
+
+```bash
+if docker compose version >/dev/null 2>&1; then
+  DC="docker compose"
+else
+  DC="docker-compose"
+fi
+$DC version
+```
+
+### Si `docker compose` no existe
+
+Primero intenta instalar plugin:
 
 ```bash
 sudo apt update
 sudo apt install -y docker-compose-plugin
-docker compose version
 ```
 
-Si ves `permission denied` en `/var/run/docker.sock`:
+Si Ubuntu dice `No se ha podido localizar el paquete docker-compose-plugin`, probablemente Docker no fue instalado desde el repositorio oficial. Puedes seguir usando `docker-compose` v1 si ya existe:
 
 ```bash
-sudo systemctl enable --now docker
-sudo usermod -aG docker $USER
-newgrp docker
-docker ps
+docker-compose version
+```
+
+Si no existe ningun Compose, instala el plugin desde el repositorio oficial de Docker o usa el paquete standalone que tu area Linux tenga aprobado. Despues vuelve a correr:
+
+```bash
+if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
+$DC version
 ```
 
 ---
 
-## 3) Configurar acceso GitHub por SSH
+## 3) Configurar SSH Para GitHub
+
+Generar clave en el servidor:
 
 ```bash
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -124,7 +115,15 @@ ssh-keygen -t ed25519 -C "bitacora-server" -f ~/.ssh/bitacora_github -N ""
 cat ~/.ssh/bitacora_github.pub
 ```
 
-Agrega esa clave en GitHub (Deploy key o cuenta), luego:
+En GitHub:
+
+1. Abre el repo `RayCiavato/Bitacora_Grupos`.
+2. Ve a Settings > Deploy keys.
+3. Add deploy key.
+4. Pega la clave publica.
+5. Marca `Allow write access` solo si ese servidor tambien va a hacer push. Para desplegar, solo lectura basta.
+
+Configurar alias SSH:
 
 ```bash
 cat <<'EOF' >> ~/.ssh/config
@@ -138,30 +137,38 @@ chmod 600 ~/.ssh/config
 ssh -T github-bitacora
 ```
 
+Esperado:
+
+```text
+Hi ...! You've successfully authenticated, but GitHub does not provide shell access.
+```
+
+Si sale `Permission denied (publickey)`, revisa:
+
+```bash
+ls -l ~/.ssh/bitacora_github ~/.ssh/bitacora_github.pub ~/.ssh/config
+ssh -vT github-bitacora
+```
+
 ---
 
-## 4) Clonar proyecto (primera vez)
+## 4) Instalacion Nueva Desde Cero
+
+Usa esta seccion solo si el servidor NO tiene data previa.
 
 ```bash
 mkdir -p ~/apps
 cd ~/apps
 git clone git@github-bitacora:RayCiavato/Bitacora_Grupos.git Bitacora_Grupos
 cd ~/apps/Bitacora_Grupos
+chmod +x scripts/*.sh
 ```
 
----
-
-## 5) Primera instalacion limpia (solo servidor nuevo)
-
-Este flujo es SOLO para servidor nuevo, sin datos que preservar.
-Si el servidor ya tiene bitacoras, tareas, usuarios o adjuntos cargados, NO uses este flujo: usa la seccion `8) Actualizacion segura`.
+Crear `.env` e instalar:
 
 ```bash
-cd ~/apps/Bitacora_Grupos
-chmod +x scripts/*.sh
-
 read -r -s -p "Admin password inicial: " ADMIN_PASSWORD; echo
-read -r -s -p "DB password: " DB_PASSWORD; echo
+read -r -s -p "DB password URL-safe: " DB_PASSWORD; echo
 read -r -s -p "Grafana password: " GRAFANA_PASSWORD; echo
 
 bash scripts/install-server-safe.sh \
@@ -170,48 +177,143 @@ bash scripts/install-server-safe.sh \
   --admin-password "$ADMIN_PASSWORD" \
   --db-password "$DB_PASSWORD" \
   --grafana-password "$GRAFANA_PASSWORD" \
-  --telegram-enabled true \
-  --telegram-bot-token 'REEMPLAZAR_TOKEN_BOT' \
-  --telegram-chat-id 'REEMPLAZAR_CHAT_ID' \
-  --telegram-alert-cron '*/15 * * * *' \
   --force
 ```
 
-Que hace este script:
-1. Genera `.env` consistente.
-2. Hace `deploy-safe` con `--fresh-db` para una instalacion nueva.
-3. Reprovisiona admin al final.
+Notas:
 
-Importante:
-- `--fresh-db` puede reinicializar datos. No lo uses sobre un servidor productivo con data real.
-- Para Telegram de prueba, reemplaza los placeholders solo en el servidor o usa la seccion `7) Activar o actualizar Telegram`.
+- Usa una DB password simple para URL: letras, numeros, `_` o `-`.
+- El admin inicial `admin@n1njahack.local` es creado por provisioning, aunque el registro publico acepte solo Gmail/Hotmail.
+- Cambia la password admin despues del primer login.
 
----
-
-## 6) Verificacion post-despliegue
+Verificar:
 
 ```bash
-cd ~/apps/Bitacora_Grupos
-docker compose ps
-docker compose logs --tail=150 app
-docker compose logs --tail=100 caddy
-curl -I http://127.0.0.1
-curl -I http://10.156.99.35
+if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
+$DC ps
+$DC logs --tail=120 app
+curl -sS http://127.0.0.1/health
+curl -I http://10.156.99.35/
 ```
 
-Esperado:
-- `bitacora-app` en `Up` (no `Restarting`).
-- `curl` responde `200` o redireccion valida.
-- Sin errores `password authentication failed`.
+---
+
+## 5) Actualizacion De Una Bitacora Vieja
+
+Usa esta seccion si ya existe un sistema con datos cargados.
+
+### 5.1 Decidir carpeta correcta
+
+Si tu instalacion vieja esta en:
+
+```bash
+~/apps/Bitacora_gestor_tareas
+```
+
+continua usando esa carpeta para preservar el proyecto Docker Compose y sus volumenes.
+
+No clones en otra carpeta productiva sin definir `COMPOSE_PROJECT_NAME`, porque Compose podria crear volumenes nuevos vacios y pareceria que se perdio data.
+
+### 5.2 Preparar update
+
+```bash
+cd ~/apps/Bitacora_gestor_tareas  # o tu carpeta productiva actual
+
+if docker compose version >/dev/null 2>&1; then
+  DC="docker compose"
+else
+  DC="docker-compose"
+fi
+
+git remote -v
+git remote set-url origin git@github-bitacora:RayCiavato/Bitacora_Grupos.git
+git fetch origin main
+```
+
+Si hay cambios locales:
+
+```bash
+if [ -n "$(git status --porcelain)" ]; then
+  mkdir -p ~/bitacora-backups
+  [ -f infra/Caddyfile.internal-https ] && cp infra/Caddyfile.internal-https ~/bitacora-backups/Caddyfile.internal-https.$(date +%Y%m%d-%H%M%S).bak
+  cp .env ~/bitacora-backups/env.$(date +%Y%m%d-%H%M%S).bak 2>/dev/null || true
+  git stash push -u -m "pre-update-$(date +%F-%H%M%S)"
+fi
+```
+
+Actualizar codigo:
+
+```bash
+git checkout main
+git pull --ff-only origin main
+```
+
+### 5.3 Backup obligatorio
+
+```bash
+mkdir -p backups
+sudo chown -R "$USER:$USER" backups
+
+POSTGRES_USER_VALUE="$(grep -E '^POSTGRES_USER=' .env 2>/dev/null | tail -n1 | cut -d= -f2-)"
+POSTGRES_DB_VALUE="$(grep -E '^POSTGRES_DB=' .env 2>/dev/null | tail -n1 | cut -d= -f2-)"
+
+$DC exec -T postgres pg_dump -U "${POSTGRES_USER_VALUE:-bitacora_user}" "${POSTGRES_DB_VALUE:-bitacora}" | gzip > "backups/pre-update-$(date +%F-%H%M%S).sql.gz"
+ls -lh backups | tail
+```
+
+Si aparece `Permission denied`, estas redirigiendo a un sitio donde tu usuario no puede escribir. Ejecuta:
+
+```bash
+mkdir -p backups
+sudo chown -R "$USER:$USER" backups
+```
+
+### 5.4 Migracion incremental multi-area
+
+```bash
+cat db/migrations/008_groups_abac.sql | $DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}"
+```
+
+Validar migracion:
+
+```bash
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT slug, is_active FROM groups ORDER BY id;"
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS tasks_sin_grupo FROM tasks WHERE group_id IS NULL;"
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS events_sin_grupo FROM events WHERE group_id IS NULL;"
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS attachments_sin_grupo FROM event_attachments WHERE group_id IS NULL;"
+```
+
+Esperado: los conteos `sin_grupo` deben ser `0`.
+
+### 5.5 Rebuild solo app
+
+```bash
+docker ps -aq --filter "name=bitacora-app" | xargs -r docker rm -f
+$DC build --no-cache app
+$DC up -d --no-deps --force-recreate app
+
+$DC ps app
+$DC logs --tail=120 app
+curl -sS http://127.0.0.1/health
+```
+
+Si Caddy tambien debe tomar nuevo Caddyfile o certificados:
+
+```bash
+$DC up -d --no-deps --force-recreate app caddy
+$DC ps app caddy
+```
 
 ---
 
-## 7) Activar o actualizar Telegram en servidor ya desplegado (sin borrar datos)
+## 6) Telegram Polling Sin Dominio Publico
 
-Si el stack ya existe y solo quieres activar Telegram:
+Telegram webhook requiere URL publica HTTPS valida. Para una app interna por IP, usa polling.
+
+### 6.1 Cargar token y chat ID
 
 ```bash
-cd ~/apps/Bitacora_Grupos
+cd ~/apps/Bitacora_Grupos  # o carpeta productiva actual
 
 unset TELEGRAM_BOT_TOKEN_VALUE TELEGRAM_CHAT_ID_VALUE
 read -r -s -p "Pega token Telegram: " TELEGRAM_BOT_TOKEN_VALUE; echo
@@ -224,250 +326,340 @@ python3 - <<'PY'
 import os
 from pathlib import Path
 
-env_path = Path(".env")
+env_path = Path('.env')
 values = {
-    "TELEGRAM_ENABLED": "true",
-    "TELEGRAM_BOT_TOKEN": os.environ["TELEGRAM_BOT_TOKEN_VALUE"],
-    "TELEGRAM_CHAT_ID": os.environ["TELEGRAM_CHAT_ID_VALUE"],
-    "TELEGRAM_TASK_ALERT_CRON": "*/15 * * * *",
-    "TELEGRAM_BOT_INTERACTIVE_ENABLED": "true",
-    "TELEGRAM_BOT_MODE": "polling",
-    "TELEGRAM_POLLING_TIMEOUT": "30",
-    "TELEGRAM_POLLING_INTERVAL_MS": "1000",
-    "TELEGRAM_POLLING_ALLOWED_UPDATES": "message,callback_query",
+    'TELEGRAM_ENABLED': 'true',
+    'TELEGRAM_BOT_TOKEN': os.environ['TELEGRAM_BOT_TOKEN_VALUE'],
+    'TELEGRAM_CHAT_ID': os.environ['TELEGRAM_CHAT_ID_VALUE'],
+    'TELEGRAM_BOT_INTERACTIVE_ENABLED': 'true',
+    'TELEGRAM_BOT_MODE': 'polling',
+    'TELEGRAM_POLLING_TIMEOUT': '30',
+    'TELEGRAM_POLLING_INTERVAL_MS': '1000',
+    'TELEGRAM_POLLING_ALLOWED_UPDATES': 'message,callback_query',
 }
 lines = env_path.read_text().splitlines() if env_path.exists() else []
 out, seen = [], set()
 for line in lines:
-    key = line.split("=", 1)[0] if "=" in line else None
+    key = line.split('=', 1)[0] if '=' in line else None
     if key in values:
-        out.append(f"{key}={values[key]}")
+        out.append(f'{key}={values[key]}')
         seen.add(key)
     else:
         out.append(line)
 for key, value in values.items():
     if key not in seen:
-        out.append(f"{key}={value}")
-env_path.write_text("\n".join(out) + "\n")
+        out.append(f'{key}={value}')
+env_path.write_text('\n'.join(out) + '\n')
 PY
-
-curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_VALUE}/deleteWebhook?drop_pending_updates=false"
-
-if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
-$DC up -d --no-deps --force-recreate app
-$DC logs --tail=120 app | grep -i telegram || true
 ```
 
-Nota de seguridad:
-- El token real del bot no se commitea ni se sube a GitHub.
-- Queda guardado solo en `.env` del servidor.
-- Para vincular un usuario, inicia sesion en la web y entra a `Configuracion > Telegram`.
+### 6.2 Borrar webhook previo
+
+```bash
+curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_VALUE}/deleteWebhook?drop_pending_updates=false"
+```
+
+Si ves `InvalidURL` con caracteres raros, pegaste el token con teclas de cursor o basura invisible. Repite el `read`, no pegues el texto `Id:` en el chat id, solo el numero.
+
+### 6.3 Chats por area
+
+Opcional para segregacion real por grupo:
+
+```env
+TELEGRAM_GROUP_CHAT_IDS=soporte=-100111,infraestructura=-100222,seguridad-tecnologica=-100333,gerencia=-100444
+```
+
+Si no configuras chats por area, el chat global recibe solo resumen minimo para evitar fuga entre areas.
+
+### 6.4 Recrear app
+
+```bash
+$DC up -d --no-deps --force-recreate app
+$DC logs --tail=160 app | grep -i telegram || true
+```
+
+### 6.5 Vincular usuario
+
+1. Entrar a la web.
+2. Ir a Configuracion > Telegram.
+3. Generar codigo.
+4. En Telegram enviar `/start CODIGO`.
+5. Usar `/menu`.
 
 ---
 
-## 8) Actualizacion segura (sin borrar datos)
+## 7) HTTPS Interno Con CA Propia
 
-Para actualizar version en servidor ya productivo:
+Guia completa: `docs/HTTPS_INTERNO_CA.md`.
 
-Importante para servidores con data:
-- Mantén la carpeta actual que ya usa Docker Compose.
-- Si tu servidor esta en `~/apps/Bitacora_gestor_tareas`, entra ahi y solo cambia el remote al repo nuevo.
-- No clones en otra carpeta sobre el mismo servidor productivo sin fijar `COMPOSE_PROJECT_NAME`, porque Docker Compose puede crear volumenes nuevos vacios.
+Resumen:
 
 ```bash
-cd ~/apps/Bitacora_gestor_tareas  # o la carpeta actual productiva
+cd ~/apps/Bitacora_Grupos
+bash scripts/generate-internal-certs.sh \
+  --ip 10.156.99.35 \
+  --dns "bitacora.local,bitacora.interno,opsbitacora.local"
 
-if docker compose version >/dev/null 2>&1; then
-  DC="docker compose"
-else
-  DC="docker-compose"
-fi
+chmod 600 certs/internal/*.key
+chmod 644 certs/internal/*.crt
+```
 
-git remote set-url origin git@github-bitacora:RayCiavato/Bitacora_Grupos.git
-git config core.filemode false
-git fetch origin main
+Activar variables:
 
-# Si hay cambios locales (ej: infra/Caddyfile.internal-https), guardarlos sin perderlos.
-if [ -n "$(git status --porcelain)" ]; then
-  mkdir -p ~/bitacora-backups
-  [ -f infra/Caddyfile.internal-https ] && cp infra/Caddyfile.internal-https ~/bitacora-backups/Caddyfile.internal-https.$(date +%Y%m%d-%H%M%S).bak
-  git stash push -u -m "pre-update-$(date +%F-%H%M%S)"
-fi
+```env
+CADDY_PROFILE=internal-https
+INTERNAL_HTTPS_ENABLED=true
+INTERNAL_HTTPS_IP=10.156.99.35
+INTERNAL_HOSTNAME=bitacora.local
+CADDY_HTTP_BIND=10.156.99.35
+CADDY_HTTPS_BIND=10.156.99.35
+COOKIE_SECURE=true
+TELEGRAM_BOT_MODE=polling
+```
 
-git checkout main
-git pull --ff-only origin main
+Recrear:
 
-mkdir -p backups
-POSTGRES_USER_VALUE="$(grep -E '^POSTGRES_USER=' .env 2>/dev/null | tail -n1 | cut -d= -f2-)"
-POSTGRES_DB_VALUE="$(grep -E '^POSTGRES_DB=' .env 2>/dev/null | tail -n1 | cut -d= -f2-)"
+```bash
+$DC up -d --no-deps --force-recreate app caddy
+curl -k -I https://10.156.99.35
+```
 
-# Backup previo obligatorio antes de migraciones.
-$DC exec -T postgres pg_dump -U "${POSTGRES_USER_VALUE:-bitacora_user}" "${POSTGRES_DB_VALUE:-bitacora}" | gzip > "backups/pre-groups-update-$(date +%F-%H%M%S).sql.gz"
+Importante:
 
-# Migracion incremental multi-area. No borra tablas ni datos.
-cat db/migrations/008_groups_abac.sql | $DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}"
+- Para que el navegador marque como valido, instala `certs/internal/ca.crt` en cada cliente Windows como entidad raiz confiable.
+- No existe forma segura de que un certificado propio sea confiable automaticamente en todos los equipos sin instalar la CA o usar una CA ya confiada por esos equipos.
+- Nunca compartas `ca.key` ni `server.key`.
 
-# Rebuild solo app, no tocar DB ni volumenes.
-docker ps -aq --filter "name=bitacora-app" | xargs -r docker rm -f
-$DC build --no-cache app
-$DC up -d --no-deps --force-recreate app
+---
 
-$DC ps app
+## 8) Verificacion Final De Produccion
+
+```bash
+cd ~/apps/Bitacora_Grupos  # o carpeta productiva actual
+if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
+
+git rev-parse --short HEAD
+$DC ps
 $DC logs --tail=120 app
+$DC logs --tail=80 caddy
 curl -sS http://127.0.0.1/health
 ```
 
-Validacion de migracion:
+Validar en navegador:
+
+1. Login admin.
+2. Dashboard carga.
+3. Tareas lista tareas previas.
+4. `+ Nueva tarea` abre panel pantalla completa.
+5. Bitacoras crean y listan.
+6. Roles y permisos muestra pestañas de grupos.
+7. Adjuntos descargan y preview funciona.
+8. Telegram `/menu` responde.
+
+Validar assets actuales sin amarrarse a version futura:
 
 ```bash
-$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT slug, is_active FROM groups ORDER BY id;"
-$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS tareas_sin_grupo FROM tasks WHERE group_id IS NULL;"
-$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS bitacoras_sin_grupo FROM events WHERE group_id IS NULL;"
-```
-
-Validacion de UI nueva:
-
-```bash
-curl -sS http://10.156.99.35/ | grep -E "asset=web&v=32|asset=tasks&v=32|styles.css\\?v=32"
-curl -sS http://10.156.99.35/sw.js | grep "bitacora-v32"
-```
-
-Si usas HTTPS interno, cambia `http` por `https` y agrega `-k` a `curl`.
-
-Rollback logico si algo falla:
-
-```bash
-cd ~/apps/Bitacora_Grupos
-if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
-
-# 1) Volver al commit anterior de app, sin tocar volumenes.
-git log --oneline -5
-git checkout <COMMIT_ANTERIOR_ESTABLE>
-$DC build app
-$DC up -d --no-deps --force-recreate app
-
-# 2) Si necesitas restaurar DB, hazlo solo desde backup validado y en ventana de mantenimiento.
-# Nunca uses docker compose down -v.
+curl -sS http://10.156.99.35/ | grep -E "assets/app.min.js\?asset=web|assets/tasks.min.js\?asset=tasks"
+curl -sS http://10.156.99.35/sw.js | grep "bitacora-v"
 ```
 
 ---
 
-## 9) Errores comunes y solucion rapida
+## 9) Troubleshooting De Errores Reales
 
-### A) 502 Bad Gateway en navegador
+### 9.1 `docker: unknown command: docker compose`
 
-Generalmente `app` esta reiniciando.
-
-```bash
-docker compose ps
-docker compose logs --tail=200 app
-docker compose logs --tail=120 caddy
-```
-
-Si ves error de politica de password admin:
+Usa variable fallback:
 
 ```bash
-cd ~/apps/Bitacora_Grupos
-read -r -s -p "Nuevo password admin: " ADMIN_PASSWORD; echo
-bash scripts/provision-admin.sh admin@n1njahack.local "$ADMIN_PASSWORD" 'Administrador N1njaHack'
-docker compose restart app
-```
-
-### B) `password authentication failed for user "bitacora_user"`
-
-La DB quedo inicializada con otro password.
-
-No borres volumenes si el servidor tiene data real. Primero genera backup:
-
-```bash
-cd ~/apps/Bitacora_Grupos
 if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
+$DC version
+```
+
+Si no existe `docker-compose`, instala Compose plugin o usa paquete aprobado por tu distro.
+
+### 9.2 `KeyError: 'ContainerConfig'`
+
+Pasa con `docker-compose` v1 y contenedores/imagenes nuevas.
+
+```bash
+docker ps -aq --filter "name=bitacora-app" | xargs -r docker rm -f
+$DC build --no-cache app
+$DC up -d --no-deps --force-recreate app
+```
+
+Si persiste, intenta usar Docker Compose v2.
+
+### 9.3 `502 Bad Gateway`
+
+Primero mira si app esta arriba:
+
+```bash
+$DC ps
+$DC logs --tail=200 app
+$DC logs --tail=160 caddy
+```
+
+Causas comunes:
+
+- `app` se cae por error de `.env`.
+- Caddy no resuelve `app` porque app y caddy quedaron en proyectos Compose distintos.
+- Se clono en carpeta nueva y Docker creo red/volumen nuevo.
+- App aun esta iniciando.
+
+Arreglo seguro:
+
+```bash
+$DC up -d --no-deps --force-recreate app caddy
+$DC ps app caddy
+curl -sS http://127.0.0.1/health
+```
+
+### 9.4 Caddy: `lookup app on 127.0.0.11:53: server misbehaving`
+
+Recrea app y Caddy juntos dentro del mismo Compose project:
+
+```bash
+$DC up -d --no-deps --force-recreate app caddy
+```
+
+Si moviste el repo de carpeta, vuelve a la carpeta productiva vieja o define el mismo `COMPOSE_PROJECT_NAME` que usaba antes.
+
+### 9.5 Backup `Permission denied`
+
+```bash
 mkdir -p backups
-POSTGRES_USER_VALUE="$(grep -E '^POSTGRES_USER=' .env 2>/dev/null | tail -n1 | cut -d= -f2-)"
-POSTGRES_DB_VALUE="$(grep -E '^POSTGRES_DB=' .env 2>/dev/null | tail -n1 | cut -d= -f2-)"
-$DC exec -T postgres pg_dump -U "${POSTGRES_USER_VALUE:-bitacora_user}" "${POSTGRES_DB_VALUE:-bitacora}" | gzip > "backups/pre-db-auth-fix-$(date +%F-%H%M%S).sql.gz"
-$DC logs --tail=200 postgres
+sudo chown -R "$USER:$USER" backups
+$DC exec -T postgres pg_dump -U "${POSTGRES_USER_VALUE:-bitacora_user}" "${POSTGRES_DB_VALUE:-bitacora}" | gzip > "backups/test-backup.sql.gz"
 ```
 
-Luego corrige `.env` para que `POSTGRES_PASSWORD` coincida con la DB existente o restaura desde backup en un servidor nuevo.
-No uses `docker compose down -v` ni `docker volume rm` en produccion.
-
-### C) Ejecutaste comandos fuera del repo
-
-Si ves `fatal: not a git repository` o `no configuration file provided`:
+### 9.6 GitHub `Permission denied (publickey)`
 
 ```bash
-cd ~/apps/Bitacora_Grupos
-pwd
-ls -la
+ssh -vT github-bitacora
+cat ~/.ssh/bitacora_github.pub
+```
+
+Asegura que esa clave este en Deploy keys del repo nuevo.
+
+### 9.7 Pull bloqueado por cambios locales
+
+```bash
 git status --short
-```
-
-### D) `docker compose` no reconocido
-
-```bash
-sudo apt update
-sudo apt install -y docker-compose-plugin
-docker compose version
-```
-
-### E) Pull bloqueado por cambios locales
-
-```bash
-cd ~/apps/Bitacora_Grupos
-mkdir -p ~/bitacora-backups
-[ -f infra/Caddyfile.internal-https ] && cp infra/Caddyfile.internal-https ~/bitacora-backups/Caddyfile.internal-https.$(date +%Y%m%d-%H%M%S).bak
 git stash push -u -m "pre-pull-$(date +%F-%H%M%S)"
 git pull --ff-only origin main
 ```
 
-### F) `Conflict. The container name ... is already in use`
+Si quieres recuperar un archivo del stash:
 
-Quedo un contenedor viejo con nombre fijo (por ejemplo `bitacora-node-exporter`) y Compose no puede recrearlo.
+```bash
+git stash list
+git stash show --name-only stash@{0}
+git checkout stash@{0} -- ruta/del/archivo
+```
+
+### 9.8 Docker build: `parent snapshot ... does not exist`
+
+Es corrupcion/cache del builder, no de la app.
+
+```bash
+docker builder prune -f
+$DC build --no-cache app
+$DC up -d --no-deps --force-recreate app
+```
+
+Si el disco esta lleno:
+
+```bash
+df -h
+docker system df
+```
+
+No borres volumenes de DB. Si necesitas limpiar imagenes viejas:
+
+```bash
+docker image prune -f
+```
+
+### 9.9 `curl http://127.0.0.1/health` da connection refused
+
+Si Caddy escucha solo en `10.156.99.35`, prueba:
+
+```bash
+curl -sS http://10.156.99.35/health
+$DC ps caddy
+```
+
+### 9.10 Navegador dice certificado no seguro
+
+Con CA propia es normal hasta instalar `ca.crt` en el cliente.
+
+- Instala solo `certs/internal/ca.crt`.
+- Nunca instales ni compartas `ca.key`.
+- Verifica SAN:
+
+```bash
+openssl x509 -in certs/internal/server.crt -noout -text | grep -A1 "Subject Alternative Name"
+```
+
+### 9.11 No aparece data vieja despues de update
+
+Revisa que no estes en otra carpeta/proyecto Compose:
+
+```bash
+pwd
+$DC ps
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) FROM tasks;"
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) FROM events;"
+```
+
+Si la DB tiene data pero la UI no muestra:
+
+```bash
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT id, slug FROM groups ORDER BY id;"
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT role, COUNT(*) FROM users GROUP BY role;"
+$DC logs --tail=160 app
+```
+
+Luego entra como admin y revisa Roles y permisos > Grupos / Usuarios por grupo / Matriz de visibilidad.
+
+---
+
+## 10) Rollback Seguro
+
+Rollback de app sin tocar DB:
+
+```bash
+git log --oneline -10
+git checkout <COMMIT_ANTERIOR_ESTABLE>
+$DC build app
+$DC up -d --no-deps --force-recreate app
+```
+
+Restaurar DB solo en ventana de mantenimiento:
+
+```bash
+bash scripts/restore-db.sh backups/<archivo>.sql.gz
+```
+
+No borrar certificados ni backups durante rollback.
+
+---
+
+## 11) Operacion Diaria
 
 ```bash
 cd ~/apps/Bitacora_Grupos
-docker rm -f bitacora-node-exporter 2>/dev/null || true
 if docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
-$DC up -d --remove-orphans
-```
 
-Nota:
-- Si haces `git pull` y actualizas a la version nueva de `deploy-safe.sh`, este conflicto se limpia automaticamente y se reintenta el deploy.
-
----
-
-## 10) Checklist final
-
-```bash
-cd ~/apps/Bitacora_Grupos
-git rev-parse --short HEAD
-docker compose ps
-curl -I http://127.0.0.1
-```
-
-Validar en UI:
-1. Login admin funciona.
-2. Dashboard carga.
-3. Modulo Tareas carga.
-4. Crear/editar/eliminar tarea funciona.
-5. Adjuntos se descargan por endpoint protegido.
-
----
-
-## 11) Comandos de operacion diaria
-
-```bash
-cd ~/apps/Bitacora_Grupos
-docker compose ps
-docker compose logs -f app
-docker compose restart app
+$DC ps
+$DC logs -f app
 bash scripts/check-latest-backup.sh
 ```
 
-Restore de backup:
+Backup manual:
 
 ```bash
-cd ~/apps/Bitacora_Grupos
-bash scripts/restore-db.sh backups/<archivo>.sql.gz
+mkdir -p backups/manual
+$DC exec -T postgres pg_dump -U "${POSTGRES_USER_VALUE:-bitacora_user}" "${POSTGRES_DB_VALUE:-bitacora}" | gzip > "backups/manual/backup-$(date +%F-%H%M%S).sql.gz"
 ```

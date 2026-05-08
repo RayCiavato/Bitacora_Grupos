@@ -2073,6 +2073,24 @@ body.modal-open {
   gap: 0.45rem;
 }
 
+.group-audit-list {
+  display: grid;
+  gap: 12px;
+}
+
+.group-audit-metadata {
+  margin: 10px 0 0;
+  padding: 12px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(5, 14, 32, 0.52);
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .rbac-table-wrap {
   margin-top: 0.2rem;
 }

@@ -132,7 +132,7 @@ function groupRowsByIds(groups, ids) {
 
 function canUserViewGroupResource(user, resource) {
   const groupId = getGroupIdFromResource(resource);
-  return !groupId || hasGroupAccess(user, "view", groupId);
+  return Boolean(groupId && hasGroupAccess(user, "view", groupId));
 }
 
 function canUserCreateInGroup(user, groupId) {
@@ -141,12 +141,12 @@ function canUserCreateInGroup(user, groupId) {
 
 function canUserEditGroupResource(user, resource) {
   const groupId = getGroupIdFromResource(resource);
-  return !groupId || hasGroupAccess(user, "edit", groupId);
+  return Boolean(groupId && hasGroupAccess(user, "edit", groupId));
 }
 
 function canUserDeleteGroupResource(user, resource) {
   const groupId = getGroupIdFromResource(resource);
-  return !groupId || hasGroupAccess(user, "delete", groupId);
+  return Boolean(groupId && hasGroupAccess(user, "delete", groupId));
 }
 
 function canUserExportGroup(user, groupId) {
@@ -375,6 +375,43 @@ async function listGroupPolicies({ resourceType = DEFAULT_RESOURCE_TYPE } = {}) 
   return result.rows.map(mapPolicyRow);
 }
 
+async function getGroupPolicy({
+  sourceGroupId,
+  targetGroupId,
+  resourceType = DEFAULT_RESOURCE_TYPE
+} = {}) {
+  const sourceId = toPositiveInteger(sourceGroupId);
+  const targetId = toPositiveInteger(targetGroupId);
+  if (!sourceId || !targetId) {
+    return null;
+  }
+
+  const result = await pool.query(
+    `
+      SELECT
+        id,
+        source_group_id AS "sourceGroupId",
+        target_group_id AS "targetGroupId",
+        resource_type AS "resourceType",
+        can_view AS "canView",
+        can_create AS "canCreate",
+        can_edit AS "canEdit",
+        can_delete AS "canDelete",
+        can_export AS "canExport",
+        can_administer AS "canAdminister",
+        updated_at AS "updatedAt"
+      FROM group_access_policies
+      WHERE source_group_id = $1
+        AND target_group_id = $2
+        AND resource_type = $3
+      LIMIT 1
+    `,
+    [sourceId, targetId, normalizeResourceType(resourceType)]
+  );
+
+  return result.rows[0] ? mapPolicyRow(result.rows[0]) : null;
+}
+
 async function upsertGroupPolicy({
   sourceGroupId,
   targetGroupId,
@@ -477,6 +514,45 @@ async function listGroupMembers(groupId) {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   }));
+}
+
+async function getUserGroupMembership({ groupId, userId } = {}) {
+  const safeGroupId = toPositiveInteger(groupId);
+  const safeUserId = toPositiveInteger(userId);
+  if (!safeGroupId || !safeUserId) {
+    return null;
+  }
+
+  const result = await pool.query(
+    `
+      SELECT
+        ug.id,
+        ug.group_id AS "groupId",
+        ug.user_id AS "userId",
+        ug.role_in_group AS "roleInGroup",
+        ug.created_at AS "createdAt",
+        ug.updated_at AS "updatedAt"
+      FROM user_groups ug
+      WHERE ug.group_id = $1
+        AND ug.user_id = $2
+      LIMIT 1
+    `,
+    [safeGroupId, safeUserId]
+  );
+
+  if (result.rowCount === 0) {
+    return null;
+  }
+
+  const row = result.rows[0];
+  return {
+    id: Number(row.id),
+    groupId: Number(row.groupId),
+    userId: Number(row.userId),
+    roleInGroup: row.roleInGroup || "miembro",
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
 }
 
 async function addUserToGroup({ groupId, userId, roleInGroup = "miembro" } = {}) {
@@ -672,7 +748,9 @@ module.exports = {
   getExportableGroupIdsForUser,
   getGroupById,
   getGroupIdFromResource,
+  getGroupPolicy,
   getUserGroupAccess,
+  getUserGroupMembership,
   getVisibleGroupIdsForUser,
   listGroupMembers,
   listGroupPolicies,

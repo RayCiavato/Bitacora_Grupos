@@ -138,7 +138,7 @@ function publishRealtimeEvent({ kind, payload = {}, visibility } = {}) {
   };
 
   for (const [clientId, client] of clients.entries()) {
-    let isAllowed = true;
+    let isAllowed = false;
     if (typeof visibility === "function") {
       try {
         isAllowed = Boolean(visibility(client.user));
@@ -146,6 +146,8 @@ function publishRealtimeEvent({ kind, payload = {}, visibility } = {}) {
         logger.warn({ err: error, clientId, eventKind }, "Error evaluando visibilidad realtime");
         isAllowed = false;
       }
+    } else {
+      logger.warn({ clientId, eventKind }, "Evento realtime bloqueado por falta de funcion visibility");
     }
 
     if (!isAllowed) {

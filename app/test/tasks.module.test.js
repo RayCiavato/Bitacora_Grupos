@@ -243,7 +243,7 @@ function createFakeTasksDb() {
       filtered = filtered.filter((task) => !task.deleted_at);
     }
 
-    if (/1\s*=\s*0/i.test(whereSql)) {
+    if (/1\s*=\s*0/i.test(whereSql) || /\bfalse\b/i.test(whereSql)) {
       filtered = [];
     }
 
@@ -790,6 +790,9 @@ function createFakeTasksDb() {
     addTask: (task) => {
       tasks.push(clone(task));
     },
+    setGroupPolicies: (policies) => {
+      groupPolicies = clone(policies);
+    },
     getAuditLogs: () => clone(auditLogs),
     getTasks: () => clone(tasks)
   };
@@ -840,7 +843,8 @@ async function parseXlsxTaskRows(buffer) {
     rows.push({
       id: Number(row.getCell(1).value),
       title: String(row.getCell(2).value || ""),
-      description: String(row.getCell(3).value || "")
+      description: String(row.getCell(3).value || ""),
+      groupName: String(row.getCell(6).value || "")
     });
   });
   return rows;
@@ -1058,7 +1062,7 @@ test("TASKS module: QA, AppSec y hardening", async (t) => {
   await t.test("valida negocio y rechaza payload invalido, overposting y enums invalidos", async () => {
     fakeDb.reset();
     const app = createApp();
-    const yesterdayUtc = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const yesterdayUtc = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
     const badDateRange = await attachSession(request(app).post("/tasks"), admin).send({
       title: "Rango invalido",
@@ -1262,6 +1266,7 @@ test("TASKS module: QA, AppSec y hardening", async (t) => {
     const adminIds = adminRows.map((row) => row.id).sort((a, b) => a - b);
     assert.deepEqual(adminIds, [101, 102, 103, 104]);
     assert.ok(!adminIds.includes(105));
+    assert.ok(adminRows.every((row) => row.groupName === "General"));
 
     const scopeXlsx = await attachSession(
       request(app).get("/tasks/export/xlsx"),
@@ -1282,6 +1287,35 @@ test("TASKS module: QA, AppSec y hardening", async (t) => {
       .parse(binaryParser);
     assert.equal(pdf.status, 200);
     assert.match(String(pdf.headers["content-type"] || ""), /application\/pdf/);
+  });
+
+  await t.test("export ABAC exige can_export de grupo, no solo view", async () => {
+    fakeDb.reset();
+    fakeDb.setGroupPolicies([
+      {
+        source_group_id: 1,
+        target_group_id: 1,
+        resource_type: "all",
+        can_view: true,
+        can_create: true,
+        can_edit: true,
+        can_delete: true,
+        can_export: false,
+        can_administer: false
+      }
+    ]);
+    const app = createApp();
+
+    const response = await attachSession(
+      request(app).get("/tasks/export/xlsx"),
+      funcionario,
+      { includeCsrfHeader: false }
+    )
+      .buffer(true)
+      .parse(binaryParser);
+    assert.equal(response.status, 200);
+    const rows = await parseXlsxTaskRows(response.body);
+    assert.deepEqual(rows, []);
   });
 
   await t.test("export no autenticado se rechaza y rate limit se aplica", async () => {
