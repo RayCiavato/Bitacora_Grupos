@@ -8,6 +8,7 @@ const {
   canUserExportGroup,
   canUserViewGroupResource
 } = require("../src/services/groups");
+const { ROLE_KEYS, getSessionCapabilities } = require("../src/services/authorization");
 const {
   closeAllRealtimeClients,
   publishRealtimeEvent,
@@ -131,6 +132,19 @@ test("ABAC grupos: Gerencia no tiene admin tecnico por defecto", () => {
   assert.equal(canUserViewGroupResource(gerenciaUser, { groupId: 1 }), true);
   assert.equal(canUserEditGroupResource(gerenciaUser, { groupId: 1 }), false);
   assert.equal(canUserExportGroup(gerenciaUser, 1), true);
+});
+
+test("RBAC: rol Gerencial existe y no hereda administracion tecnica", () => {
+  assert.ok(ROLE_KEYS.includes("gerencial"));
+  const capabilities = getSessionCapabilities("gerencial");
+
+  assert.equal(capabilities.panels.dashboard, true);
+  assert.equal(capabilities.panels.resumen, true);
+  assert.equal(capabilities.panels.tareas, true);
+  assert.equal(capabilities.panels.configuracion, false);
+  assert.equal(capabilities.actions.users.manage, false);
+  assert.equal(capabilities.actions.tasks.editAny, false);
+  assert.equal(capabilities.actions.reports.export, true);
 });
 
 test("Realtime ABAC: no publica sin visibility y no filtra entre Soporte e Infraestructura", () => {

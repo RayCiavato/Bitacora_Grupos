@@ -14,7 +14,12 @@ const {
   getTaskDashboardSummary,
   getTaskOperationalAlerts
 } = require("./tasks");
-const { buildGroupScopeCondition, enrichUserWithGroupAccess } = require("./groups");
+const {
+  buildGroupScopeCondition,
+  canUserViewGroupResource,
+  enrichUserWithGroupAccess,
+  listVisibleGroupOperationalSummaries
+} = require("./groups");
 
 const APP_TIMEZONE = "America/Caracas";
 const MENU_CALLBACK_PREFIX = "menu:";
@@ -767,6 +772,184 @@ async function listTelegramMyTasks(user, actorId, limit = 5) {
   };
 }
 
+function isTelegramExecutiveUser(user) {
+  const role = String(user?.role || "").trim().toLowerCase();
+  return role === "admin" || role === "gerencial";
+}
+
+function normalizeTelegramGroupId(value) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+async function getVisibleTelegramGroupSummaries(user) {
+  if (!isTelegramExecutiveUser(user)) {
+    return [];
+  }
+  return listVisibleGroupOperationalSummaries(user);
+}
+
+function findGroupSummaryById(groups, groupId) {
+  const safeGroupId = normalizeTelegramGroupId(groupId);
+  return (Array.isArray(groups) ? groups : []).find((group) => Number(group.id) === safeGroupId) || null;
+}
+
+function buildGroupsMenuKeyboard(groups = []) {
+  const rows = [];
+  for (const group of Array.isArray(groups) ? groups : []) {
+    rows.push([
+      {
+        text: normalizeText(group.name, `Grupo ${group.id}`, 40),
+        callback_data: `${MENU_CALLBACK_PREFIX}grp:${Number(group.id)}`
+      }
+    ]);
+  }
+  rows.push([{ text: "Volver al menu", callback_data: `${MENU_CALLBACK_PREFIX}home` }]);
+  return { inline_keyboard: rows };
+}
+
+function buildGroupSummaryKeyboard(groupId) {
+  const safeGroupId = Number(groupId);
+  return {
+    inline_keyboard: [
+      [
+        { text: "Ver tareas", callback_data: `${MENU_CALLBACK_PREFIX}gtasks:${safeGroupId}` },
+        { text: "Ver bitacoras", callback_data: `${MENU_CALLBACK_PREFIX}gbits:${safeGroupId}` }
+      ],
+      [
+        { text: "Alertas", callback_data: `${MENU_CALLBACK_PREFIX}galerts:${safeGroupId}` },
+        { text: "Volver a grupos", callback_data: `${MENU_CALLBACK_PREFIX}groups` }
+      ]
+    ]
+  };
+}
+
+async function buildTelegramGroupsMenu(user) {
+  const groups = await getVisibleTelegramGroupSummaries(user);
+  if (!groups.length) {
+    return {
+      text: ["Consulta por grupos", "", "No hay grupos visibles para tu perfil."].join("\n"),
+      replyMarkup: buildBackMenuKeyboard(),
+      groups
+    };
+  }
+
+  return {
+    text: [
+      "Consulta por grupos",
+      "",
+      "Selecciona un grupo visible para ver resumen operativo."
+    ].join("\n"),
+    replyMarkup: buildGroupsMenuKeyboard(groups),
+    groups
+  };
+}
+
+function buildGroupSummaryText(group) {
+  return [
+    `RESUMEN DEL GRUPO: ${normalizeText(group.name, "Grupo", 80)}`,
+    "",
+    `Bitacoras: ${Number(group.totalEvents || 0)}`,
+    `Tareas: ${Number(group.totalTasks || 0)}`,
+    `Vencidas: ${Number(group.overdueTasks || 0)}`,
+    `Alta prioridad: ${Number(group.highPriorityTasks || 0)}`,
+    `En proceso: ${Number(group.inProgressTasks || 0)}`,
+    `Sin realizar: ${Number(group.pendingTasks || 0)}`,
+    `Ultima actividad: ${group.lastActivityAt ? formatDateTimeCaracas(group.lastActivityAt) : "Sin actividad"}`,
+    "",
+    `Actualizado: ${formatDateTimeCaracas(new Date())}`
+  ].join("\n");
+}
+
+async function buildGroupSummaryMessage(user, groupId) {
+  const safeGroupId = normalizeTelegramGroupId(groupId);
+  if (!safeGroupId || !canUserViewGroupResource(user, { groupId: safeGroupId })) {
+    return { ok: false, error: "forbidden" };
+  }
+  const groups = await getVisibleTelegramGroupSummaries(user);
+  const group = findGroupSummaryById(groups, safeGroupId);
+  if (!group) {
+    return { ok: false, error: "group_not_found" };
+  }
+  return {
+    ok: true,
+    text: buildGroupSummaryText(group),
+    replyMarkup: buildGroupSummaryKeyboard(safeGroupId)
+  };
+}
+
+async function buildGroupTasksMessage(user, groupId) {
+  const safeGroupId = normalizeTelegramGroupId(groupId);
+  if (!safeGroupId || !canUserViewGroupResource(user, { groupId: safeGroupId })) {
+    return { ok: false, error: "forbidden" };
+  }
+
+  const result = await listTasks({
+    user,
+    query: {
+      groupId: safeGroupId,
+      sortBy: "updatedAt",
+      sortOrder: "desc",
+      page: 1,
+      pageSize: 5
+    }
+  });
+  const items = Array.isArray(result?.items) ? result.items : [];
+  if (!items.length) {
+    return {
+      ok: true,
+      text: ["Tareas del grupo", "", "No hay tareas visibles para este grupo."].join("\n"),
+      replyMarkup: buildGroupSummaryKeyboard(safeGroupId)
+    };
+  }
+  return {
+    ok: true,
+    text: [
+      "Tareas del grupo",
+      "",
+      ...items.flatMap((item, index) => (index === 0 ? [toTaskLine(item)] : ["", toTaskLine(item)]))
+    ].join("\n"),
+    replyMarkup: buildGroupSummaryKeyboard(safeGroupId)
+  };
+}
+
+async function buildGroupBitacorasMessage(user, groupId) {
+  const safeGroupId = normalizeTelegramGroupId(groupId);
+  if (!safeGroupId || !canUserViewGroupResource(user, { groupId: safeGroupId })) {
+    return { ok: false, error: "forbidden" };
+  }
+  const items = await listRecentBitacorasForUser(user, 5, { groupId: safeGroupId });
+  if (!items.length) {
+    return {
+      ok: true,
+      text: ["Bitacoras del grupo", "", "No hay bitacoras visibles para este grupo."].join("\n"),
+      replyMarkup: buildGroupSummaryKeyboard(safeGroupId)
+    };
+  }
+  const lines = items.map((item) => [
+    `BIT-${String(Number(item.id || 0)).padStart(5, "0")} | ${normalizeText(item.actividad, "Sin actividad", 80)}`,
+    `Creado por: ${normalizeText(item.encargado, "-", 60)}`,
+    `Fecha: ${formatDateCaracas(item.fecha)}`
+  ].join("\n"));
+  return {
+    ok: true,
+    text: ["Bitacoras del grupo", "", ...lines.flatMap((line, index) => (index === 0 ? [line] : ["", line]))].join("\n"),
+    replyMarkup: buildGroupSummaryKeyboard(safeGroupId)
+  };
+}
+
+async function buildGroupAlertsMessage(user, groupId) {
+  const summary = await buildGroupSummaryMessage(user, groupId);
+  if (!summary.ok) {
+    return summary;
+  }
+  return {
+    ok: true,
+    text: ["Alertas del grupo", "", summary.text].join("\n"),
+    replyMarkup: summary.replyMarkup
+  };
+}
+
 function splitMessageChunks(text) {
   const normalized = String(text || "").trim();
   if (normalized.length <= MAX_TELEGRAM_MESSAGE_LENGTH) {
@@ -805,9 +988,8 @@ function splitMessageChunks(text) {
   return chunks.length ? chunks : [normalized.slice(0, MAX_TELEGRAM_MESSAGE_LENGTH)];
 }
 
-function buildMainMenuKeyboard() {
-  return {
-    inline_keyboard: [
+function buildMainMenuKeyboard(user = null) {
+  const inlineKeyboard = [
       [
         { text: "Mis Tareas", callback_data: `${MENU_CALLBACK_PREFIX}tasks` },
         { text: "Alertas", callback_data: `${MENU_CALLBACK_PREFIX}alerts` }
@@ -819,8 +1001,15 @@ function buildMainMenuKeyboard() {
       [
         { text: "Estado general", callback_data: `${MENU_CALLBACK_PREFIX}status` }
       ]
-    ]
-  };
+    ];
+
+  if (isTelegramExecutiveUser(user)) {
+    inlineKeyboard.splice(2, 0, [
+      { text: "Grupos", callback_data: `${MENU_CALLBACK_PREFIX}groups` }
+    ]);
+  }
+
+  return { inline_keyboard: inlineKeyboard };
 }
 
 function buildBackMenuKeyboard() {
@@ -1438,11 +1627,16 @@ async function consumeTelegramLinkCode({ code, from, chat, reqMeta = null } = {}
   }
 }
 
-async function listRecentBitacorasForUser(user, limit = 5) {
+async function listRecentBitacorasForUser(user, limit = 5, options = {}) {
   const safeLimit = Math.max(1, Math.min(Number(limit || 5), 10));
   const scope = getBitacoraViewScope(user);
   const params = [];
   const whereParts = [buildGroupScopeCondition({ alias: "e", user, params, action: "view" })];
+  const safeGroupId = normalizeTelegramGroupId(options.groupId);
+  if (safeGroupId) {
+    const groupIndex = params.push(safeGroupId);
+    whereParts.push(`e.group_id = $${groupIndex}`);
+  }
 
   if (!scope.canViewAny) {
     const actorId = resolveActorId(user);
@@ -1620,7 +1814,38 @@ async function buildBitacorasMessage(user) {
   ].join("\n");
 }
 
+async function buildGroupedGeneralStatusMessage(user) {
+  const groups = await getVisibleTelegramGroupSummaries(user);
+  if (!groups.length) {
+    return [
+      "Estado general",
+      "",
+      "No hay grupos visibles para tu perfil.",
+      "",
+      `Actualizado: ${formatDateTimeCaracas(new Date())}`
+    ].join("\n");
+  }
+
+  const lines = groups.map((group) => [
+    `Area: ${normalizeText(group.name, "Grupo", 80)}`,
+    `Bitacoras: ${Number(group.totalEvents || 0)} | Tareas: ${Number(group.totalTasks || 0)} | Vencidas: ${Number(group.overdueTasks || 0)}`,
+    `Alta prioridad: ${Number(group.highPriorityTasks || 0)} | En proceso: ${Number(group.inProgressTasks || 0)} | Sin realizar: ${Number(group.pendingTasks || 0)}`
+  ].join("\n"));
+
+  return [
+    "Estado general por grupos",
+    "",
+    ...lines.flatMap((line, index) => (index === 0 ? [line] : ["", line])),
+    "",
+    `Actualizado: ${formatDateTimeCaracas(new Date())}`
+  ].join("\n");
+}
+
 async function buildGeneralStatusMessage(user) {
+  if (isTelegramExecutiveUser(user)) {
+    return buildGroupedGeneralStatusMessage(user);
+  }
+
   const [taskSummary, taskAlerts, bitacoraTotals] = await Promise.all([
     getTaskDashboardSummary({
       user,
@@ -1721,7 +1946,7 @@ async function buildTaskSearchMessage(user, rawQuery) {
 
 async function sendPanelMenu(chatId, options = {}) {
   const text = "Panel de Control";
-  const replyMarkup = buildMainMenuKeyboard();
+  const replyMarkup = buildMainMenuKeyboard(options.user || null);
 
   if (options.editMessageId) {
     const editResult = await editTelegramMessageText(chatId, options.editMessageId, text, {
@@ -2009,7 +2234,7 @@ async function handleMenuCommand(update, context = {}) {
     return;
   }
 
-  await sendPanelMenu(chat.id);
+  await sendPanelMenu(chat.id, { user: linkedUser });
   await auditTelegramAction({
     userId: linkedUser.id,
     chatId,
@@ -2140,11 +2365,30 @@ async function handleCallbackQuery(update, context = {}) {
   }
 
   if (action === "home") {
+    let menuUser = null;
+    try {
+      menuUser = await getLinkedUserByTelegramUserId(telegramUserId);
+      if (menuUser) {
+        await touchTelegramLinkContext({
+          userId: menuUser.id,
+          from,
+          chat
+        });
+      }
+    } catch (error) {
+      logger.warn(
+        {
+          error: error?.message || "telegram_home_user_lookup_failed"
+        },
+        "No se pudo resolver usuario para volver al menu Telegram; se enviara menu basico"
+      );
+    }
     const menuResult = await sendPanelMenu(chat.id, {
-      editMessageId: callback?.message?.message_id || null
+      editMessageId: callback?.message?.message_id || null,
+      user: menuUser
     });
     await auditTelegramAction({
-      userId: null,
+      userId: menuUser?.id || null,
       chatId,
       telegramUserId,
       auditAction: "telegram.bot.callback",
@@ -2204,12 +2448,116 @@ async function handleCallbackQuery(update, context = {}) {
       break;
     case "status": {
       const text = await buildGeneralStatusMessage(linkedUser);
-      await sendTelegramMessage(chat.id, text, {
+      await sendTelegramMessageChunked(chat.id, text, {
         replyMarkup: buildBackMenuKeyboard()
       });
       break;
     }
+    case "groups": {
+      if (!isTelegramExecutiveUser(linkedUser)) {
+        await sendUserFriendlyError(chat.id, "forbidden");
+        await auditTelegramAction({
+          userId: linkedUser.id,
+          chatId,
+          telegramUserId,
+          auditAction: "telegram.groups.denied",
+          action,
+          result: "fail",
+          reason: "role_not_allowed",
+          reqContext
+        });
+        return;
+      }
+      const panel = await buildTelegramGroupsMenu(linkedUser);
+      await sendTelegramMessage(chat.id, panel.text, {
+        replyMarkup: panel.replyMarkup
+      });
+      await auditTelegramAction({
+        userId: linkedUser.id,
+        chatId,
+        telegramUserId,
+        auditAction: "telegram.groups.menu",
+        action,
+        result: "success",
+        details: { visibleGroups: panel.groups.length },
+        reqContext
+      });
+      break;
+    }
     default:
+      if (action.startsWith("grp:")) {
+        const groupId = action.slice("grp:".length);
+        const result = await buildGroupSummaryMessage(linkedUser, groupId);
+        if (!result.ok) {
+          await sendUserFriendlyError(chat.id, result.error === "group_not_found" ? "forbidden" : result.error);
+          await auditTelegramAction({
+            userId: linkedUser.id,
+            chatId,
+            telegramUserId,
+            auditAction: "telegram.groups.denied",
+            action,
+            result: "fail",
+            reason: result.error || "forbidden",
+            details: { groupId: normalizeTelegramGroupId(groupId) },
+            reqContext
+          });
+          return;
+        }
+        await sendTelegramMessage(chat.id, result.text, {
+          replyMarkup: result.replyMarkup
+        });
+        await auditTelegramAction({
+          userId: linkedUser.id,
+          chatId,
+          telegramUserId,
+          auditAction: "telegram.groups.summary",
+          action,
+          result: "success",
+          details: { groupId: normalizeTelegramGroupId(groupId) },
+          reqContext
+        });
+        break;
+      }
+      if (action.startsWith("gtasks:") || action.startsWith("gbits:") || action.startsWith("galerts:")) {
+        const [kind, rawGroupId] = action.split(":");
+        let result = null;
+        if (kind === "gtasks") {
+          result = await buildGroupTasksMessage(linkedUser, rawGroupId);
+        } else if (kind === "gbits") {
+          result = await buildGroupBitacorasMessage(linkedUser, rawGroupId);
+        } else {
+          result = await buildGroupAlertsMessage(linkedUser, rawGroupId);
+        }
+        if (!result.ok) {
+          await sendUserFriendlyError(chat.id, result.error === "group_not_found" ? "forbidden" : result.error);
+          await auditTelegramAction({
+            userId: linkedUser.id,
+            chatId,
+            telegramUserId,
+            auditAction: "telegram.groups.denied",
+            action,
+            result: "fail",
+            reason: result.error || "forbidden",
+            details: { groupId: normalizeTelegramGroupId(rawGroupId) },
+            reqContext
+          });
+          return;
+        }
+        await sendTelegramMessageChunked(chat.id, result.text, {
+          replyMarkup: result.replyMarkup
+        });
+        await auditTelegramAction({
+          userId: linkedUser.id,
+          chatId,
+          telegramUserId,
+          auditAction: `telegram.groups.${kind}`,
+          action,
+          result: "success",
+          details: { groupId: normalizeTelegramGroupId(rawGroupId) },
+          reqContext
+        });
+        break;
+      }
       await sendTelegramMessage(chat.id, "Accion no soportada en este menu.");
       break;
   }

@@ -198,6 +198,87 @@ async function listGroups({ includeInactive = false } = {}) {
   return result.rows.map(mapGroupRow);
 }
 
+async function listVisibleGroupOperationalSummaries(user) {
+  const visibleGroupIds = getVisibleGroupIdsForUser(user);
+  if (!visibleGroupIds.length) {
+    return [];
+  }
+
+  const result = await pool.query(
+    `
+      WITH event_counts AS (
+        SELECT
+          e.group_id,
+          COUNT(*)::int AS total_events,
+          MAX(GREATEST(e.created_at, e.updated_at)) AS last_event_at
+        FROM events e
+        WHERE e.group_id = ANY($1::bigint[])
+        GROUP BY e.group_id
+      ),
+      task_counts AS (
+        SELECT
+          t.group_id,
+          COUNT(*)::int AS total_tasks,
+          COUNT(*) FILTER (
+            WHERE t.deleted_at IS NULL
+              AND t.due_date < CURRENT_DATE
+              AND t.status NOT IN ('completada', 'cancelada')
+          )::int AS overdue_tasks,
+          COUNT(*) FILTER (
+            WHERE t.deleted_at IS NULL
+              AND t.priority = 'alta'
+              AND t.status NOT IN ('completada', 'cancelada')
+          )::int AS high_priority_tasks,
+          COUNT(*) FILTER (
+            WHERE t.deleted_at IS NULL
+              AND t.status = 'en_proceso'
+          )::int AS in_progress_tasks,
+          COUNT(*) FILTER (
+            WHERE t.deleted_at IS NULL
+              AND t.status = 'sin_realizar'
+          )::int AS pending_tasks,
+          MAX(t.updated_at) FILTER (WHERE t.deleted_at IS NULL) AS last_task_at
+        FROM tasks t
+        WHERE t.group_id = ANY($1::bigint[])
+        GROUP BY t.group_id
+      )
+      SELECT
+        g.id,
+        g.name,
+        g.slug,
+        g.description,
+        COALESCE(ec.total_events, 0)::int AS "totalEvents",
+        COALESCE(tc.total_tasks, 0)::int AS "totalTasks",
+        COALESCE(tc.overdue_tasks, 0)::int AS "overdueTasks",
+        COALESCE(tc.high_priority_tasks, 0)::int AS "highPriorityTasks",
+        COALESCE(tc.in_progress_tasks, 0)::int AS "inProgressTasks",
+        COALESCE(tc.pending_tasks, 0)::int AS "pendingTasks",
+        GREATEST(ec.last_event_at, tc.last_task_at) AS "lastActivityAt"
+      FROM groups g
+      LEFT JOIN event_counts ec ON ec.group_id = g.id
+      LEFT JOIN task_counts tc ON tc.group_id = g.id
+      WHERE g.id = ANY($1::bigint[])
+        AND g.is_active = TRUE
+      ORDER BY g.is_system DESC, g.name ASC
+    `,
+    [visibleGroupIds]
+  );
+
+  return result.rows.map((row) => ({
+    id: Number(row.id),
+    name: row.name,
+    slug: row.slug,
+    description: row.description || "",
+    totalEvents: Number(row.totalEvents || 0),
+    totalTasks: Number(row.totalTasks || 0),
+    overdueTasks: Number(row.overdueTasks || 0),
+    highPriorityTasks: Number(row.highPriorityTasks || 0),
+    inProgressTasks: Number(row.inProgressTasks || 0),
+    pendingTasks: Number(row.pendingTasks || 0),
+    lastActivityAt: row.lastActivityAt || null
+  }));
+}
+
 async function getDefaultGroup() {
   const result = await pool.query(
     `
@@ -265,6 +346,14 @@ async function createGroup({ name, description = "", actorId = null } = {}) {
     return { error: "validation_error", group: null };
   }
 
+  const duplicateResult = await pool.query(
+    "SELECT id FROM groups WHERE lower(name) = lower($1) OR slug = $2 LIMIT 1",
+    [safeName, slug]
+  );
+  if (duplicateResult.rowCount > 0) {
+    return { error: "group_already_exists", group: null };
+  }
+
   const result = await pool.query(
     `
       INSERT INTO groups (name, slug, description, is_system)
@@ -291,6 +380,13 @@ async function updateGroup(groupId, payload = {}) {
     const safeName = String(payload.name || "").trim().replace(/\s+/g, " ").slice(0, 120);
     if (!safeName) {
       return { error: "validation_error", group: null };
+    }
+    const duplicateResult = await pool.query(
+      "SELECT id FROM groups WHERE lower(name) = lower($1) AND id <> $2 LIMIT 1",
+      [safeName, safeGroupId]
+    );
+    if (duplicateResult.rowCount > 0) {
+      return { error: "group_already_exists", group: null };
     }
     values.push(safeName);
     fields.push(`name = $${values.length}`);
@@ -755,6 +851,7 @@ module.exports = {
   listGroupMembers,
   listGroupPolicies,
   listGroups,
+  listVisibleGroupOperationalSummaries,
   normalizeGroupAction,
   normalizeGroupSlug,
   normalizeResourceType,

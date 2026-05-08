@@ -7,23 +7,24 @@ const { validatePasswordPolicy } = require("../services/passwordPolicy");
 const { validateFullName } = require("../services/namePolicy");
 const { validateRegistrationEmail } = require("../services/emailPolicy");
 const { createAuditLog } = require("../services/audit");
-const { canUserManageUsers, canUserViewUsers } = require("../services/authorization");
+const { ROLE_KEYS, canUserManageUsers, canUserViewUsers } = require("../services/authorization");
 const { addUserToGroup, getDefaultGroup } = require("../services/groups");
 
 const router = express.Router();
+const userRoleSchema = z.enum(ROLE_KEYS);
 
 const createUserSchema = z.object({
   name: z.string().min(2).max(120),
   email: z.string().email(),
   password: z.string().min(1),
-  role: z.enum(["admin", "supervisor", "funcionario"]).default("funcionario")
+  role: userRoleSchema.default("funcionario")
 });
 
 const resetPasswordSchema = z.object({
   newPassword: z.string().min(1)
 });
 const updateRoleSchema = z.object({
-  role: z.enum(["admin", "supervisor", "funcionario"])
+  role: userRoleSchema
 });
 
 const selfPasswordSchema = z.object({

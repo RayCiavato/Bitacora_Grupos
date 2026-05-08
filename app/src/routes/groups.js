@@ -13,6 +13,7 @@ const {
   listGroupMembers,
   listGroupPolicies,
   listGroups,
+  listVisibleGroupOperationalSummaries,
   removeUserFromGroup,
   updateGroup,
   upsertGroupPolicy
@@ -40,10 +41,11 @@ const updateGroupSchema = z
   .object({
     name: z.string().trim().min(2).max(120).optional(),
     description: z.string().trim().max(500).optional(),
-    isActive: z.boolean().optional()
+    isActive: z.boolean().optional(),
+    confirmSystemGroup: z.literal("CONFIRMAR").optional()
   })
   .strict()
-  .refine((payload) => Object.keys(payload).length > 0, {
+  .refine((payload) => Object.keys(payload).some((key) => key !== "confirmSystemGroup"), {
     message: "at_least_one_field_required"
   });
 
@@ -174,6 +176,9 @@ router.post("/", authenticate, async (req, res, next) => {
       actorId: Number(req.user.sub)
     });
     if (result.error) {
+      if (result.error === "group_already_exists") {
+        return res.status(409).json({ error: result.error });
+      }
       return res.status(400).json({ error: result.error });
     }
 
@@ -200,6 +205,15 @@ router.post("/", authenticate, async (req, res, next) => {
   }
 });
 
+router.get("/summary", authenticate, async (req, res, next) => {
+  try {
+    const groups = await listVisibleGroupOperationalSummaries(req.user);
+    return res.json({ groups });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.patch("/:groupId(\\d+)", authenticate, async (req, res, next) => {
   try {
     const { groupId } = groupIdSchema.parse(req.params);
@@ -209,17 +223,38 @@ router.patch("/:groupId(\\d+)", authenticate, async (req, res, next) => {
 
     const payload = updateGroupSchema.parse(req.body);
     const before = await getGroupById(groupId);
-    const result = await updateGroup(groupId, payload);
+    if (!before) {
+      return res.status(404).json({ error: "group_not_found" });
+    }
+    if (before.isSystem && payload.confirmSystemGroup !== "CONFIRMAR") {
+      return res.status(400).json({ error: "system_group_confirmation_required" });
+    }
+    if (before.isSystem && Object.hasOwn(payload, "isActive") && payload.isActive !== before.isActive) {
+      return res.status(400).json({ error: "system_group_status_protected" });
+    }
+    const updatePayload = { ...payload };
+    delete updatePayload.confirmSystemGroup;
+    const result = await updateGroup(groupId, updatePayload);
     if (result.error === "group_not_found") {
       return res.status(404).json({ error: "group_not_found" });
     }
     if (result.error) {
+      if (result.error === "group_already_exists") {
+        return res.status(409).json({ error: result.error });
+      }
       return res.status(400).json({ error: result.error });
     }
 
+    const statusChanged = Boolean(before) && before.isActive !== result.group.isActive;
+    const auditAction = statusChanged
+      ? result.group.isActive
+        ? "groups.activated"
+        : "groups.deactivated"
+      : "groups.updated";
+
     await createAuditLog({
       userId: req.user.sub,
-      action: "groups.updated",
+      action: auditAction,
       entity: "group",
       entityId: result.group.id,
       metadata: {

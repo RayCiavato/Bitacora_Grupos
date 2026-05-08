@@ -5,6 +5,7 @@ const { authenticate, requireRole } = require("../middleware/auth");
 const { createAuditLog } = require("../services/audit");
 const {
   POLICY_ACTION_KEYS,
+  ROLE_KEYS,
   POLICY_MODULE_KEYS,
   getRolePermissionMetadata,
   getRolePermissionPolicies,
@@ -46,7 +47,7 @@ const updatePolicyBodySchema = z
   .strict();
 
 const roleParamSchema = z.object({
-  role: z.enum(["admin", "supervisor", "funcionario"])
+  role: z.enum(ROLE_KEYS)
 });
 
 function ensureCanAdministerRbac(req, res) {

@@ -1091,6 +1091,77 @@ textarea {
   background: rgba(9, 22, 48, 0.62);
 }
 
+.dashboard-groups-card {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.dashboard-groups-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 0.7rem;
+}
+
+.dashboard-group-card {
+  border: 1px solid rgba(96, 164, 250, 0.28);
+  border-radius: 16px;
+  background:
+    linear-gradient(145deg, rgba(17, 37, 76, 0.72), rgba(6, 18, 44, 0.86)),
+    rgba(7, 19, 42, 0.74);
+  padding: 0.82rem;
+  display: grid;
+  gap: 0.55rem;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.dashboard-group-card:hover,
+.dashboard-group-card:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(112, 210, 255, 0.58);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.25);
+  outline: none;
+}
+
+.dashboard-group-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+
+.dashboard-group-badge {
+  border: 1px solid rgba(91, 214, 255, 0.35);
+  border-radius: 999px;
+  color: #95e9ff;
+  background: rgba(91, 214, 255, 0.08);
+  padding: 0.16rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.dashboard-group-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.dashboard-group-metrics span {
+  border: 1px solid rgba(109, 151, 219, 0.22);
+  border-radius: 10px;
+  background: rgba(7, 18, 41, 0.66);
+  color: #c9daf4;
+  padding: 0.38rem 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.dashboard-group-recent {
+  margin: 0;
+  color: #9fb7dc;
+  font-size: 0.78rem;
+}
+
 .dashboard-activity-list {
   margin: 0;
   padding: 0;
@@ -2071,6 +2142,21 @@ body.modal-open {
   padding: 0.75rem;
   display: grid;
   gap: 0.45rem;
+}
+
+.group-card-actions {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.checkbox-line {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  color: #d8e8ff;
+  font-weight: 700;
 }
 
 .group-audit-list {

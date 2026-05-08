@@ -172,6 +172,53 @@ function createRbacSettingsDbDouble() {
       };
     }
 
+    if (lower.startsWith("select id from groups where lower(name)")) {
+      const name = String(params[0] || "").toLowerCase();
+      const excludedId = Number(params[1] || 0);
+      const found = groups.find(
+        (group) => String(group.name || "").toLowerCase() === name && Number(group.id) !== excludedId
+      );
+      return {
+        rowCount: found ? 1 : 0,
+        rows: found ? [{ id: found.id }] : []
+      };
+    }
+
+    if (lower.startsWith("update groups set")) {
+      const groupId = Number(params[0]);
+      const group = groups.find((item) => Number(item.id) === groupId);
+      if (!group) {
+        return { rowCount: 0, rows: [] };
+      }
+
+      let valueIndex = 1;
+      if (lower.includes("name =")) {
+        group.name = params[valueIndex++];
+      }
+      if (lower.includes("description =")) {
+        group.description = params[valueIndex++];
+      }
+      if (lower.includes("is_active =")) {
+        group.is_active = Boolean(params[valueIndex++]);
+      }
+      group.updated_at = new Date().toISOString();
+      return {
+        rowCount: 1,
+        rows: [
+          {
+            id: group.id,
+            name: group.name,
+            slug: group.slug,
+            description: group.description,
+            is_system: group.is_system,
+            is_active: group.is_active,
+            created_at: group.created_at,
+            updated_at: group.updated_at
+          }
+        ]
+      };
+    }
+
     if (lower.startsWith("select id, name, slug, description, is_system, is_active, created_at, updated_at from groups")) {
       let rows = groups.slice();
       if (lower.includes("where is_active = true")) {
@@ -453,6 +500,7 @@ test("RBAC y Configuracion: seguridad, validaciones, auditoria e integridad", as
   const app = createApp();
   const admin = USERS_FIXTURE[0];
   const supervisor = USERS_FIXTURE[1];
+  const funcionario = USERS_FIXTURE[2];
 
   await t.test("acceso denegado sin autenticacion o sin rol admin", async () => {
     fakeDb.reset();
@@ -551,7 +599,11 @@ test("RBAC y Configuracion: seguridad, validaciones, auditoria e integridad", as
     assert.equal(initialRead.status, 200);
     assert.ok(Array.isArray(initialRead.body.roles));
     assert.ok(initialRead.body.roles.includes("admin"));
+    assert.ok(initialRead.body.roles.includes("gerencial"));
     assert.ok(initialRead.body.roles.includes("funcionario"));
+    assert.equal(initialRead.body.policies.gerencial.usuarios.administer, false);
+    assert.equal(initialRead.body.policies.gerencial.configuracion.administer, false);
+    assert.equal(initialRead.body.policies.gerencial.informes.export, true);
 
     const escalationAttempt = clone(initialRead.body.policies.funcionario);
     escalationAttempt.usuarios.administer = true;
@@ -632,6 +684,29 @@ test("RBAC y Configuracion: seguridad, validaciones, auditoria e integridad", as
 
     const auditActions = fakeDb.getAuditLogs().map((entry) => entry.action);
     assert.ok(auditActions.includes("rbac.role_policy_updated"));
+  });
+
+  await t.test("Grupos: admin edita con confirmacion y usuario normal queda bloqueado", async () => {
+    fakeDb.reset();
+
+    const editResponse = await attachSession(request(app).patch("/groups/1"), admin).send({
+      name: "General Operativo",
+      description: "Grupo base ajustado desde panel",
+      confirmSystemGroup: "CONFIRMAR"
+    });
+    assert.equal(editResponse.status, 200);
+    assert.equal(editResponse.body.name, "General Operativo");
+    assert.equal(editResponse.body.description, "Grupo base ajustado desde panel");
+
+    const deniedResponse = await attachSession(request(app).patch("/groups/999"), funcionario).send({
+      name: "Intento no autorizado"
+    });
+    assert.equal(deniedResponse.status, 403);
+    assert.equal(deniedResponse.body.error, "forbidden");
+
+    const auditActions = fakeDb.getAuditLogs().map((entry) => entry.action);
+    assert.ok(auditActions.includes("groups.updated"));
+    assert.ok(auditActions.includes("groups.access_denied"));
   });
 
   await t.test("Configuracion: validacion estricta, persistencia, flags y auditoria", async () => {

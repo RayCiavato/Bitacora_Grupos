@@ -103,6 +103,10 @@ const dashboardTasksEmptyState = document.getElementById("dashboardTasksEmptySta
 const dashboardAlertsList = document.getElementById("dashboardAlertsList");
 const dashboardActivityList = document.getElementById("dashboardActivityList");
 const dashboardActivityEmpty = document.getElementById("dashboardActivityEmpty");
+const dashboardGroupsCard = document.getElementById("dashboardGroupsCard");
+const dashboardGroupsMeta = document.getElementById("dashboardGroupsMeta");
+const dashboardGroupsList = document.getElementById("dashboardGroupsList");
+const dashboardGroupsEmpty = document.getElementById("dashboardGroupsEmpty");
 
 const trendByDate = document.getElementById("trendByDate");
 const trendPriority = document.getElementById("trendPriority");
@@ -217,6 +221,15 @@ const groupMembersList = document.getElementById("groupMembersList");
 const groupAuditReloadBtn = document.getElementById("groupAuditReloadBtn");
 const groupAuditMeta = document.getElementById("groupAuditMeta");
 const groupAuditList = document.getElementById("groupAuditList");
+const groupEditModal = document.getElementById("groupEditModal");
+const groupEditForm = document.getElementById("groupEditForm");
+const groupEditId = document.getElementById("groupEditId");
+const groupEditName = document.getElementById("groupEditName");
+const groupEditDescription = document.getElementById("groupEditDescription");
+const groupEditActive = document.getElementById("groupEditActive");
+const groupEditCloseBtn = document.getElementById("groupEditCloseBtn");
+const groupEditCancelBtn = document.getElementById("groupEditCancelBtn");
+const groupEditSystemNotice = document.getElementById("groupEditSystemNotice");
 const eventGroupSelectWrap = document.getElementById("eventGroupSelectWrap");
 const eventGroupSelect = document.getElementById("eventGroupSelect");
 const reportGroupFilterWrap = document.getElementById("reportGroupFilterWrap");
@@ -391,7 +404,10 @@ const ERROR_MESSAGES = {
   refresh_token_expired: "Tu sesion expiro. Inicia sesion nuevamente.",
   too_many_requests: "Demasiados intentos. Espera un momento e intenta de nuevo.",
   telegram_already_linked: "Este usuario ya tiene Telegram vinculado. Desvincula primero.",
-  telegram_user_already_linked: "Esta cuenta de Telegram ya esta vinculada a otro usuario."
+  telegram_user_already_linked: "Esta cuenta de Telegram ya esta vinculada a otro usuario.",
+  group_already_exists: "Ya existe un grupo con ese nombre.",
+  system_group_confirmation_required: "Confirma el cambio del grupo del sistema.",
+  system_group_status_protected: "No se puede activar/desactivar un grupo del sistema."
 };
 
 const state = {
@@ -799,6 +815,9 @@ function formatRoleLabel(role) {
   }
   if (value === "supervisor") {
     return "Supervisor";
+  }
+  if (value === "gerencial") {
+    return "Gerencial";
   }
   return "Funcionario";
 }
@@ -1520,17 +1539,118 @@ function renderGroupsList() {
       card.appendChild(description);
     }
 
+    const actions = document.createElement("div");
+    actions.className = "group-card-actions";
+
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.className = "btn btn-ghost";
+    editBtn.textContent = "Editar";
+    editBtn.addEventListener("click", () => openGroupEditModal(group));
+    actions.appendChild(editBtn);
+
     if (!group.isSystem) {
       const toggle = document.createElement("button");
       toggle.type = "button";
       toggle.className = "btn btn-ghost";
       toggle.textContent = group.isActive ? "Desactivar" : "Activar";
       toggle.addEventListener("click", () => handleGroupActiveToggle(group));
-      card.appendChild(toggle);
+      actions.appendChild(toggle);
     }
 
+    card.appendChild(actions);
     groupsList.appendChild(card);
   });
+}
+
+function closeGroupEditModal() {
+  if (!groupEditModal) {
+    return;
+  }
+  groupEditModal.classList.add("hidden");
+  groupEditModal.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+  if (groupEditForm) {
+    groupEditForm.reset();
+  }
+}
+
+function openGroupEditModal(group) {
+  if (!groupEditModal || !groupEditForm || !groupEditId || !groupEditName || !groupEditDescription) {
+    return;
+  }
+  groupEditId.value = String(group?.id || "");
+  groupEditName.value = group?.name || "";
+  groupEditDescription.value = group?.description || "";
+  if (groupEditActive) {
+    groupEditActive.checked = Boolean(group?.isActive);
+    groupEditActive.disabled = Boolean(group?.isSystem);
+  }
+  if (groupEditSystemNotice) {
+    security.setSafeText(
+      groupEditSystemNotice,
+      group?.isSystem
+        ? "Grupo del sistema: cambios no destructivos requieren confirmacion fuerte. El slug no se edita."
+        : "El slug se mantiene fijo para proteger datos historicos y referencias existentes."
+    );
+  }
+  groupEditModal.classList.remove("hidden");
+  groupEditModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+  window.setTimeout(() => groupEditName.focus(), 60);
+}
+
+async function handleGroupEditSubmit(event) {
+  event.preventDefault();
+  if (!canManageGroups()) {
+    return;
+  }
+  const groupId = Number(groupEditId?.value || 0);
+  const existing = (state.groupAdmin.groups || []).find((group) => Number(group.id) === groupId);
+  if (!groupId || !existing) {
+    showToast("No se encontro el grupo seleccionado.", "error");
+    return;
+  }
+  const payload = {
+    name: String(groupEditName?.value || "").trim(),
+    description: String(groupEditDescription?.value || "").trim()
+  };
+  if (groupEditActive && !groupEditActive.disabled) {
+    payload.isActive = Boolean(groupEditActive.checked);
+  }
+  if (!payload.name) {
+    showToast("Indica el nombre del grupo.", "error");
+    return;
+  }
+  if (existing.isSystem) {
+    const confirmation = window.prompt(
+      [
+        "Vas a editar un grupo del sistema.",
+        "",
+        `Grupo: ${existing.name}`,
+        "El cambio conserva slug e historial, pero puede afectar vistas operativas.",
+        "",
+        "Para confirmar escribe CONFIRMAR."
+      ].join("\n")
+    );
+    if (confirmation !== "CONFIRMAR") {
+      showToast("Edicion cancelada.", "info");
+      return;
+    }
+    payload.confirmSystemGroup = "CONFIRMAR";
+  }
+  const { response, data, networkError } = await apiAuth(`/groups/${groupId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (networkError || !response.ok) {
+    showToast(resolveErrorMessage(data?.error, data?.details) || "No se pudo editar el grupo.", "error");
+    return;
+  }
+  closeGroupEditModal();
+  showToast("Grupo actualizado correctamente.", "success");
+  await loadGroupsAdministrationPanel();
 }
 
 function findGroupPolicy(sourceGroupId, targetGroupId) {
@@ -3718,6 +3838,100 @@ async function loadDashboardTasksSummary() {
   renderDashboardTasksSummary(data);
 }
 
+function renderDashboardGroups(groups = []) {
+  if (!dashboardGroupsCard || !dashboardGroupsList || !dashboardGroupsEmpty) {
+    return;
+  }
+
+  clearElement(dashboardGroupsList);
+  const entries = Array.isArray(groups) ? groups : [];
+  dashboardGroupsEmpty.classList.toggle("hidden", entries.length > 0);
+  setElementVisible(dashboardGroupsCard, canAccessPanel("/dashboard"));
+
+  if (dashboardGroupsMeta) {
+    security.setSafeText(
+      dashboardGroupsMeta,
+      entries.length ? `${entries.length} grupo(s) visibles por tu perfil.` : "Sin grupos visibles."
+    );
+  }
+
+  entries.forEach((group) => {
+    const card = document.createElement("article");
+    card.className = "dashboard-group-card";
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-label", `Abrir tareas del grupo ${group.name || group.id}`);
+
+    const head = document.createElement("div");
+    head.className = "dashboard-group-head";
+    const title = document.createElement("strong");
+    security.setSafeText(title, group.name || `Grupo #${group.id}`);
+    const badge = document.createElement("span");
+    badge.className = "dashboard-group-badge";
+    security.setSafeText(badge, group.slug || "area");
+    head.appendChild(title);
+    head.appendChild(badge);
+
+    const description = document.createElement("p");
+    description.className = "help-text";
+    security.setSafeText(description, group.description || "Area operativa visible.");
+
+    const metrics = document.createElement("div");
+    metrics.className = "dashboard-group-metrics";
+    [
+      ["Bitacoras", group.totalEvents],
+      ["Tareas", group.totalTasks],
+      ["Vencidas", group.overdueTasks],
+      ["Alta", group.highPriorityTasks]
+    ].forEach(([label, value]) => {
+      const metric = document.createElement("span");
+      security.setSafeText(metric, `${label}: ${Number(value || 0)}`);
+      metrics.appendChild(metric);
+    });
+
+    const recent = document.createElement("p");
+    recent.className = "dashboard-group-recent";
+    security.setSafeText(
+      recent,
+      group.lastActivityAt ? `Ultima actividad: ${formatDateTime(group.lastActivityAt)}` : "Sin actividad reciente"
+    );
+
+    const openGroupTasks = () => {
+      window.location.href = `/tareas?groupId=${encodeURIComponent(String(group.id))}`;
+    };
+    card.addEventListener("click", openGroupTasks);
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openGroupTasks();
+      }
+    });
+
+    card.appendChild(head);
+    card.appendChild(description);
+    card.appendChild(metrics);
+    card.appendChild(recent);
+    dashboardGroupsList.appendChild(card);
+  });
+}
+
+async function loadDashboardGroupsSummary() {
+  if (!dashboardGroupsCard || !canAccessPanel("/dashboard")) {
+    return;
+  }
+
+  const { response, data, networkError } = await apiAuth("/groups/summary");
+  if (networkError || !response.ok) {
+    renderDashboardGroups([]);
+    if (dashboardGroupsMeta) {
+      security.setSafeText(dashboardGroupsMeta, "No se pudo cargar resumen por grupos.");
+    }
+    return;
+  }
+
+  renderDashboardGroups(data?.groups || []);
+}
+
 function resolveAuditEventAppearance(action) {
   const normalized = String(action || "").toLowerCase();
   if (normalized.startsWith("auth.")) {
@@ -4675,6 +4889,7 @@ function applyRouteMode() {
 
   setElementVisible(socDashboardSection, showDashboard);
   setElementVisible(dashboardTasksSummaryCard, showDashboard && canViewTasksScope());
+  setElementVisible(dashboardGroupsCard, showDashboard);
   setElementVisible(kpiSection, showResumen);
   setElementVisible(registroSection, showRegistro);
   setElementVisible(informeSection, showBitacoraReport);
@@ -5878,7 +6093,7 @@ async function refreshRouteFromRealtime(payload) {
 
   if (route === "/dashboard") {
     const tasksPromise = isTaskEvent ? loadDashboardTasksSummary() : Promise.resolve();
-    await Promise.all([loadSocDashboard(), tasksPromise]);
+    await Promise.all([loadSocDashboard(), tasksPromise, loadDashboardGroupsSummary()]);
     return;
   }
 
@@ -5971,7 +6186,7 @@ async function loadDashboardData() {
   const route = getCurrentPanelPath();
 
   if (route === "/dashboard") {
-    await Promise.all([loadSocDashboard(), loadDashboardTasksSummary()]);
+    await Promise.all([loadSocDashboard(), loadDashboardTasksSummary(), loadDashboardGroupsSummary()]);
     return;
   }
 
@@ -8320,6 +8535,9 @@ async function bootstrap() {
     if (attachmentPreviewModal && !attachmentPreviewModal.classList.contains("hidden")) {
       closeAttachmentPreview();
     }
+    if (groupEditModal && !groupEditModal.classList.contains("hidden")) {
+      closeGroupEditModal();
+    }
     if (state.notifications?.open) {
       setNotificationsOpen(false);
     }
@@ -8502,6 +8720,23 @@ async function bootstrap() {
   if (groupCreateForm) {
     groupCreateForm.addEventListener("submit", handleGroupCreate);
   }
+  if (groupEditForm) {
+    groupEditForm.addEventListener("submit", handleGroupEditSubmit);
+  }
+  if (groupEditCloseBtn) {
+    groupEditCloseBtn.addEventListener("click", closeGroupEditModal);
+  }
+  if (groupEditCancelBtn) {
+    groupEditCancelBtn.addEventListener("click", closeGroupEditModal);
+  }
+  if (groupEditModal) {
+    groupEditModal.addEventListener("click", (event) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && target.hasAttribute("data-group-edit-close")) {
+        closeGroupEditModal();
+      }
+    });
+  }
   if (groupPolicySourceSelect) {
     groupPolicySourceSelect.addEventListener("change", () => {
       state.groupAdmin.selectedPolicySourceId = groupPolicySourceSelect.value;
@@ -8632,7 +8867,7 @@ async function bootstrap() {
 
     window.addEventListener("load", () => {
       navigator.serviceWorker
-        .register("/sw.js?v=32")
+        .register("/sw.js?v=33")
         .then((registration) => registration.update())
         .catch(() => {
           // No interrumpir flujo principal si falla el service worker.
