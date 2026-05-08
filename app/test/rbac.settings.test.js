@@ -306,8 +306,15 @@ function createRbacSettingsDbDouble() {
       };
     }
 
-    if (lower.startsWith("select id, name, email, role, mfa_enabled, created_at from users order by id asc")) {
+    if (
+      lower.startsWith("select") &&
+      lower.includes("from users") &&
+      lower.includes("mfa_enabled") &&
+      lower.includes("order by id asc")
+    ) {
+      const activeOnly = lower.includes("where is_active = true");
       const rows = Array.from(usersById.values())
+        .filter((user) => !activeOnly || (user.is_active !== false && !user.deleted_at))
         .sort((left, right) => Number(left.id) - Number(right.id))
         .map((user) => ({
           id: user.id,
@@ -315,6 +322,8 @@ function createRbacSettingsDbDouble() {
           email: user.email,
           role: user.role,
           mfa_enabled: true,
+          isActive: user.is_active !== false,
+          deletedAt: user.deleted_at || null,
           created_at: "2026-04-01T00:00:00.000Z"
         }));
       return {

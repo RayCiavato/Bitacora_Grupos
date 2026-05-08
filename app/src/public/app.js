@@ -399,6 +399,9 @@ const ERROR_MESSAGES = {
   upload_storage_unavailable: "No se pudo guardar el adjunto en este momento.",
   internal_server_error: "No se pudo completar la carga del archivo en este momento.",
   invalid_current_password: "La contrasena actual es incorrecta.",
+  cannot_delete_current_user: "No puedes eliminar tu propia cuenta desde la sesion actual.",
+  [["last", "admin", "not", "allowed"].join("_")]: "No se puede eliminar el ultimo administrador activo.",
+  user_inactive: "Este usuario ya esta desactivado.",
   refresh_token_required: "Sesion no disponible. Inicia sesion de nuevo.",
   invalid_refresh_token: "Sesion invalida. Inicia sesion otra vez.",
   refresh_token_expired: "Tu sesion expiro. Inicia sesion nuevamente.",
@@ -4468,11 +4471,13 @@ function renderUsersOptions() {
       emptyRoleOption.textContent = "No hay usuarios";
       adminRoleUserSelect.appendChild(emptyRoleOption);
     }
+    syncAdminUserActionState();
     return;
   }
 
   state.users.forEach((user) => {
-    const userText = `${user.name} (${user.email}) - ${formatRoleLabel(user.role)}`;
+    const statusText = isUserActiveForUi(user) ? "" : " (inactivo)";
+    const userText = `${user.name}${statusText} (${user.email}) - ${formatRoleLabel(user.role)}`;
 
     const adminOption = document.createElement("option");
     adminOption.value = String(user.id);
@@ -4501,6 +4506,7 @@ function renderUsersOptions() {
       ? selectedRole
       : "funcionario";
   }
+  syncAdminUserActionState();
 }
 
 function renderTemplates() {
@@ -7071,6 +7077,22 @@ function syncSelectedRoleUser() {
     : "funcionario";
 }
 
+function isUserActiveForUi(user) {
+  return Boolean(user) && user.isActive !== false && !user.deletedAt;
+}
+
+function syncAdminUserActionState() {
+  if (!adminUserSelect || !adminDeleteUser) {
+    return;
+  }
+  const userId = Number(adminUserSelect.value || 0);
+  const selectedUser = state.users.find((user) => Number(user.id) === userId);
+  const isCurrentUser = Number(state.user?.id || state.user?.sub || 0) === userId;
+  const isActive = isUserActiveForUi(selectedUser);
+  adminDeleteUser.disabled = !userId || !isActive || isCurrentUser;
+  adminDeleteUser.textContent = !isActive && userId ? "Usuario desactivado" : "Eliminar usuario";
+}
+
 async function handleAdminRoleUpdate(event) {
   event.preventDefault();
   const submitButton = event.submitter || adminRoleForm.querySelector('button[type="submit"]');
@@ -7318,6 +7340,7 @@ async function handleAdminUserDelete() {
   await loadUsers();
   await loadReport();
   await loadTrends();
+  syncAdminUserActionState();
 }
 
 async function handleTemplateCreate(event) {
@@ -8894,6 +8917,7 @@ async function bootstrap() {
   adminGeneratePassword.addEventListener("click", handleGenerateAdminPassword);
   adminUnlockUser.addEventListener("click", handleAdminUnlockUser);
   adminDeleteUser.addEventListener("click", handleAdminUserDelete);
+  adminUserSelect.addEventListener("change", syncAdminUserActionState);
   adminSelfPasswordForm.addEventListener("submit", handleAdminSelfPasswordUpdate);
 
   if (rbacRoleSelect) {

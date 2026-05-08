@@ -642,11 +642,46 @@ function telegramDivider() {
 }
 
 function telegramTitle(value) {
-  return normalizeText(value, "Panel", 90).toUpperCase();
+  const label = normalizeText(value, "Panel", 90).toUpperCase();
+  const normalized = label.toLowerCase();
+  const icon = normalized.includes("usuario")
+    ? "👥"
+    : normalized.includes("alert")
+      ? "⚠️"
+      : normalized.includes("bitacora")
+        ? "📓"
+        : normalized.includes("tarea")
+          ? "📋"
+          : normalized.includes("grupo") || normalized.includes("area")
+            ? "🏢"
+            : normalized.includes("estado")
+              ? "📊"
+              : normalized.includes("buscar") || normalized.includes("resultado")
+                ? "🔎"
+                : "🧭";
+  return `${icon} ${label}`;
+}
+
+function telegramMetricIcon(label) {
+  const normalized = String(label || "").toLowerCase();
+  if (normalized.includes("bitacora")) return "📓";
+  if (normalized.includes("tarea")) return "📋";
+  if (normalized.includes("venc")) return "🚨";
+  if (normalized.includes("crit")) return "🔥";
+  if (normalized.includes("alta")) return "⚠️";
+  if (normalized.includes("media")) return "🟡";
+  if (normalized.includes("baja")) return "🔵";
+  if (normalized.includes("proxima")) return "⏳";
+  if (normalized.includes("proceso")) return "🔄";
+  if (normalized.includes("sin realizar") || normalized.includes("pend")) return "🕒";
+  if (normalized.includes("complet")) return "✅";
+  if (normalized.includes("hoy")) return "📅";
+  if (normalized.includes("total")) return "📊";
+  return "•";
 }
 
 function compactMetricLine(label, value) {
-  return `${normalizeText(label, "-", 28).padEnd(18, ".")} ${toMetricCount(value)}`;
+  return `${telegramMetricIcon(label)} ${normalizeText(label, "-", 28).padEnd(18, ".")} ${toMetricCount(value)}`;
 }
 
 function buildTelegramRiskSummary({
@@ -657,20 +692,20 @@ function buildTelegramRiskSummary({
   pending = 0
 } = {}) {
   if (toMetricCount(overdue) > 0 || toMetricCount(critical) > 0) {
-    return "Prioridad: Atencion inmediata";
+    return "🚨 Prioridad: Atencion inmediata";
   }
   if (toMetricCount(high) > 0 || toMetricCount(dueSoon) > 0) {
-    return "Prioridad: Revisar pronto";
+    return "⚠️ Prioridad: Revisar pronto";
   }
   if (toMetricCount(pending) > 0) {
-    return "Prioridad: Seguimiento normal";
+    return "🕒 Prioridad: Seguimiento normal";
   }
-  return "Prioridad: Sin alertas activas";
+  return "✅ Prioridad: Sin alertas activas";
 }
 
 function buildTelegramCard(title, lines = []) {
   return [
-    normalizeText(title, "Elemento", 90),
+    `▫️ ${normalizeText(title, "Elemento", 90)}`,
     ...lines.filter((line) => String(line || "").trim())
   ].join("\n");
 }
@@ -684,13 +719,13 @@ function toTaskLine(task) {
   const assignedTo = task?.assignedTo
     ? normalizeText(task.assignedTo.name, "Usuario eliminado", 70)
     : "Sin asignar";
-  return buildTelegramCard(`TAREA #${Number(task?.id || 0)} | ${title}`, [
-    `Estado: ${status}`,
-    `Prioridad: ${priority}`,
-    `Vence: ${dueDate}`,
-    `Creado por: ${createdBy}`,
-    `Asignado a: ${assignedTo}`,
-    task?.group?.name ? `Grupo: ${normalizeText(task.group.name, "-", 60)}` : ""
+  return buildTelegramCard(`📋 TAREA #${Number(task?.id || 0)} | ${title}`, [
+    `📊 Estado: ${status}`,
+    `⚠️ Prioridad: ${priority}`,
+    `📅 Vence: ${dueDate}`,
+    `👤 Creado por: ${createdBy}`,
+    `👥 Asignado a: ${assignedTo}`,
+    task?.group?.name ? `🏢 Grupo: ${normalizeText(task.group.name, "-", 60)}` : ""
   ]);
 }
 
@@ -802,7 +837,7 @@ function buildGroupsMenuKeyboard(groups = []) {
       }
     ]);
   }
-  rows.push([{ text: "Volver al menu", callback_data: `${MENU_CALLBACK_PREFIX}home` }]);
+  rows.push([{ text: "⬅️ Volver al menu", callback_data: `${MENU_CALLBACK_PREFIX}home` }]);
   return { inline_keyboard: rows };
 }
 
@@ -811,12 +846,12 @@ function buildGroupSummaryKeyboard(groupId) {
   return {
     inline_keyboard: [
       [
-        { text: "Ver tareas", callback_data: `${MENU_CALLBACK_PREFIX}gtasks:${safeGroupId}` },
-        { text: "Ver bitacoras", callback_data: `${MENU_CALLBACK_PREFIX}gbits:${safeGroupId}` }
+        { text: "📋 Ver tareas", callback_data: `${MENU_CALLBACK_PREFIX}gtasks:${safeGroupId}` },
+        { text: "📓 Ver bitacoras", callback_data: `${MENU_CALLBACK_PREFIX}gbits:${safeGroupId}` }
       ],
       [
-        { text: "Alertas", callback_data: `${MENU_CALLBACK_PREFIX}galerts:${safeGroupId}` },
-        { text: "Volver a grupos", callback_data: `${MENU_CALLBACK_PREFIX}groups` }
+        { text: "⚠️ Alertas", callback_data: `${MENU_CALLBACK_PREFIX}galerts:${safeGroupId}` },
+        { text: "⬅️ Volver a grupos", callback_data: `${MENU_CALLBACK_PREFIX}groups` }
       ]
     ]
   };
@@ -837,7 +872,7 @@ async function buildTelegramGroupsMenu(user) {
       telegramTitle("Consulta por grupos"),
       telegramDivider(),
       "Selecciona un grupo visible para ver su resumen operativo.",
-      `Grupos disponibles: ${groups.length}`
+      `🏢 Grupos disponibles: ${groups.length}`
     ].join("\n"),
     replyMarkup: buildGroupsMenuKeyboard(groups),
     groups
@@ -848,7 +883,7 @@ function buildGroupSummaryText(group) {
   return [
     telegramTitle(`Grupo: ${normalizeText(group.name, "Grupo", 80)}`),
     telegramDivider(),
-    "Indicadores",
+    "📌 Indicadores",
     compactMetricLine("Bitacoras", group.totalEvents),
     compactMetricLine("Tareas", group.totalTasks),
     compactMetricLine("Vencidas", group.overdueTasks),
@@ -856,9 +891,9 @@ function buildGroupSummaryText(group) {
     compactMetricLine("En proceso", group.inProgressTasks),
     compactMetricLine("Sin realizar", group.pendingTasks),
     "",
-    "Actividad",
-    `Ultima: ${group.lastActivityAt ? formatDateTimeCaracas(group.lastActivityAt) : "Sin actividad"}`,
-    `Actualizado: ${formatDateTimeCaracas(new Date())}`
+    "🕒 Actividad",
+    `Última: ${group.lastActivityAt ? formatDateTimeCaracas(group.lastActivityAt) : "Sin actividad"}`,
+    `🔄 Actualizado: ${formatDateTimeCaracas(new Date())}`
   ].join("\n");
 }
 
@@ -927,12 +962,11 @@ async function buildGroupBitacorasMessage(user, groupId) {
       replyMarkup: buildGroupSummaryKeyboard(safeGroupId)
     };
   }
-  const lines = items.map((item) => [
-    `BIT-${String(Number(item.id || 0)).padStart(5, "0")}`,
-    `Actividad: ${normalizeText(item.actividad, "Sin actividad", 80)}`,
-    `Creado por: ${normalizeText(item.encargado, "-", 60)}`,
-    `Fecha: ${formatDateCaracas(item.fecha)}`
-  ].join("\n"));
+  const lines = items.map((item) => buildTelegramCard(`📓 BIT-${String(Number(item.id || 0)).padStart(5, "0")}`, [
+    `🧾 Actividad: ${normalizeText(item.actividad, "Sin actividad", 80)}`,
+    `👤 Creado por: ${normalizeText(item.encargado, "-", 60)}`,
+    `📅 Fecha: ${formatDateCaracas(item.fecha)}`
+  ]));
   return {
     ok: true,
     text: [telegramTitle("Bitacoras del grupo"), telegramDivider(), ...lines.flatMap((line, index) => (index === 0 ? [line] : ["", line]))].join("\n"),
@@ -1026,9 +1060,9 @@ async function buildUsersMessage(user) {
   const lines = items.map((item) => buildTelegramCard(
     `${normalizeText(item.name, "Usuario", 70)}${item.isActive ? "" : " (inactivo)"}`,
     [
-      isAdmin ? `Correo: ${normalizeText(item.email, "-", 90)}` : "",
-      `Rol: ${normalizeText(item.role, "-", 24)}`,
-      `Grupos: ${item.groups.length ? item.groups.map((group) => normalizeText(group, "Grupo", 40)).join(", ") : "Sin grupo"}`
+      isAdmin ? `✉️ Correo: ${normalizeText(item.email, "-", 90)}` : "",
+      `🛡️ Rol: ${normalizeText(item.role, "-", 24)}`,
+      `🏢 Grupos: ${item.groups.length ? item.groups.map((group) => normalizeText(group, "Grupo", 40)).join(", ") : "Sin grupo"}`
     ]
   ));
 
@@ -1039,7 +1073,7 @@ async function buildUsersMessage(user) {
       telegramDivider(),
       ...lines.flatMap((line, index) => (index === 0 ? [line] : ["", line])),
       "",
-      `Actualizado: ${formatDateTimeCaracas(new Date())}`
+      `🔄 Actualizado: ${formatDateTimeCaracas(new Date())}`
     ].join("\n")
   };
 }
@@ -1085,27 +1119,27 @@ function splitMessageChunks(text) {
 function buildMainMenuKeyboard(user = null) {
   const inlineKeyboard = [
       [
-        { text: "Mis Tareas", callback_data: `${MENU_CALLBACK_PREFIX}tasks` },
-        { text: "Alertas", callback_data: `${MENU_CALLBACK_PREFIX}alerts` }
+        { text: "📋 Mis Tareas", callback_data: `${MENU_CALLBACK_PREFIX}tasks` },
+        { text: "⚠️ Alertas", callback_data: `${MENU_CALLBACK_PREFIX}alerts` }
       ],
       [
-        { text: "Bitacoras", callback_data: `${MENU_CALLBACK_PREFIX}bitacoras` },
-        { text: "Buscar tarea", callback_data: `${MENU_CALLBACK_PREFIX}search` }
+        { text: "📓 Bitacoras", callback_data: `${MENU_CALLBACK_PREFIX}bitacoras` },
+        { text: "🔎 Buscar tarea", callback_data: `${MENU_CALLBACK_PREFIX}search` }
       ],
       [
-        { text: "Estado general", callback_data: `${MENU_CALLBACK_PREFIX}status` }
+        { text: "📊 Estado general", callback_data: `${MENU_CALLBACK_PREFIX}status` }
       ]
     ];
 
   if (isTelegramExecutiveUser(user)) {
     inlineKeyboard.splice(2, 0, [
-      { text: "Grupos", callback_data: `${MENU_CALLBACK_PREFIX}groups` }
+      { text: "🏢 Grupos", callback_data: `${MENU_CALLBACK_PREFIX}groups` }
     ]);
   }
 
   if (isTelegramExecutiveUser(user) || canUserViewUsers(user)) {
     inlineKeyboard.splice(3, 0, [
-      { text: "Usuarios", callback_data: `${MENU_CALLBACK_PREFIX}users` }
+      { text: "👥 Usuarios", callback_data: `${MENU_CALLBACK_PREFIX}users` }
     ]);
   }
 
@@ -1114,7 +1148,7 @@ function buildMainMenuKeyboard(user = null) {
 
 function buildBackMenuKeyboard() {
   return {
-    inline_keyboard: [[{ text: "Volver al menu", callback_data: `${MENU_CALLBACK_PREFIX}home` }]]
+    inline_keyboard: [[{ text: "⬅️ Volver al menu", callback_data: `${MENU_CALLBACK_PREFIX}home` }]]
   };
 }
 
@@ -1868,7 +1902,7 @@ async function buildAlertsMessage(user) {
       dueSoon: counts.dueSoon
     }),
     "",
-    "Indicadores",
+    "📌 Indicadores",
     compactMetricLine("Vencidas", counts.overdue),
     compactMetricLine("Proximas 7 dias", counts.dueSoon),
     compactMetricLine("Criticas", counts.critical),
@@ -1876,7 +1910,7 @@ async function buildAlertsMessage(user) {
     compactMetricLine("Prioridad media", counts.medium),
     compactMetricLine("Prioridad baja", counts.low),
     "",
-    `Actualizado: ${formatDateTimeCaracas(new Date())}`
+    `🔄 Actualizado: ${formatDateTimeCaracas(new Date())}`
   ].join("\n");
 }
 
@@ -1901,10 +1935,10 @@ async function buildBitacorasMessage(user) {
     const activity = normalizeText(item.actividad, "Sin actividad", 90);
     const priority =
       PRIORITY_LABELS[String(item.prioridad || "")] || normalizeText(item.prioridad, "Sin prioridad", 32);
-    return buildTelegramCard(`BIT-${String(id).padStart(5, "0")} | ${priority}`, [
-      `Actividad: ${activity}`,
-      `Creado por: ${normalizeText(item.encargado, "-", 60)}`,
-      `Fecha: ${formatDateCaracas(item.fecha)}`
+    return buildTelegramCard(`📓 BIT-${String(id).padStart(5, "0")} | ${priority}`, [
+      `🧾 Actividad: ${activity}`,
+      `👤 Creado por: ${normalizeText(item.encargado, "-", 60)}`,
+      `📅 Fecha: ${formatDateCaracas(item.fecha)}`
     ]);
   });
 
@@ -1913,7 +1947,7 @@ async function buildBitacorasMessage(user) {
     telegramDivider(),
     ...lines.flatMap((line, index) => (index === 0 ? [line] : ["", line])),
     "",
-    `Actualizado: ${formatDateTimeCaracas(new Date())}`
+    `🔄 Actualizado: ${formatDateTimeCaracas(new Date())}`
   ].join("\n");
 }
 
@@ -1926,11 +1960,11 @@ async function buildGroupedGeneralStatusMessage(user) {
       telegramDivider(),
       "No hay grupos visibles para tu perfil.",
       "",
-      `Actualizado: ${formatDateTimeCaracas(new Date())}`
+      `🔄 Actualizado: ${formatDateTimeCaracas(new Date())}`
     ].join("\n");
   }
 
-  const lines = groups.map((group) => buildTelegramCard(`AREA: ${normalizeText(group.name, "Grupo", 80)}`, [
+  const lines = groups.map((group) => buildTelegramCard(`🏢 AREA: ${normalizeText(group.name, "Grupo", 80)}`, [
     compactMetricLine("Bitacoras", group.totalEvents),
     compactMetricLine("Tareas", group.totalTasks),
     compactMetricLine("Vencidas", group.overdueTasks),
@@ -1944,7 +1978,7 @@ async function buildGroupedGeneralStatusMessage(user) {
     telegramDivider(),
     ...lines.flatMap((line, index) => (index === 0 ? [line] : ["", line])),
     "",
-    `Actualizado: ${formatDateTimeCaracas(new Date())}`
+    `🔄 Actualizado: ${formatDateTimeCaracas(new Date())}`
   ].join("\n");
 }
 
@@ -1989,19 +2023,19 @@ async function buildGeneralStatusMessage(user) {
       pending
     }),
     "",
-    "Tareas",
+    "📋 Tareas",
     compactMetricLine("Total", totals.total),
     compactMetricLine("Pendientes", pending),
     compactMetricLine("Completadas", totals.completada),
     compactMetricLine("Vencidas", overdue),
     compactMetricLine("Criticas", critical),
     "",
-    "Bitacoras",
+    "📓 Bitacoras",
     compactMetricLine("Total", bitacoraTotals.total),
     compactMetricLine("Hoy", bitacoraTotals.today),
     compactMetricLine("Criticas 7 dias", bitacoraTotals.critical),
     "",
-    `Actualizado: ${formatDateTimeCaracas(new Date())}`
+    `🔄 Actualizado: ${formatDateTimeCaracas(new Date())}`
   ].join("\n");
 }
 

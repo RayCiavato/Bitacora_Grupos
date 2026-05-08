@@ -136,6 +136,8 @@ router.get("/", authenticate, requireRole(["admin", "supervisor"]), async (req, 
             email,
             role,
             mfa_enabled,
+            is_active AS "isActive",
+            deleted_at AS "deletedAt",
             created_at
           FROM users
           WHERE is_active = TRUE
@@ -149,6 +151,8 @@ router.get("/", authenticate, requireRole(["admin", "supervisor"]), async (req, 
             email,
             role,
             mfa_enabled,
+            is_active AS "isActive",
+            deleted_at AS "deletedAt",
             created_at
           FROM users
           ORDER BY id ASC
@@ -498,7 +502,13 @@ router.delete("/:id", authenticate, requireRole(["admin"]), async (req, res, nex
     if (!targetUser.isActive || targetUser.deletedAt) {
       await client.query("ROLLBACK");
       txStarted = false;
-      return res.status(400).json({ error: "user_inactive" });
+      return res.json({
+        message: "Usuario ya estaba desactivado",
+        user: {
+          id: userId,
+          isActive: false
+        }
+      });
     }
 
     if (targetUser.role === "admin") {
