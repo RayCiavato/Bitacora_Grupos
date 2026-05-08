@@ -6,7 +6,7 @@ const {
   getGroupIdFromResource
 } = require("./groups");
 
-const ROLE_KEYS = Object.freeze(["admin", "gerencial", "supervisor", "funcionario"]);
+const ROLE_KEYS = Object.freeze(["admin", "supervisor", "funcionario"]);
 
 const PANEL_KEYS = Object.freeze([
   "dashboard",
@@ -207,59 +207,6 @@ const BASE_ROLE_CAPABILITIES = Object.freeze({
         deleteAny: false,
         deleteOwnCreated: true,
         export: true
-      })
-    })
-  }),
-  gerencial: Object.freeze({
-    panels: Object.freeze({
-      ...BASE_PANELS,
-      registroNuevo: false,
-      plantillas: false,
-      auditoria: false,
-      configuracion: false
-    }),
-    actions: Object.freeze({
-      users: Object.freeze({
-        viewList: false,
-        manage: false,
-        changeOwnPassword: false
-      }),
-      templates: Object.freeze({
-        view: false,
-        manage: false
-      }),
-      reports: Object.freeze({
-        filterByUser: true,
-        export: true
-      }),
-      events: Object.freeze({
-        create: false,
-        editAny: false,
-        editOwn: false,
-        deleteAny: false
-      }),
-      attachments: Object.freeze({
-        uploadAny: false,
-        uploadOwn: false,
-        viewAny: true,
-        viewOwn: true,
-        editAny: false,
-        editOwn: false,
-        deleteAny: false,
-        deleteOwn: false
-      }),
-      tasks: Object.freeze({
-        viewAny: true,
-        viewOwnCreated: true,
-        viewAssigned: true,
-        create: false,
-        assignAny: false,
-        editAny: false,
-        editOwnCreated: false,
-        editAssigned: false,
-        deleteAny: false,
-        deleteOwnCreated: false,
-        export: false
       })
     })
   }),

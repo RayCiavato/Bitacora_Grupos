@@ -137,6 +137,14 @@
     }, 3800);
   }
 
+  async function confirmTaskAction(options = {}) {
+    if (window.BitacoraDialogs?.confirm) {
+      return window.BitacoraDialogs.confirm(options);
+    }
+    showToast("No se pudo abrir la confirmacion segura.", "error");
+    return false;
+  }
+
   function setButtonBusy(button, isBusy, busyLabel) {
     if (!button) {
       return;
@@ -1335,7 +1343,14 @@
   }
 
   async function handleTaskDelete(taskId) {
-    if (!window.confirm("Eliminar esta tarea? Esta accion la retirara del listado activo.")) {
+    const confirmed = await confirmTaskAction({
+      title: "Eliminar tarea",
+      meta: `Tarea #${taskId}`,
+      body: "Esta accion retirara la tarea del listado activo, conservando la trazabilidad del sistema.",
+      confirmLabel: "Eliminar tarea",
+      danger: true
+    });
+    if (!confirmed) {
       return;
     }
 

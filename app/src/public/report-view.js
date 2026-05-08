@@ -72,6 +72,219 @@ function addCsrfHeaderIfNeeded(headers = {}, method = "GET") {
   };
 }
 
+function createReportDialogShell() {
+  let modal = document.getElementById("reportDialogModal");
+  if (modal) {
+    return modal;
+  }
+
+  modal = document.createElement("section");
+  modal.id = "reportDialogModal";
+  modal.className = "entity-modal hidden";
+  modal.setAttribute("aria-hidden", "true");
+
+  const overlay = document.createElement("div");
+  overlay.className = "entity-modal-overlay";
+  overlay.dataset.reportDialogClose = "true";
+  modal.appendChild(overlay);
+
+  const card = document.createElement("article");
+  card.className = "entity-modal-card";
+  modal.appendChild(card);
+
+  const header = document.createElement("header");
+  header.className = "entity-modal-header";
+  card.appendChild(header);
+
+  const headerText = document.createElement("div");
+  header.appendChild(headerText);
+
+  const eyebrow = document.createElement("p");
+  eyebrow.className = "eyebrow";
+  eyebrow.dataset.reportDialogMeta = "true";
+  headerText.appendChild(eyebrow);
+
+  const title = document.createElement("h3");
+  title.dataset.reportDialogTitle = "true";
+  headerText.appendChild(title);
+
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.className = "btn btn-ghost";
+  closeButton.dataset.reportDialogClose = "true";
+  closeButton.textContent = "Cerrar";
+  header.appendChild(closeButton);
+
+  const body = document.createElement("div");
+  body.className = "entity-modal-body";
+  body.dataset.reportDialogBody = "true";
+  card.appendChild(body);
+
+  const actions = document.createElement("div");
+  actions.className = "entity-modal-actions";
+  actions.dataset.reportDialogActions = "true";
+  card.appendChild(actions);
+
+  modal.addEventListener("click", (event) => {
+    const target = event.target;
+    if (target instanceof HTMLElement && target.hasAttribute("data-report-dialog-close")) {
+      const closeEvent = new CustomEvent("report-dialog-close", { detail: { value: null } });
+      modal.dispatchEvent(closeEvent);
+    }
+  });
+
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function openReportDialog({ title, meta, bodyBuilder, actionsBuilder }) {
+  const modal = createReportDialogShell();
+  const titleEl = modal.querySelector("[data-report-dialog-title]");
+  const metaEl = modal.querySelector("[data-report-dialog-meta]");
+  const bodyEl = modal.querySelector("[data-report-dialog-body]");
+  const actionsEl = modal.querySelector("[data-report-dialog-actions]");
+
+  return new Promise((resolve) => {
+    const close = (value) => {
+      modal.classList.add("hidden");
+      modal.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("modal-open");
+      modal.removeEventListener("report-dialog-close", onClose);
+      resolve(value);
+    };
+    const onClose = (event) => close(event.detail?.value ?? null);
+
+    security.setSafeText(titleEl, title);
+    security.setSafeText(metaEl, meta);
+    clearElement(bodyEl);
+    clearElement(actionsEl);
+
+    bodyBuilder?.(bodyEl, close);
+    actionsBuilder?.(actionsEl, close);
+
+    modal.addEventListener("report-dialog-close", onClose);
+    modal.classList.remove("hidden");
+    modal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("modal-open");
+  });
+}
+
+function openReportConfirmDialog({ title, meta, body, confirmLabel = "Confirmar", danger = false }) {
+  return openReportDialog({
+    title,
+    meta,
+    bodyBuilder(bodyEl) {
+      security.setSafeText(bodyEl, body);
+    },
+    actionsBuilder(actionsEl, close) {
+      const row = document.createElement("div");
+      row.className = "entity-modal-actions-row";
+
+      const cancelButton = document.createElement("button");
+      cancelButton.type = "button";
+      cancelButton.className = "btn btn-ghost";
+      cancelButton.textContent = "Cancelar";
+      cancelButton.addEventListener("click", () => close(false));
+
+      const confirmButton = document.createElement("button");
+      confirmButton.type = "button";
+      confirmButton.className = danger ? "btn btn-danger" : "btn btn-primary";
+      confirmButton.textContent = confirmLabel;
+      confirmButton.addEventListener("click", () => close(true));
+
+      row.appendChild(cancelButton);
+      row.appendChild(confirmButton);
+      actionsEl.appendChild(row);
+      window.setTimeout(() => cancelButton.focus(), 60);
+    }
+  });
+}
+
+function addReportInput(parent, labelText, field) {
+  const label = document.createElement("label");
+  label.className = "modal-confirm-input";
+  label.textContent = labelText;
+  label.appendChild(field);
+  parent.appendChild(label);
+  return field;
+}
+
+function openReportEditDialog(current = {}) {
+  return openReportDialog({
+    title: "Editar registro",
+    meta: "Vista completa de bitacora",
+    bodyBuilder(bodyEl, close) {
+      const form = document.createElement("form");
+      form.className = "report-edit-form";
+
+      const fecha = document.createElement("input");
+      fecha.type = "date";
+      fecha.value = current?.fecha || "";
+      addReportInput(form, "Fecha", fecha);
+
+      const descripcionActividad = document.createElement("textarea");
+      descripcionActividad.rows = 4;
+      descripcionActividad.value = current?.descripcionActividad || "";
+      addReportInput(form, "Descripcion de actividad", descripcionActividad);
+
+      const observacion = document.createElement("textarea");
+      observacion.rows = 4;
+      observacion.value = current?.observacion || "";
+      addReportInput(form, "Observacion", observacion);
+
+      const prioridad = document.createElement("select");
+      ["baja", "media", "alta", "observacion"].forEach((value) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = PRIORITY_LABELS[value] || value;
+        prioridad.appendChild(option);
+      });
+      prioridad.value = normalizePriority(current?.prioridad);
+      addReportInput(form, "Prioridad", prioridad);
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        close({
+          fecha: fecha.value.trim(),
+          descripcionActividad: descripcionActividad.value.trim(),
+          observacion: observacion.value.trim(),
+          prioridad: normalizePriority(prioridad.value)
+        });
+      });
+
+      bodyEl.appendChild(form);
+      bodyEl.dataset.reportEditForm = "true";
+      window.setTimeout(() => fecha.focus(), 60);
+    },
+    actionsBuilder(actionsEl) {
+      const row = document.createElement("div");
+      row.className = "entity-modal-actions-row";
+
+      const cancelButton = document.createElement("button");
+      cancelButton.type = "button";
+      cancelButton.className = "btn btn-ghost";
+      cancelButton.textContent = "Cancelar";
+      cancelButton.addEventListener("click", () => {
+        const modal = createReportDialogShell();
+        modal.dispatchEvent(new CustomEvent("report-dialog-close", { detail: { value: null } }));
+      });
+
+      const saveButton = document.createElement("button");
+      saveButton.type = "submit";
+      saveButton.className = "btn btn-primary";
+      saveButton.textContent = "Guardar cambios";
+      saveButton.addEventListener("click", () => {
+        const form = document.querySelector(".report-edit-form");
+        form?.requestSubmit();
+      });
+
+      row.appendChild(cancelButton);
+      row.appendChild(saveButton);
+      actionsEl.appendChild(row);
+    }
+  });
+}
+
 const PRIORITY_LABELS = {
   baja: "Baja",
   media: "Media",
@@ -304,9 +517,13 @@ async function handleDelete(eventId) {
     return;
   }
 
-  const confirmed = window.confirm(
-    `Confirma eliminar el registro #${eventId}. Esta accion no se puede deshacer.`
-  );
+  const confirmed = await openReportConfirmDialog({
+    title: "Eliminar registro",
+    meta: `Bitacora #${eventId}`,
+    body: "Esta accion retirara el registro del listado activo y conservara la auditoria del sistema.",
+    confirmLabel: "Eliminar registro",
+    danger: true
+  });
   if (!confirmed) {
     return;
   }
@@ -337,41 +554,20 @@ async function handleEdit(eventId) {
   }
 
   const current = state.eventPayloadById[eventId] || null;
-
-  const fecha = window.prompt("Fecha (YYYY-MM-DD)", current?.fecha || "");
-  if (fecha === null) {
+  const payload = await openReportEditDialog(current || {});
+  if (!payload) {
     return;
   }
-  const descripcionActividad = window.prompt(
-    "Descripcion de actividad",
-    current?.descripcionActividad || ""
-  );
-  if (descripcionActividad === null) {
-    return;
-  }
-  const observacion = window.prompt("Observacion", current?.observacion || "");
-  if (observacion === null) {
-    return;
-  }
-  const prioridadRaw = window.prompt(
-    "Prioridad (baja, media, alta, observacion)",
-    normalizePriority(current?.prioridad)
-  );
-  if (prioridadRaw === null) {
-    return;
-  }
-
-  const prioridad = normalizePriority(prioridadRaw.trim());
 
   const response = await fetch(`/events/${eventId}`, {
     method: "PATCH",
     credentials: "same-origin",
     headers: addCsrfHeaderIfNeeded({ "Content-Type": "application/json" }, "PATCH"),
     body: JSON.stringify({
-      fecha: fecha.trim(),
-      descripcionActividad: descripcionActividad.trim(),
-      observacion: observacion.trim(),
-      prioridad
+      fecha: payload.fecha,
+      descripcionActividad: payload.descripcionActividad,
+      observacion: payload.observacion,
+      prioridad: payload.prioridad
     })
   });
 

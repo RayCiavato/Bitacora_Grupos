@@ -1,2 +1,2 @@
-ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'gerencial';
-
+-- Obsoleto: el rol global "gerencial" se retiro para evitar discrepancia con el grupo Gerencia.
+-- Esta migracion queda como no-op para no romper historiales de despliegue que ya la referencien.

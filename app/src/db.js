@@ -20,12 +20,11 @@ async function ensureDatabaseSchema() {
       DO $$
       BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_role') THEN
-          CREATE TYPE user_role AS ENUM ('admin', 'gerencial', 'supervisor', 'funcionario');
+          CREATE TYPE user_role AS ENUM ('admin', 'supervisor', 'funcionario');
         END IF;
       END $$;
     `,
     "ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'supervisor'",
-    "ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'gerencial'",
     `
       CREATE TABLE IF NOT EXISTS users (
         id BIGSERIAL PRIMARY KEY,
@@ -169,7 +168,7 @@ async function ensureDatabaseSchema() {
         ('Soporte', 'soporte', 'Area interna de soporte operativo.', TRUE),
         ('Infraestructura', 'infraestructura', 'Area interna de infraestructura.', TRUE),
         ('Seguridad Tecnologica', 'seguridad-tecnologica', 'Area transversal de seguridad tecnologica.', TRUE),
-        ('Gerencia', 'gerencia', 'Grupo gerencial con visibilidad configurable.', TRUE)
+        ('Gerencia', 'gerencia', 'Grupo de gerencia con visibilidad configurable.', TRUE)
       ON CONFLICT (slug) DO NOTHING
     `,
     `

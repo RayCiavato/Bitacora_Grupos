@@ -5,6 +5,7 @@ const { config } = require("../config");
 const { logger } = require("../logger");
 const { createAuditLog } = require("./audit");
 const {
+  canUserViewUsers,
   resolveActorId,
   getBitacoraViewScope
 } = require("./authorization");
@@ -636,12 +637,16 @@ function toMetricCount(value) {
   return Number.isFinite(normalized) ? Math.max(0, normalized) : 0;
 }
 
-function metricIcon(value, activeIcon = "📊", emptyIcon = "➖") {
-  return toMetricCount(value) > 0 ? activeIcon : emptyIcon;
+function telegramDivider() {
+  return "------------------------------";
 }
 
-function metricLine(label, value, { activeIcon = "📊", emptyIcon = "➖" } = {}) {
-  return `${metricIcon(value, activeIcon, emptyIcon)} ${label}: ${toMetricCount(value)}`;
+function telegramTitle(value) {
+  return normalizeText(value, "Panel", 90).toUpperCase();
+}
+
+function compactMetricLine(label, value) {
+  return `${normalizeText(label, "-", 28).padEnd(18, ".")} ${toMetricCount(value)}`;
 }
 
 function buildTelegramRiskSummary({
@@ -652,32 +657,22 @@ function buildTelegramRiskSummary({
   pending = 0
 } = {}) {
   if (toMetricCount(overdue) > 0 || toMetricCount(critical) > 0) {
-    return "🚨 Atencion inmediata";
+    return "Prioridad: Atencion inmediata";
   }
   if (toMetricCount(high) > 0 || toMetricCount(dueSoon) > 0) {
-    return "⚠️ Revisar pronto";
+    return "Prioridad: Revisar pronto";
   }
   if (toMetricCount(pending) > 0) {
-    return "🧭 Seguimiento normal";
+    return "Prioridad: Seguimiento normal";
   }
-  return "✅ Sin alertas activas";
+  return "Prioridad: Sin alertas activas";
 }
 
-function bitacoraPriorityIcon(priority) {
-  const normalized = String(priority || "").trim().toLowerCase();
-  if (normalized === "alta") {
-    return "🚨";
-  }
-  if (normalized === "media") {
-    return "⚠️";
-  }
-  if (normalized === "baja") {
-    return "ℹ️";
-  }
-  if (normalized === "observacion") {
-    return "📝";
-  }
-  return "📌";
+function buildTelegramCard(title, lines = []) {
+  return [
+    normalizeText(title, "Elemento", 90),
+    ...lines.filter((line) => String(line || "").trim())
+  ].join("\n");
 }
 
 function toTaskLine(task) {
@@ -689,15 +684,14 @@ function toTaskLine(task) {
   const assignedTo = task?.assignedTo
     ? normalizeText(task.assignedTo.name, "Usuario eliminado", 70)
     : "Sin asignar";
-  return [
-    `📋 Tarea #${Number(task?.id || 0)}`,
-    `🧾 ${title}`,
-    `📊 Estado: ${status}`,
-    `⚠️ Prioridad: ${priority}`,
-    `📅 Vence: ${dueDate}`,
-    `👤 Creado por: ${createdBy}`,
-    `👥 Asignado a: ${assignedTo}`
-  ].join("\n");
+  return buildTelegramCard(`TAREA #${Number(task?.id || 0)} | ${title}`, [
+    `Estado: ${status}`,
+    `Prioridad: ${priority}`,
+    `Vence: ${dueDate}`,
+    `Creado por: ${createdBy}`,
+    `Asignado a: ${assignedTo}`,
+    task?.group?.name ? `Grupo: ${normalizeText(task.group.name, "-", 60)}` : ""
+  ]);
 }
 
 function taskDueSortValue(task) {
@@ -774,7 +768,11 @@ async function listTelegramMyTasks(user, actorId, limit = 5) {
 
 function isTelegramExecutiveUser(user) {
   const role = String(user?.role || "").trim().toLowerCase();
-  return role === "admin" || role === "gerencial";
+  if (role === "admin") {
+    return true;
+  }
+  const groups = Array.isArray(user?.groups) ? user.groups : [];
+  return groups.some((group) => String(group?.slug || "").toLowerCase() === "gerencia");
 }
 
 function normalizeTelegramGroupId(value) {
@@ -828,7 +826,7 @@ async function buildTelegramGroupsMenu(user) {
   const groups = await getVisibleTelegramGroupSummaries(user);
   if (!groups.length) {
     return {
-      text: ["Consulta por grupos", "", "No hay grupos visibles para tu perfil."].join("\n"),
+      text: [telegramTitle("Consulta por grupos"), telegramDivider(), "No hay grupos visibles para tu perfil."].join("\n"),
       replyMarkup: buildBackMenuKeyboard(),
       groups
     };
@@ -836,9 +834,10 @@ async function buildTelegramGroupsMenu(user) {
 
   return {
     text: [
-      "Consulta por grupos",
-      "",
-      "Selecciona un grupo visible para ver resumen operativo."
+      telegramTitle("Consulta por grupos"),
+      telegramDivider(),
+      "Selecciona un grupo visible para ver su resumen operativo.",
+      `Grupos disponibles: ${groups.length}`
     ].join("\n"),
     replyMarkup: buildGroupsMenuKeyboard(groups),
     groups
@@ -847,16 +846,18 @@ async function buildTelegramGroupsMenu(user) {
 
 function buildGroupSummaryText(group) {
   return [
-    `RESUMEN DEL GRUPO: ${normalizeText(group.name, "Grupo", 80)}`,
+    telegramTitle(`Grupo: ${normalizeText(group.name, "Grupo", 80)}`),
+    telegramDivider(),
+    "Indicadores",
+    compactMetricLine("Bitacoras", group.totalEvents),
+    compactMetricLine("Tareas", group.totalTasks),
+    compactMetricLine("Vencidas", group.overdueTasks),
+    compactMetricLine("Alta prioridad", group.highPriorityTasks),
+    compactMetricLine("En proceso", group.inProgressTasks),
+    compactMetricLine("Sin realizar", group.pendingTasks),
     "",
-    `Bitacoras: ${Number(group.totalEvents || 0)}`,
-    `Tareas: ${Number(group.totalTasks || 0)}`,
-    `Vencidas: ${Number(group.overdueTasks || 0)}`,
-    `Alta prioridad: ${Number(group.highPriorityTasks || 0)}`,
-    `En proceso: ${Number(group.inProgressTasks || 0)}`,
-    `Sin realizar: ${Number(group.pendingTasks || 0)}`,
-    `Ultima actividad: ${group.lastActivityAt ? formatDateTimeCaracas(group.lastActivityAt) : "Sin actividad"}`,
-    "",
+    "Actividad",
+    `Ultima: ${group.lastActivityAt ? formatDateTimeCaracas(group.lastActivityAt) : "Sin actividad"}`,
     `Actualizado: ${formatDateTimeCaracas(new Date())}`
   ].join("\n");
 }
@@ -898,15 +899,15 @@ async function buildGroupTasksMessage(user, groupId) {
   if (!items.length) {
     return {
       ok: true,
-      text: ["Tareas del grupo", "", "No hay tareas visibles para este grupo."].join("\n"),
+      text: [telegramTitle("Tareas del grupo"), telegramDivider(), "No hay tareas visibles para este grupo."].join("\n"),
       replyMarkup: buildGroupSummaryKeyboard(safeGroupId)
     };
   }
   return {
     ok: true,
     text: [
-      "Tareas del grupo",
-      "",
+      telegramTitle("Tareas del grupo"),
+      telegramDivider(),
       ...items.flatMap((item, index) => (index === 0 ? [toTaskLine(item)] : ["", toTaskLine(item)]))
     ].join("\n"),
     replyMarkup: buildGroupSummaryKeyboard(safeGroupId)
@@ -922,18 +923,19 @@ async function buildGroupBitacorasMessage(user, groupId) {
   if (!items.length) {
     return {
       ok: true,
-      text: ["Bitacoras del grupo", "", "No hay bitacoras visibles para este grupo."].join("\n"),
+      text: [telegramTitle("Bitacoras del grupo"), telegramDivider(), "No hay bitacoras visibles para este grupo."].join("\n"),
       replyMarkup: buildGroupSummaryKeyboard(safeGroupId)
     };
   }
   const lines = items.map((item) => [
-    `BIT-${String(Number(item.id || 0)).padStart(5, "0")} | ${normalizeText(item.actividad, "Sin actividad", 80)}`,
+    `BIT-${String(Number(item.id || 0)).padStart(5, "0")}`,
+    `Actividad: ${normalizeText(item.actividad, "Sin actividad", 80)}`,
     `Creado por: ${normalizeText(item.encargado, "-", 60)}`,
     `Fecha: ${formatDateCaracas(item.fecha)}`
   ].join("\n"));
   return {
     ok: true,
-    text: ["Bitacoras del grupo", "", ...lines.flatMap((line, index) => (index === 0 ? [line] : ["", line]))].join("\n"),
+    text: [telegramTitle("Bitacoras del grupo"), telegramDivider(), ...lines.flatMap((line, index) => (index === 0 ? [line] : ["", line]))].join("\n"),
     replyMarkup: buildGroupSummaryKeyboard(safeGroupId)
   };
 }
@@ -945,8 +947,100 @@ async function buildGroupAlertsMessage(user, groupId) {
   }
   return {
     ok: true,
-    text: ["Alertas del grupo", "", summary.text].join("\n"),
+    text: [telegramTitle("Alertas del grupo"), telegramDivider(), summary.text].join("\n"),
     replyMarkup: summary.replyMarkup
+  };
+}
+
+async function listTelegramVisibleUsers(user, limit = 20) {
+  if (!isTelegramExecutiveUser(user) && !canUserViewUsers(user)) {
+    return { ok: false, error: "forbidden", items: [] };
+  }
+
+  const safeLimit = Math.max(1, Math.min(Number(limit || 20), 40));
+  const isAdmin = String(user?.role || "").toLowerCase() === "admin";
+  const visibleGroupIds = Array.isArray(user?.groupAccess?.viewGroupIds)
+    ? user.groupAccess.viewGroupIds.map(Number).filter((id) => Number.isInteger(id) && id > 0)
+    : [];
+
+  if (!isAdmin && !visibleGroupIds.length) {
+    return { ok: true, items: [] };
+  }
+
+  const params = [];
+  const groupFilter = isAdmin
+    ? ""
+    : `WHERE g.id = ANY($${params.push(visibleGroupIds)}::bigint[])`;
+  const limitIndex = params.push(safeLimit);
+
+  const result = await pool.query(
+    `
+      SELECT
+        u.id,
+        u.name,
+        u.email,
+        u.role,
+        u.is_active AS "isActive",
+        u.deleted_at AS "deletedAt",
+        ARRAY_REMOVE(ARRAY_AGG(DISTINCT g.name ORDER BY g.name), NULL) AS groups
+      FROM users u
+      LEFT JOIN user_groups ug ON ug.user_id = u.id
+      LEFT JOIN groups g ON g.id = ug.group_id
+      ${groupFilter}
+      GROUP BY u.id, u.name, u.email, u.role, u.is_active, u.deleted_at
+      ORDER BY u.is_active DESC, u.name ASC
+      LIMIT $${limitIndex}
+    `,
+    params
+  );
+
+  return {
+    ok: true,
+    items: result.rows.map((row) => ({
+      id: Number(row.id),
+      name: row.name,
+      email: row.email,
+      role: row.role,
+      isActive: Boolean(row.isActive),
+      deletedAt: row.deletedAt || null,
+      groups: Array.isArray(row.groups) ? row.groups.filter(Boolean) : []
+    }))
+  };
+}
+
+async function buildUsersMessage(user) {
+  const result = await listTelegramVisibleUsers(user, 20);
+  if (!result.ok) {
+    return { ok: false, error: result.error || "forbidden" };
+  }
+
+  const items = Array.isArray(result.items) ? result.items : [];
+  if (!items.length) {
+    return {
+      ok: true,
+      text: [telegramTitle("Usuarios"), telegramDivider(), "No hay usuarios visibles para tu perfil."].join("\n")
+    };
+  }
+
+  const isAdmin = String(user?.role || "").toLowerCase() === "admin";
+  const lines = items.map((item) => buildTelegramCard(
+    `${normalizeText(item.name, "Usuario", 70)}${item.isActive ? "" : " (inactivo)"}`,
+    [
+      isAdmin ? `Correo: ${normalizeText(item.email, "-", 90)}` : "",
+      `Rol: ${normalizeText(item.role, "-", 24)}`,
+      `Grupos: ${item.groups.length ? item.groups.map((group) => normalizeText(group, "Grupo", 40)).join(", ") : "Sin grupo"}`
+    ]
+  ));
+
+  return {
+    ok: true,
+    text: [
+      telegramTitle("Usuarios"),
+      telegramDivider(),
+      ...lines.flatMap((line, index) => (index === 0 ? [line] : ["", line])),
+      "",
+      `Actualizado: ${formatDateTimeCaracas(new Date())}`
+    ].join("\n")
   };
 }
 
@@ -1006,6 +1100,12 @@ function buildMainMenuKeyboard(user = null) {
   if (isTelegramExecutiveUser(user)) {
     inlineKeyboard.splice(2, 0, [
       { text: "Grupos", callback_data: `${MENU_CALLBACK_PREFIX}groups` }
+    ]);
+  }
+
+  if (isTelegramExecutiveUser(user) || canUserViewUsers(user)) {
+    inlineKeyboard.splice(3, 0, [
+      { text: "Usuarios", callback_data: `${MENU_CALLBACK_PREFIX}users` }
     ]);
   }
 
@@ -1727,8 +1827,8 @@ async function buildMyTasksMessage(user) {
   const items = Array.isArray(result?.items) ? result.items : [];
   if (items.length === 0) {
     return [
-      "Mis Tareas",
-      "",
+      telegramTitle("Mis Tareas"),
+      telegramDivider(),
       "No tienes tareas creadas ni asignadas en este momento."
     ].join("\n");
   }
@@ -1737,17 +1837,19 @@ async function buildMyTasksMessage(user) {
   const totalHint = Number(result?.totalHint || items.length);
   const moreNotice =
     result?.hasMore || totalHint > items.length
-      ? `\nMostrando ${items.length} tareas principales. Usa /buscar para ubicar otra tarea.`
+      ? `Mostrando ${items.length} tareas principales. Usa /buscar para ubicar otra tarea.`
       : "";
   return [
-    "Mis Tareas",
-    "",
+    telegramTitle("Mis Tareas"),
+    telegramDivider(),
     ...lines.flatMap((line, index) => (index === 0 ? [line] : ["", line])),
     moreNotice
   ]
+    .filter((line) => String(line || "").trim())
     .join("\n")
     .trim();
 }
+
 
 async function buildAlertsMessage(user) {
   const alerts = await getTaskOperationalAlerts({
@@ -1757,8 +1859,8 @@ async function buildAlertsMessage(user) {
   const counts = alerts.counts || {};
 
   return [
-    "Alertas operativas",
-    "",
+    telegramTitle("Alertas operativas"),
+    telegramDivider(),
     buildTelegramRiskSummary({
       overdue: counts.overdue,
       critical: counts.critical,
@@ -1766,16 +1868,18 @@ async function buildAlertsMessage(user) {
       dueSoon: counts.dueSoon
     }),
     "",
-    metricLine("Vencidas", counts.overdue, { activeIcon: "🚨" }),
-    metricLine("Proximas a vencer (7 dias)", counts.dueSoon, { activeIcon: "⏳" }),
-    metricLine("Criticas", counts.critical, { activeIcon: "🔥" }),
-    metricLine("Prioridad alta", counts.high, { activeIcon: "⚠️" }),
-    metricLine("Prioridad media", counts.medium, { activeIcon: "📌" }),
-    metricLine("Prioridad baja", counts.low, { activeIcon: "ℹ️" }),
+    "Indicadores",
+    compactMetricLine("Vencidas", counts.overdue),
+    compactMetricLine("Proximas 7 dias", counts.dueSoon),
+    compactMetricLine("Criticas", counts.critical),
+    compactMetricLine("Prioridad alta", counts.high),
+    compactMetricLine("Prioridad media", counts.medium),
+    compactMetricLine("Prioridad baja", counts.low),
     "",
     `Actualizado: ${formatDateTimeCaracas(new Date())}`
   ].join("\n");
 }
+
 
 async function buildBitacorasMessage(user) {
   const scope = getBitacoraViewScope(user);
@@ -1786,8 +1890,8 @@ async function buildBitacorasMessage(user) {
   const items = await listRecentBitacorasForUser(user, 5);
   if (!items.length) {
     return [
-      "Bitacoras recientes",
-      "",
+      telegramTitle("Bitacoras recientes"),
+      telegramDivider(),
       "No hay bitacoras visibles para tu perfil."
     ].join("\n");
   }
@@ -1797,49 +1901,53 @@ async function buildBitacorasMessage(user) {
     const activity = normalizeText(item.actividad, "Sin actividad", 90);
     const priority =
       PRIORITY_LABELS[String(item.prioridad || "")] || normalizeText(item.prioridad, "Sin prioridad", 32);
-    return [
-      `${bitacoraPriorityIcon(item.prioridad)} BIT-${String(id).padStart(5, "0")} | ${priority}`,
+    return buildTelegramCard(`BIT-${String(id).padStart(5, "0")} | ${priority}`, [
       `Actividad: ${activity}`,
       `Creado por: ${normalizeText(item.encargado, "-", 60)}`,
       `Fecha: ${formatDateCaracas(item.fecha)}`
-    ].join("\n");
+    ]);
   });
 
   return [
-    "Bitacoras recientes",
-    "",
+    telegramTitle("Bitacoras recientes"),
+    telegramDivider(),
     ...lines.flatMap((line, index) => (index === 0 ? [line] : ["", line])),
     "",
     `Actualizado: ${formatDateTimeCaracas(new Date())}`
   ].join("\n");
 }
 
+
 async function buildGroupedGeneralStatusMessage(user) {
   const groups = await getVisibleTelegramGroupSummaries(user);
   if (!groups.length) {
     return [
-      "Estado general",
-      "",
+      telegramTitle("Estado general"),
+      telegramDivider(),
       "No hay grupos visibles para tu perfil.",
       "",
       `Actualizado: ${formatDateTimeCaracas(new Date())}`
     ].join("\n");
   }
 
-  const lines = groups.map((group) => [
-    `Area: ${normalizeText(group.name, "Grupo", 80)}`,
-    `Bitacoras: ${Number(group.totalEvents || 0)} | Tareas: ${Number(group.totalTasks || 0)} | Vencidas: ${Number(group.overdueTasks || 0)}`,
-    `Alta prioridad: ${Number(group.highPriorityTasks || 0)} | En proceso: ${Number(group.inProgressTasks || 0)} | Sin realizar: ${Number(group.pendingTasks || 0)}`
-  ].join("\n"));
+  const lines = groups.map((group) => buildTelegramCard(`AREA: ${normalizeText(group.name, "Grupo", 80)}`, [
+    compactMetricLine("Bitacoras", group.totalEvents),
+    compactMetricLine("Tareas", group.totalTasks),
+    compactMetricLine("Vencidas", group.overdueTasks),
+    compactMetricLine("Alta prioridad", group.highPriorityTasks),
+    compactMetricLine("En proceso", group.inProgressTasks),
+    compactMetricLine("Sin realizar", group.pendingTasks)
+  ]));
 
   return [
-    "Estado general por grupos",
-    "",
+    telegramTitle("Estado general por grupos"),
+    telegramDivider(),
     ...lines.flatMap((line, index) => (index === 0 ? [line] : ["", line])),
     "",
     `Actualizado: ${formatDateTimeCaracas(new Date())}`
   ].join("\n");
 }
+
 
 async function buildGeneralStatusMessage(user) {
   if (isTelegramExecutiveUser(user)) {
@@ -1871,8 +1979,8 @@ async function buildGeneralStatusMessage(user) {
   const dueSoon = Number(alerts.dueSoon || 0);
 
   return [
-    "Estado general",
-    "",
+    telegramTitle("Estado general"),
+    telegramDivider(),
     buildTelegramRiskSummary({
       overdue,
       critical,
@@ -1881,26 +1989,32 @@ async function buildGeneralStatusMessage(user) {
       pending
     }),
     "",
-    "Tareas:",
-    metricLine("Total", totals.total, { activeIcon: "📊" }),
-    metricLine("Pendientes", pending, { activeIcon: "⏳" }),
-    metricLine("Completadas", totals.completada, { activeIcon: "✅" }),
-    metricLine("Vencidas", overdue, { activeIcon: "🚨" }),
-    metricLine("Criticas activas", critical, { activeIcon: "🔥" }),
+    "Tareas",
+    compactMetricLine("Total", totals.total),
+    compactMetricLine("Pendientes", pending),
+    compactMetricLine("Completadas", totals.completada),
+    compactMetricLine("Vencidas", overdue),
+    compactMetricLine("Criticas", critical),
     "",
-    "Bitacoras:",
-    metricLine("Total", bitacoraTotals.total, { activeIcon: "📓" }),
-    metricLine("Hoy", bitacoraTotals.today, { activeIcon: "🕒" }),
-    metricLine("Criticas (7 dias)", bitacoraTotals.critical, { activeIcon: "🔥" }),
+    "Bitacoras",
+    compactMetricLine("Total", bitacoraTotals.total),
+    compactMetricLine("Hoy", bitacoraTotals.today),
+    compactMetricLine("Criticas 7 dias", bitacoraTotals.critical),
     "",
     `Actualizado: ${formatDateTimeCaracas(new Date())}`
   ].join("\n");
 }
 
+
 async function buildTaskSearchMessage(user, rawQuery) {
   const query = String(rawQuery || "").trim();
   if (!query) {
-    return "Uso: /buscar <id o texto>";
+    return [
+      telegramTitle("Buscar tarea"),
+      telegramDivider(),
+      "Uso: /buscar <id o texto>",
+      "Ejemplo: /buscar incidente red"
+    ].join("\n");
   }
 
   if (/^\d+$/.test(query)) {
@@ -1909,8 +2023,8 @@ async function buildTaskSearchMessage(user, rawQuery) {
       return "No se encontro la tarea solicitada.";
     }
     return [
-      "Resultado de busqueda",
-      "",
+      telegramTitle("Resultado de busqueda"),
+      telegramDivider(),
       toTaskLine(task)
     ].join("\n");
   }
@@ -1933,19 +2047,25 @@ async function buildTaskSearchMessage(user, rawQuery) {
 
   const total = Number(result?.pagination?.totalItems || items.length);
   const lines = items.map((item) => toTaskLine(item));
-  const moreNotice = total > items.length ? `\nMostrando ${items.length} de ${total} coincidencias.` : "";
+  const moreNotice = total > items.length ? `Mostrando ${items.length} de ${total} coincidencias.` : "";
   return [
-      "Resultado de busqueda",
-    "",
-    ...lines,
+    telegramTitle("Resultado de busqueda"),
+    telegramDivider(),
+    ...lines.flatMap((line, index) => (index === 0 ? [line] : ["", line])),
     moreNotice
   ]
+    .filter((line) => String(line || "").trim())
     .join("\n")
     .trim();
 }
 
+
 async function sendPanelMenu(chatId, options = {}) {
-  const text = "Panel de Control";
+  const text = [
+    telegramTitle("Panel de Control"),
+    telegramDivider(),
+    "Selecciona una consulta del sistema."
+  ].join("\n");
   const replyMarkup = buildMainMenuKeyboard(options.user || null);
 
   if (options.editMessageId) {
@@ -2435,9 +2555,9 @@ async function handleCallbackQuery(update, context = {}) {
     }
     case "search":
       await sendTelegramMessage(chat.id, [
-        "Buscar tarea",
-        "Usa el comando:",
-        "/buscar <id o texto>",
+        telegramTitle("Buscar tarea"),
+        telegramDivider(),
+        "Usa el comando: /buscar <id o texto>",
         "",
         "Ejemplos:",
         "/buscar 15",
@@ -2450,6 +2570,40 @@ async function handleCallbackQuery(update, context = {}) {
       const text = await buildGeneralStatusMessage(linkedUser);
       await sendTelegramMessageChunked(chat.id, text, {
         replyMarkup: buildBackMenuKeyboard()
+      });
+      break;
+    }
+    case "users": {
+      if (!isTelegramExecutiveUser(linkedUser) && !canUserViewUsers(linkedUser)) {
+        await sendUserFriendlyError(chat.id, "forbidden");
+        await auditTelegramAction({
+          userId: linkedUser.id,
+          chatId,
+          telegramUserId,
+          auditAction: "telegram.users.denied",
+          action,
+          result: "fail",
+          reason: "not_allowed",
+          reqContext
+        });
+        return;
+      }
+      const result = await buildUsersMessage(linkedUser);
+      if (!result.ok) {
+        await sendUserFriendlyError(chat.id, result.error || "forbidden");
+        return;
+      }
+      await sendTelegramMessageChunked(chat.id, result.text, {
+        replyMarkup: buildBackMenuKeyboard()
+      });
+      await auditTelegramAction({
+        userId: linkedUser.id,
+        chatId,
+        telegramUserId,
+        auditAction: "telegram.users.list",
+        action,
+        result: "success",
+        reqContext
       });
       break;
     }

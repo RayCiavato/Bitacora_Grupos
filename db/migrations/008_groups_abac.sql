@@ -43,7 +43,7 @@ VALUES
   ('Soporte', 'soporte', 'Area interna de soporte operativo.', TRUE),
   ('Infraestructura', 'infraestructura', 'Area interna de infraestructura.', TRUE),
   ('Seguridad Tecnologica', 'seguridad-tecnologica', 'Area transversal de seguridad tecnologica.', TRUE),
-  ('Gerencia', 'gerencia', 'Grupo gerencial con visibilidad configurable.', TRUE)
+  ('Gerencia', 'gerencia', 'Grupo de gerencia con visibilidad configurable.', TRUE)
 ON CONFLICT (slug) DO NOTHING;
 
 ALTER TABLE events ADD COLUMN IF NOT EXISTS group_id BIGINT;

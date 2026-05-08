@@ -134,17 +134,15 @@ test("ABAC grupos: Gerencia no tiene admin tecnico por defecto", () => {
   assert.equal(canUserExportGroup(gerenciaUser, 1), true);
 });
 
-test("RBAC: rol Gerencial existe y no hereda administracion tecnica", () => {
-  assert.ok(ROLE_KEYS.includes("gerencial"));
+test("RBAC: no expone rol Gerencial; Gerencia se controla como grupo", () => {
+  assert.equal(ROLE_KEYS.includes("gerencial"), false);
   const capabilities = getSessionCapabilities("gerencial");
 
   assert.equal(capabilities.panels.dashboard, true);
-  assert.equal(capabilities.panels.resumen, true);
   assert.equal(capabilities.panels.tareas, true);
-  assert.equal(capabilities.panels.configuracion, false);
   assert.equal(capabilities.actions.users.manage, false);
-  assert.equal(capabilities.actions.tasks.editAny, false);
-  assert.equal(capabilities.actions.reports.export, true);
+  assert.equal(capabilities.actions.tasks.create, true);
+  assert.equal(capabilities.actions.reports.filterByUser, false);
 });
 
 test("Realtime ABAC: no publica sin visibility y no filtra entre Soporte e Infraestructura", () => {

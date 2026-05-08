@@ -816,9 +816,6 @@ function formatRoleLabel(role) {
   if (value === "supervisor") {
     return "Supervisor";
   }
-  if (value === "gerencial") {
-    return "Gerencial";
-  }
   return "Funcionario";
 }
 
@@ -1176,7 +1173,14 @@ async function handleTelegramUnlink() {
     return;
   }
 
-  if (!window.confirm("Confirma desvincular Telegram de este usuario.")) {
+  const confirmed = await openEnterpriseConfirmDialog({
+    title: "Desvincular Telegram",
+    meta: "Conexion de cuenta",
+    body: "Se eliminara la vinculacion actual de Telegram. Podras generar un codigo nuevo cuando lo necesites.",
+    confirmLabel: "Desvincular",
+    danger: true
+  });
+  if (!confirmed) {
     return;
   }
 
@@ -1623,17 +1627,15 @@ async function handleGroupEditSubmit(event) {
     return;
   }
   if (existing.isSystem) {
-    const confirmation = window.prompt(
-      [
-        "Vas a editar un grupo del sistema.",
-        "",
-        `Grupo: ${existing.name}`,
-        "El cambio conserva slug e historial, pero puede afectar vistas operativas.",
-        "",
-        "Para confirmar escribe CONFIRMAR."
-      ].join("\n")
-    );
-    if (confirmation !== "CONFIRMAR") {
+    const confirmed = await openEnterpriseConfirmDialog({
+      title: "Editar grupo del sistema",
+      meta: `Grupo: ${existing.name}`,
+      body: "El cambio conserva slug e historial, pero puede afectar vistas operativas.",
+      confirmLabel: "Guardar cambio",
+      requireText: "CONFIRMAR",
+      danger: true
+    });
+    if (!confirmed) {
       showToast("Edicion cancelada.", "info");
       return;
     }
@@ -1678,7 +1680,7 @@ function getGroupPolicyLabel(policyKey) {
   return labels[policyKey] || policyKey;
 }
 
-function confirmCriticalGroupPolicyChange({ sourceGroupId, targetGroupId, policyKey, enabled }) {
+async function confirmCriticalGroupPolicyChange({ sourceGroupId, targetGroupId, policyKey, enabled }) {
   if (!enabled || sourceGroupId === targetGroupId) {
     return true;
   }
@@ -1689,17 +1691,20 @@ function confirmCriticalGroupPolicyChange({ sourceGroupId, targetGroupId, policy
   const sourceGroup = findGroupById(sourceGroupId);
   const targetGroup = findGroupById(targetGroupId);
   const actor = state.user?.name || state.user?.email || "Usuario actual";
-  const message = [
-    "Cambio critico de visibilidad entre grupos",
-    "",
-    `Actor: ${actor}`,
-    `Grupo origen: ${sourceGroup?.name || `#${sourceGroupId}`}`,
-    `Grupo destino: ${targetGroup?.name || `#${targetGroupId}`}`,
-    `Permiso: ${getGroupPolicyLabel(policyKey)}`,
-    "",
-    "Para confirmar escribe CONFIRMAR."
-  ].join("\n");
-  return window.prompt(message) === "CONFIRMAR";
+  return openEnterpriseConfirmDialog({
+    title: "Cambio critico de grupos",
+    meta: `Permiso: ${getGroupPolicyLabel(policyKey)}`,
+    body: [
+      `Actor: ${actor}`,
+      `Grupo origen: ${sourceGroup?.name || `#${sourceGroupId}`}`,
+      `Grupo destino: ${targetGroup?.name || `#${targetGroupId}`}`,
+      "",
+      "Este cambio puede habilitar visibilidad o acciones transversales."
+    ].join("\n"),
+    confirmLabel: "Aplicar cambio",
+    requireText: "CONFIRMAR",
+    danger: true
+  });
 }
 
 function renderGroupAuditItems(items = []) {
@@ -2012,12 +2017,12 @@ async function handleGroupPolicyChange(event) {
   };
 
   if (
-    !confirmCriticalGroupPolicyChange({
+    !(await confirmCriticalGroupPolicyChange({
       sourceGroupId,
       targetGroupId,
       policyKey,
       enabled: target.checked
-    })
+    }))
   ) {
     target.checked = false;
     return;
@@ -4491,7 +4496,10 @@ function renderUsersOptions() {
     const selectedUserId = Number(adminRoleUserSelect.value || state.users[0].id);
     adminRoleUserSelect.value = String(selectedUserId);
     const selectedUser = state.users.find((user) => Number(user.id) === selectedUserId);
-    adminRoleSelect.value = selectedUser?.role || "funcionario";
+    const selectedRole = String(selectedUser?.role || "funcionario").toLowerCase();
+    adminRoleSelect.value = Array.from(adminRoleSelect.options).some((option) => option.value === selectedRole)
+      ? selectedRole
+      : "funcionario";
   }
 }
 
@@ -6775,7 +6783,14 @@ async function handleAttachmentSubmit(event) {
 
 async function handleAttachmentRename(attachmentId, currentName) {
   const safeCurrent = String(currentName || "").trim();
-  const nextNameRaw = window.prompt("Nuevo nombre del archivo", safeCurrent);
+  const nextNameRaw = await openEnterpriseInputDialog({
+    title: "Renombrar adjunto",
+    meta: "Repositorio de evidencias",
+    body: "Actualiza el nombre visible del archivo. El contenido y la auditoria se mantienen intactos.",
+    initialValue: safeCurrent,
+    confirmLabel: "Guardar nombre",
+    placeholder: "Nombre del archivo"
+  });
   if (nextNameRaw === null) {
     return;
   }
@@ -6818,7 +6833,14 @@ async function handleAttachmentRename(attachmentId, currentName) {
 }
 
 async function handleAttachmentDelete(attachmentId) {
-  if (!window.confirm("¿Eliminar este adjunto? Esta acción no se puede deshacer.")) {
+  const confirmed = await openEnterpriseConfirmDialog({
+    title: "Eliminar adjunto",
+    meta: "Accion no reversible",
+    body: "Se eliminara este adjunto del registro. Esta accion no se puede deshacer.",
+    confirmLabel: "Eliminar adjunto",
+    danger: true
+  });
+  if (!confirmed) {
     return;
   }
 
@@ -6988,7 +7010,14 @@ async function handleEventDelete(button) {
     return;
   }
 
-  if (!window.confirm(`Confirma eliminar el registro #${eventId}. Esta accion no se puede deshacer.`)) {
+  const confirmed = await openEnterpriseConfirmDialog({
+    title: `Eliminar bitacora #${eventId}`,
+    meta: "Accion critica",
+    body: "Se eliminara el registro seleccionado. Esta accion no se puede deshacer.",
+    confirmLabel: "Eliminar registro",
+    danger: true
+  });
+  if (!confirmed) {
     return;
   }
 
@@ -7036,7 +7065,10 @@ function syncSelectedRoleUser() {
   }
   const userId = Number(adminRoleUserSelect.value || 0);
   const selectedUser = state.users.find((user) => Number(user.id) === userId);
-  adminRoleSelect.value = selectedUser?.role || "funcionario";
+  const selectedRole = String(selectedUser?.role || "funcionario").toLowerCase();
+  adminRoleSelect.value = Array.from(adminRoleSelect.options).some((option) => option.value === selectedRole)
+    ? selectedRole
+    : "funcionario";
 }
 
 async function handleAdminRoleUpdate(event) {
@@ -7252,7 +7284,15 @@ async function handleAdminUserDelete() {
   const selectedOption = adminUserSelect.options[adminUserSelect.selectedIndex];
   const label = selectedOption ? selectedOption.textContent : `ID ${userId}`;
 
-  if (!window.confirm(`Confirma eliminar el usuario ${label}. Se borraran sus bitacoras y adjuntos.`)) {
+  const confirmed = await openEnterpriseConfirmDialog({
+    title: "Eliminar usuario",
+    meta: label,
+    body: "El usuario sera desactivado y se conservara la trazabilidad historica segun la politica de soft delete.",
+    confirmLabel: "Eliminar usuario",
+    requireText: "CONFIRMAR",
+    danger: true
+  });
+  if (!confirmed) {
     return;
   }
 
@@ -7714,6 +7754,158 @@ function closeEntityModal() {
   document.body.classList.remove("modal-open");
 }
 
+function openEnterpriseConfirmDialog({
+  title = "Confirmar accion",
+  meta = "Operacion sensible",
+  body = "Confirma que deseas continuar.",
+  confirmLabel = "Confirmar",
+  cancelLabel = "Cancelar",
+  requireText = "",
+  danger = false
+} = {}) {
+  if (!entityModal || !entityModalTitle || !entityModalMeta || !entityModalBody || !entityModalActions) {
+    showToast("No se pudo abrir la confirmacion segura.", "error");
+    return Promise.resolve(false);
+  }
+
+  return new Promise((resolve) => {
+    security.setSafeText(entityModalTitle, title);
+    security.setSafeText(entityModalMeta, meta);
+    security.setSafeText(entityModalBody, body);
+    clearElement(entityModalActions);
+
+    let confirmationInput = null;
+    if (requireText) {
+      const inputWrap = document.createElement("label");
+      inputWrap.className = "modal-confirm-input";
+      inputWrap.textContent = `Escribe ${requireText} para confirmar`;
+      confirmationInput = document.createElement("input");
+      confirmationInput.type = "text";
+      confirmationInput.autocomplete = "off";
+      confirmationInput.spellcheck = false;
+      inputWrap.appendChild(confirmationInput);
+      entityModalActions.appendChild(inputWrap);
+    }
+
+    const buttonWrap = document.createElement("div");
+    buttonWrap.className = "entity-modal-actions-row";
+
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "btn btn-ghost";
+    cancelButton.textContent = cancelLabel;
+    cancelButton.addEventListener("click", () => {
+      closeEntityModal();
+      resolve(false);
+    });
+
+    const confirmButton = document.createElement("button");
+    confirmButton.type = "button";
+    confirmButton.className = danger ? "btn btn-danger" : "btn btn-primary";
+    confirmButton.textContent = confirmLabel;
+    confirmButton.addEventListener("click", () => {
+      if (requireText && confirmationInput?.value !== requireText) {
+        showToast(`Escribe ${requireText} para confirmar.`, "error");
+        confirmationInput?.focus();
+        return;
+      }
+      closeEntityModal();
+      resolve(true);
+    });
+
+    buttonWrap.appendChild(cancelButton);
+    buttonWrap.appendChild(confirmButton);
+    entityModalActions.appendChild(buttonWrap);
+    entityModalActions.classList.remove("hidden");
+    entityModal.classList.remove("hidden");
+    entityModal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("modal-open");
+    window.setTimeout(() => {
+      if (confirmationInput) {
+        confirmationInput.focus();
+      } else {
+        cancelButton.focus();
+      }
+    }, 60);
+  });
+}
+
+function openEnterpriseInputDialog({
+  title = "Actualizar dato",
+  meta = "Operacion controlada",
+  body = "Ingresa el nuevo valor.",
+  initialValue = "",
+  confirmLabel = "Guardar",
+  cancelLabel = "Cancelar",
+  placeholder = "",
+  maxLength = 180
+} = {}) {
+  if (!entityModal || !entityModalTitle || !entityModalMeta || !entityModalBody || !entityModalActions) {
+    showToast("No se pudo abrir el formulario seguro.", "error");
+    return Promise.resolve(null);
+  }
+
+  return new Promise((resolve) => {
+    security.setSafeText(entityModalTitle, title);
+    security.setSafeText(entityModalMeta, meta);
+    security.setSafeText(entityModalBody, body);
+    clearElement(entityModalActions);
+
+    const inputWrap = document.createElement("label");
+    inputWrap.className = "modal-confirm-input";
+    inputWrap.textContent = "Nuevo valor";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.maxLength = Math.max(1, Math.min(Number(maxLength) || 180, 500));
+    input.placeholder = String(placeholder || "");
+    input.value = String(initialValue || "");
+    inputWrap.appendChild(input);
+
+    const buttonWrap = document.createElement("div");
+    buttonWrap.className = "entity-modal-actions-row";
+
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "btn btn-ghost";
+    cancelButton.textContent = cancelLabel;
+    cancelButton.addEventListener("click", () => {
+      closeEntityModal();
+      resolve(null);
+    });
+
+    const confirmButton = document.createElement("button");
+    confirmButton.type = "button";
+    confirmButton.className = "btn btn-primary";
+    confirmButton.textContent = confirmLabel;
+    confirmButton.addEventListener("click", () => {
+      const value = String(input.value || "").trim();
+      closeEntityModal();
+      resolve(value);
+    });
+
+    buttonWrap.appendChild(cancelButton);
+    buttonWrap.appendChild(confirmButton);
+    entityModalActions.appendChild(inputWrap);
+    entityModalActions.appendChild(buttonWrap);
+    entityModalActions.classList.remove("hidden");
+    entityModal.classList.remove("hidden");
+    entityModal.setAttribute("aria-hidden", "false");
+    document.body.classList.add("modal-open");
+    window.setTimeout(() => {
+      input.focus();
+      input.select();
+    }, 60);
+  });
+}
+
+window.BitacoraDialogs = {
+  confirm: openEnterpriseConfirmDialog,
+  input: openEnterpriseInputDialog
+};
+
 function formatCorrelationLine(item) {
   const related = item?.relatedEvent || {};
   return [
@@ -7772,7 +7964,14 @@ async function deleteCorrelationFromDetail(currentEventId, correlationId, payloa
   if (!currentEventId || !correlationId) {
     return;
   }
-  if (!window.confirm(`Confirma quitar la correlacion #${correlationId}.`)) {
+  const confirmed = await openEnterpriseConfirmDialog({
+    title: "Quitar correlacion",
+    meta: `Correlacion #${correlationId}`,
+    body: "Se quitara el vinculo entre bitacoras. Las bitacoras originales se conservaran.",
+    confirmLabel: "Quitar vinculo",
+    danger: true
+  });
+  if (!confirmed) {
     return;
   }
 

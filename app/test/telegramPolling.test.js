@@ -155,7 +155,7 @@ test("Callback Volver al menu responde sin requerir consulta sensible", async ()
         assert.ok(calls.some((call) => call.url.endsWith("/answerCallbackQuery")));
         const editCall = calls.find((call) => call.url.endsWith("/editMessageText"));
         assert.ok(editCall, "debe intentar editar el mensaje actual");
-        assert.equal(editCall.body.text, "Panel de Control");
+        assert.match(editCall.body.text, /PANEL DE CONTROL/);
         assert.equal(editCall.body.message_id, 77);
         assert.equal(editCall.body.reply_markup.inline_keyboard.length, 3);
         assert.equal(
@@ -169,7 +169,7 @@ test("Callback Volver al menu responde sin requerir consulta sensible", async ()
   }
 });
 
-test("Telegram: Admin/Gerencial ven consulta por grupos y resumen respeta ABAC", async () => {
+test("Telegram: Admin/Gerencia ven consulta por grupos y resumen respeta ABAC", async () => {
   const previousFetch = global.fetch;
   const originalPoolQuery = pool.query.bind(pool);
   const calls = [];
@@ -194,11 +194,11 @@ test("Telegram: Admin/Gerencial ven consulta por grupos y resumen respeta ABAC",
         rows: [
           {
             id: 77,
-            name: "Gerencial Uno",
-            email: "gerencial@bitacora.local",
-            role: "gerencial",
+            name: "Gerencia Uno",
+            email: "gerencia@bitacora.local",
+            role: "funcionario",
             telegramUserId: Number(params[0]),
-            telegramUsername: "gerencialuno",
+            telegramUsername: "gerenciauno",
             telegramPrivateChatId: "1401553303",
             telegramGroupChatId: null,
             lastUsedAt: null,
@@ -325,6 +325,31 @@ test("Telegram: Admin/Gerencial ven consulta por grupos y resumen respeta ABAC",
         ]
       };
     }
+    if (sql.includes("from users u left join user_groups ug")) {
+      return {
+        rowCount: 2,
+        rows: [
+          {
+            id: 77,
+            name: "Gerencia Uno",
+            email: "gerencia@bitacora.local",
+            role: "funcionario",
+            isActive: true,
+            deletedAt: null,
+            groups: ["Gerencia"]
+          },
+          {
+            id: 88,
+            name: "Soporte Uno",
+            email: "soporte@bitacora.local",
+            role: "funcionario",
+            isActive: true,
+            deletedAt: null,
+            groups: ["Soporte"]
+          }
+        ]
+      };
+    }
     if (sql.startsWith("update user_telegram_links")) {
       return { rowCount: 1, rows: [] };
     }
@@ -350,7 +375,7 @@ test("Telegram: Admin/Gerencial ven consulta por grupos y resumen respeta ABAC",
           message: {
             message_id: 88,
             text: "/menu",
-            from: { id: 909091, first_name: "Gerencial" },
+            from: { id: 909091, first_name: "Gerencia" },
             chat: { id: 1401553303, type: "private" }
           }
         });
@@ -359,6 +384,9 @@ test("Telegram: Admin/Gerencial ven consulta por grupos y resumen respeta ABAC",
         assert.ok(
           menuCall.body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === "menu:groups")
         );
+        assert.ok(
+          menuCall.body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === "menu:users")
+        );
 
         calls.length = 0;
         const groupResult = await processTelegramUpdate({
@@ -366,7 +394,7 @@ test("Telegram: Admin/Gerencial ven consulta por grupos y resumen respeta ABAC",
           callback_query: {
             id: "callback-group-1",
             data: "menu:grp:1",
-            from: { id: 909090, first_name: "Gerencial" },
+            from: { id: 909092, first_name: "Gerencia" },
             message: {
               message_id: 89,
               chat: { id: 1401553303, type: "private" }
@@ -375,8 +403,28 @@ test("Telegram: Admin/Gerencial ven consulta por grupos y resumen respeta ABAC",
         });
         assert.equal(groupResult.ok, true);
         const summaryCall = calls.find((call) => call.url.endsWith("/sendMessage"));
-        assert.match(summaryCall.body.text, /RESUMEN DEL GRUPO: Soporte/);
-        assert.match(summaryCall.body.text, /Tareas: 8/);
+        assert.match(summaryCall.body.text, /GRUPO: SOPORTE/);
+        assert.match(summaryCall.body.text, /Tareas\.+ 8/);
+
+        calls.length = 0;
+        const usersResult = await processTelegramUpdate({
+          update_id: 103,
+          callback_query: {
+            id: "callback-users-1",
+            data: "menu:users",
+            from: { id: 909090, first_name: "Gerencia" },
+            message: {
+              message_id: 90,
+              chat: { id: 1401553303, type: "private" }
+            }
+          }
+        });
+        assert.equal(usersResult.ok, true);
+        const usersCall = calls.find((call) => call.url.endsWith("/sendMessage"));
+        assert.ok(usersCall);
+        assert.match(usersCall.body.text, /USUARIOS/);
+        assert.match(usersCall.body.text, /Gerencia Uno/);
+        assert.match(usersCall.body.text, /Grupos: Gerencia/);
       }
     );
   } finally {

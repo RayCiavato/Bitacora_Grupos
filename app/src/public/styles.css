@@ -1098,7 +1098,7 @@ textarea {
 
 .dashboard-groups-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
   gap: 0.7rem;
 }
 
@@ -1111,6 +1111,8 @@ textarea {
   padding: 0.82rem;
   display: grid;
   gap: 0.55rem;
+  min-width: 0;
+  overflow: hidden;
   cursor: pointer;
   transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
 }
@@ -1128,9 +1130,19 @@ textarea {
   justify-content: space-between;
   align-items: flex-start;
   gap: 0.65rem;
+  min-width: 0;
+}
+
+.dashboard-group-head > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  line-height: 1.18;
 }
 
 .dashboard-group-badge {
+  flex: 0 1 auto;
+  max-width: 46%;
   border: 1px solid rgba(91, 214, 255, 0.35);
   border-radius: 999px;
   color: #95e9ff;
@@ -1138,6 +1150,9 @@ textarea {
   padding: 0.16rem 0.5rem;
   font-size: 0.72rem;
   font-weight: 800;
+  overflow-wrap: anywhere;
+  text-align: center;
+  white-space: normal;
 }
 
 .dashboard-group-metrics {
@@ -2457,6 +2472,12 @@ select:focus {
   border-color: rgba(122, 155, 212, 0.36);
 }
 
+.btn-danger {
+  color: #180712;
+  background: linear-gradient(122deg, #ff8da0, #ff4f73);
+  box-shadow: 0 12px 24px rgba(255, 79, 115, 0.28);
+}
+
 .dashboard-sidebar {
   background:
     linear-gradient(158deg, rgba(10, 23, 48, 0.92), rgba(6, 16, 37, 0.92)),
@@ -2887,6 +2908,39 @@ th {
   flex-wrap: wrap;
   gap: 0.4rem;
   margin-top: 0.65rem;
+}
+
+.entity-modal-actions-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.modal-confirm-input {
+  width: 100%;
+  display: grid;
+  gap: 0.35rem;
+  color: #d8e8ff;
+  font-weight: 800;
+}
+
+.modal-confirm-input input,
+.modal-confirm-input select,
+.modal-confirm-input textarea {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(95, 145, 214, 0.42);
+  background: rgba(8, 18, 40, 0.92);
+  color: var(--ink);
+  padding: 0.75rem 0.85rem;
+  font: inherit;
+}
+
+.modal-confirm-input textarea {
+  min-height: 96px;
+  resize: vertical;
 }
 
 .attachment-preview-card {

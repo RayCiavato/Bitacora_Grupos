@@ -599,11 +599,8 @@ test("RBAC y Configuracion: seguridad, validaciones, auditoria e integridad", as
     assert.equal(initialRead.status, 200);
     assert.ok(Array.isArray(initialRead.body.roles));
     assert.ok(initialRead.body.roles.includes("admin"));
-    assert.ok(initialRead.body.roles.includes("gerencial"));
+    assert.equal(initialRead.body.roles.includes("gerencial"), false);
     assert.ok(initialRead.body.roles.includes("funcionario"));
-    assert.equal(initialRead.body.policies.gerencial.usuarios.administer, false);
-    assert.equal(initialRead.body.policies.gerencial.configuracion.administer, false);
-    assert.equal(initialRead.body.policies.gerencial.informes.export, true);
 
     const escalationAttempt = clone(initialRead.body.policies.funcionario);
     escalationAttempt.usuarios.administer = true;
