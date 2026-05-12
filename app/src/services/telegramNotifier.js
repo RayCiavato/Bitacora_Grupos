@@ -67,9 +67,17 @@ function getTelegramGroupChatMap() {
   const entries = Array.isArray(config.telegramGroupChatIds) ? config.telegramGroupChatIds : [];
   const map = new Map();
   for (const entry of entries) {
-    const [rawKey, ...rawChatParts] = String(entry || "").split(":");
+    const normalizedEntry = String(entry || "");
+    const separatorIndex = normalizedEntry.includes("=")
+      ? normalizedEntry.indexOf("=")
+      : normalizedEntry.indexOf(":");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+    const rawKey = normalizedEntry.slice(0, separatorIndex);
+    const rawChatValue = normalizedEntry.slice(separatorIndex + 1);
     const key = normalizeGroupKey(rawKey);
-    const chatId = normalizeChatId(rawChatParts.join(":"));
+    const chatId = normalizeChatId(rawChatValue);
     if (!key || !chatId) {
       continue;
     }

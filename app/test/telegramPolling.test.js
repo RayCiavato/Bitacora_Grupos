@@ -609,7 +609,7 @@ test("Telegram saliente: detalle solo va a chats autorizados por grupo y global 
         telegramBotToken: "test-token",
         telegramChatId: "global-chat",
         telegramChatIds: [],
-        telegramGroupChatIds: ["soporte:soporte-chat", "seguridad-tecnologica:seguridad-chat"]
+        telegramGroupChatIds: ["soporte=soporte-chat", "seguridad-tecnologica:seguridad-chat"]
       },
       async () => {
         const result = await notifyTaskCreated({
