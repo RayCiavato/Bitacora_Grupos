@@ -117,12 +117,8 @@ function assertConfig() {
   }
 
   if (config.telegramEnabled) {
-    const hasLegacyChat = Boolean(config.telegramChatId);
-    const hasChatList = Array.isArray(config.telegramChatIds) && config.telegramChatIds.length > 0;
-    if (!config.telegramBotToken || (!hasLegacyChat && !hasChatList)) {
-      throw new Error(
-        "TELEGRAM_ENABLED=true requiere TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID o TELEGRAM_CHAT_IDS."
-      );
+    if (!config.telegramBotToken) {
+      throw new Error("TELEGRAM_ENABLED=true requiere TELEGRAM_BOT_TOKEN.");
     }
   }
 

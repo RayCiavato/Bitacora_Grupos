@@ -3,6 +3,10 @@ const { pool } = require("../db");
 const { config } = require("../config");
 const { logger } = require("../logger");
 const { createAuditLog } = require("./audit");
+const {
+  canUserViewGroupResource,
+  enrichUserWithGroupAccess
+} = require("./groups");
 
 const APP_TIMEZONE = "America/Caracas";
 const DATE_ONLY_FORMATTER = new Intl.DateTimeFormat("es-VE", {
@@ -23,11 +27,7 @@ const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("es-VE", {
 });
 
 function isTelegramEnabled() {
-  return Boolean(
-    config.telegramEnabled &&
-      config.telegramBotToken &&
-      getTelegramTargetChatIds().length > 0
-  );
+  return Boolean(config.telegramEnabled && config.telegramBotToken);
 }
 
 function normalizeChatId(value) {
@@ -121,6 +121,223 @@ async function getAuthorizedTelegramChatIdsForGroup(group = {}) {
   return Array.from(new Set(chatIds));
 }
 
+function normalizeTelegramRecipient(recipient) {
+  if (!recipient) {
+    return null;
+  }
+  if (typeof recipient === "string" || typeof recipient === "number") {
+    const chatId = normalizeChatId(recipient);
+    return chatId ? { chatId, chatType: "group", userId: null } : null;
+  }
+
+  const chatId = normalizeChatId(recipient.chatId ?? recipient.chat_id);
+  if (!chatId) {
+    return null;
+  }
+
+  return {
+    chatId,
+    chatType: recipient.chatType || recipient.chat_type || "group",
+    userId: recipient.userId ? Number(recipient.userId) : null,
+    groupId: recipient.groupId ? Number(recipient.groupId) : null,
+    reason: recipient.reason || null
+  };
+}
+
+function dedupeTelegramRecipients(recipients = []) {
+  const seen = new Set();
+  const deduped = [];
+  for (const recipient of recipients) {
+    const normalized = normalizeTelegramRecipient(recipient);
+    if (!normalized || seen.has(normalized.chatId)) {
+      continue;
+    }
+    seen.add(normalized.chatId);
+    deduped.push(normalized);
+  }
+  return deduped;
+}
+
+async function auditTelegramNotification({
+  action,
+  userId = null,
+  entity = "notification",
+  entityId = null,
+  metadata = {},
+  recipient = null,
+  reason = null
+} = {}) {
+  await createAuditLog({
+    userId,
+    action,
+    entity,
+    entityId,
+    metadata: {
+      channel: "telegram",
+      reason,
+      recipientUserId: recipient?.userId || null,
+      recipientChatType: recipient?.chatType || null,
+      recipientGroupId: recipient?.groupId || null,
+      chatType: recipient?.chatType || null,
+      groupId: metadata.groupId || recipient?.groupId || null,
+      resourceType: entity,
+      eventType: metadata.kind || metadata.eventType || null,
+      deliveryScope: metadata.deliveryScope || null
+    }
+  });
+}
+
+async function listActiveLinkedTelegramUsers() {
+  const result = await pool.query(
+    `
+      SELECT
+        u.id,
+        u.name,
+        u.email,
+        u.role,
+        l.telegram_private_chat_id AS "telegramPrivateChatId",
+        l.telegram_user_id AS "telegramUserId",
+        l.last_used_at AS "lastUsedAt",
+        l.session_expires_at AS "sessionExpiresAt"
+      FROM user_telegram_links l
+      JOIN users u ON u.id = l.user_id
+      WHERE l.telegram_private_chat_id IS NOT NULL
+        AND u.is_active = TRUE
+        AND u.deleted_at IS NULL
+        AND (l.session_expires_at IS NULL OR l.session_expires_at > NOW())
+      ORDER BY u.id ASC
+    `
+  );
+
+  return result.rows.map((row) => ({
+    id: Number(row.id),
+    sub: Number(row.id),
+    name: row.name,
+    email: row.email,
+    role: row.role,
+    telegramPrivateChatId: row.telegramPrivateChatId,
+    telegramUserId: row.telegramUserId,
+    lastUsedAt: row.lastUsedAt,
+    sessionExpiresAt: row.sessionExpiresAt
+  }));
+}
+
+async function getTelegramRecipientsForGroup(group = {}, resourceType = "notification", action = "view", auditContext = {}) {
+  const groupId = Number(group?.id || group?.groupId || 0);
+  const recipients = [];
+
+  if (!Number.isInteger(groupId) || groupId <= 0) {
+    await auditTelegramNotification({
+      action: "telegram.notification.skipped",
+      userId: auditContext.userId || null,
+      entity: auditContext.entity || resourceType,
+      entityId: auditContext.entityId || null,
+      metadata: {
+        ...auditContext.metadata,
+        groupId: null,
+        requestedAction: action
+      },
+      reason: "missing_group"
+    });
+    return [];
+  }
+
+  const groupChatIds = await getAuthorizedTelegramChatIdsForGroup(group);
+  recipients.push(
+    ...groupChatIds.map((chatId) => ({
+      chatId,
+      chatType: "group",
+      groupId
+    }))
+  );
+
+  let linkedUsers = [];
+  try {
+    linkedUsers = await listActiveLinkedTelegramUsers();
+  } catch (error) {
+    logger.warn({ err: error, groupId }, "No se pudieron resolver usuarios Telegram vinculados");
+  }
+
+  for (const linkedUser of linkedUsers) {
+    let enrichedUser = linkedUser;
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      enrichedUser = await enrichUserWithGroupAccess(linkedUser);
+    } catch (error) {
+      logger.warn({ err: error, userId: linkedUser.id }, "No se pudo resolver ABAC de usuario Telegram");
+      // eslint-disable-next-line no-await-in-loop
+      await auditTelegramNotification({
+        action: "telegram.notification.denied",
+        userId: linkedUser.id,
+        entity: auditContext.entity || resourceType,
+        entityId: auditContext.entityId || null,
+        metadata: {
+          ...auditContext.metadata,
+          groupId,
+          requestedAction: action
+        },
+        recipient: {
+          userId: linkedUser.id,
+          chatId: linkedUser.telegramPrivateChatId,
+          chatType: "individual",
+          groupId
+        },
+        reason: "abac_resolution_failed"
+      });
+      continue;
+    }
+
+    if (canUserViewGroupResource(enrichedUser, { groupId })) {
+      recipients.push({
+        chatId: linkedUser.telegramPrivateChatId,
+        chatType: "individual",
+        userId: linkedUser.id,
+        groupId
+      });
+      continue;
+    }
+
+    // eslint-disable-next-line no-await-in-loop
+    await auditTelegramNotification({
+      action: "telegram.notification.denied",
+      userId: linkedUser.id,
+      entity: auditContext.entity || resourceType,
+      entityId: auditContext.entityId || null,
+      metadata: {
+        ...auditContext.metadata,
+        groupId,
+        requestedAction: action
+      },
+      recipient: {
+        userId: linkedUser.id,
+        chatId: linkedUser.telegramPrivateChatId,
+        chatType: "individual",
+        groupId
+      },
+      reason: "abac_denied"
+    });
+  }
+
+  return dedupeTelegramRecipients(recipients);
+}
+
+async function getTelegramRecipientsForResource(resourceType, resource, eventType = null) {
+  const group = resource?.group || {
+    id: resource?.groupId || resource?.group_id,
+    name: resource?.groupName || resource?.group_name,
+    slug: resource?.groupSlug || resource?.group_slug
+  };
+
+  return getTelegramRecipientsForGroup(group, resourceType, "view", {
+    entity: resourceType,
+    entityId: Number(resource?.id || 0) || null,
+    metadata: {
+      kind: eventType,
+      groupId: Number(group?.id || 0) || null
+    }
+  });
+}
+
 function sanitizeText(value, fallback = "-", maxLength = 300) {
   const normalized = String(value || "").replace(/\s+/g, " ").trim();
   if (!normalized) {
@@ -212,7 +429,8 @@ async function sendTelegramMessage({
   entity = "notification",
   entityId = null,
   metadata = {},
-  targetChatIds = null
+  targetChatIds = null,
+  targetRecipients = null
 } = {}) {
   if (!isTelegramEnabled()) {
     return { ok: false, skipped: true, reason: "telegram_disabled" };
@@ -220,17 +438,33 @@ async function sendTelegramMessage({
 
   const normalizedText = sanitizeTelegramMessage(text, "-", 3900);
   const url = `https://api.telegram.org/bot${config.telegramBotToken}/sendMessage`;
-  const resolvedTargetChatIds = Array.isArray(targetChatIds)
-    ? targetChatIds.map((chatId) => normalizeChatId(chatId)).filter(Boolean)
-    : getTelegramTargetChatIds();
-  if (!resolvedTargetChatIds.length) {
+  const resolvedRecipients = dedupeTelegramRecipients(
+    Array.isArray(targetRecipients)
+      ? targetRecipients
+      : Array.isArray(targetChatIds)
+        ? targetChatIds.map((chatId) => ({
+            chatId,
+            chatType: metadata.deliveryScope?.includes("global") ? "global" : "group"
+          }))
+        : getTelegramTargetChatIds().map((chatId) => ({ chatId, chatType: "global" }))
+  );
+  if (!resolvedRecipients.length) {
+    await auditTelegramNotification({
+      action: "telegram.notification.skipped",
+      userId,
+      entity,
+      entityId,
+      metadata,
+      reason: "telegram_chat_missing"
+    });
     return { ok: false, skipped: true, reason: "telegram_chat_missing" };
   }
 
   let sentCount = 0;
   let lastMessageId = null;
   let lastError = null;
-  for (const targetChatId of resolvedTargetChatIds) {
+  for (const recipient of resolvedRecipients) {
+    const targetChatId = recipient.chatId;
     let delivered = false;
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {
@@ -261,6 +495,15 @@ async function sendTelegramMessage({
         sentCount += 1;
         lastMessageId = body?.result?.message_id || lastMessageId;
         delivered = true;
+        // eslint-disable-next-line no-await-in-loop
+        await auditTelegramNotification({
+          action: "telegram.notification.sent",
+          userId,
+          entity,
+          entityId,
+          metadata,
+          recipient
+        });
         break;
       } catch (error) {
         lastError = error;
@@ -272,6 +515,19 @@ async function sendTelegramMessage({
 
     if (!delivered) {
       logger.warn({ targetChatId }, "Fallo envio Telegram a chat destino");
+      // eslint-disable-next-line no-await-in-loop
+      await auditTelegramNotification({
+        action: "telegram.notification.failed",
+        userId,
+        entity,
+        entityId,
+        metadata: {
+          ...metadata,
+          error: sanitizeErrorForAudit(lastError)
+        },
+        recipient,
+        reason: "send_failed"
+      });
     }
   }
 
@@ -284,7 +540,7 @@ async function sendTelegramMessage({
       metadata: {
         channel: "telegram",
         sentCount,
-        targetChats: resolvedTargetChatIds,
+        targetChats: resolvedRecipients.map((recipient) => recipient.chatId),
         ...metadata
       }
     });
@@ -300,12 +556,12 @@ async function sendTelegramMessage({
     action: "notifications.telegram_failed",
     entity,
     entityId,
-    metadata: {
-      channel: "telegram",
-      targetChats: resolvedTargetChatIds,
-      error: sanitizeErrorForAudit(lastError),
-      ...metadata
-    }
+      metadata: {
+        channel: "telegram",
+        targetChats: resolvedRecipients.map((recipient) => recipient.chatId),
+        error: sanitizeErrorForAudit(lastError),
+        ...metadata
+      }
   });
 
   logger.warn(
@@ -332,18 +588,25 @@ async function sendGroupAwareTelegramMessage({
   entityId = null,
   metadata = {}
 } = {}) {
-  const groupChatIds = await getAuthorizedTelegramChatIdsForGroup(group);
-  const globalChatIds = getTelegramTargetChatIds();
-  const globalOnlyChatIds = globalChatIds.filter((chatId) => !groupChatIds.includes(chatId));
   const scopedMetadata = {
     ...metadata,
     groupId: group?.id || null,
     groupName: group?.name || null,
     groupSlug: group?.slug || null
   };
+  const detailedRecipients = await getTelegramRecipientsForGroup(group, entity, "view", {
+    userId,
+    entity,
+    entityId,
+    metadata: scopedMetadata
+  });
+  const detailChatIds = new Set(detailedRecipients.map((recipient) => recipient.chatId));
+  const globalRecipients = getTelegramTargetChatIds()
+    .map((chatId) => ({ chatId, chatType: "global", userId: null, groupId: group?.id || null }))
+    .filter((recipient) => !detailChatIds.has(recipient.chatId));
 
   let detailedResult = null;
-  if (groupChatIds.length > 0) {
+  if (detailedRecipients.length > 0) {
     detailedResult = await sendTelegramMessage({
       text: detailedText,
       userId,
@@ -353,12 +616,12 @@ async function sendGroupAwareTelegramMessage({
         ...scopedMetadata,
         deliveryScope: "group_detail"
       },
-      targetChatIds: groupChatIds
+      targetRecipients: detailedRecipients
     });
   }
 
   let summaryResult = null;
-  if (globalOnlyChatIds.length > 0) {
+  if (globalRecipients.length > 0) {
     summaryResult = await sendTelegramMessage({
       text: safeText,
       userId,
@@ -366,9 +629,9 @@ async function sendGroupAwareTelegramMessage({
       entityId,
       metadata: {
         ...scopedMetadata,
-        deliveryScope: groupChatIds.length > 0 ? "global_minimal_copy" : "global_minimal_only"
+        deliveryScope: detailedRecipients.length > 0 ? "global_minimal_copy" : "global_minimal_only"
       },
-      targetChatIds: globalOnlyChatIds
+      targetRecipients: globalRecipients
     });
   }
 
@@ -376,7 +639,16 @@ async function sendGroupAwareTelegramMessage({
     return { ok: true, detailed: detailedResult, summary: summaryResult };
   }
 
-  return detailedResult || summaryResult || { ok: false, skipped: true, reason: "no_authorized_chat" };
+  await auditTelegramNotification({
+    action: "telegram.notification.skipped",
+    userId,
+    entity,
+    entityId,
+    metadata: scopedMetadata,
+    reason: "no_authorized_recipient"
+  });
+
+  return detailedResult || summaryResult || { ok: false, skipped: true, reason: "no_authorized_recipient" };
 }
 
 function runDetached(asyncWork, contextLabel) {
@@ -912,6 +1184,9 @@ function startTelegramDueAlertsScheduler() {
 
 module.exports = {
   isTelegramEnabled,
+  dedupeTelegramRecipients,
+  getTelegramRecipientsForGroup,
+  getTelegramRecipientsForResource,
   runDetached,
   sendTelegramMessage,
   notifyTaskCreated,

@@ -1,12 +1,14 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
+const { pool } = require("../src/db");
 
 const {
   buildGroupScopeCondition,
   canUserEditGroupResource,
   canUserExportGroup,
-  canUserViewGroupResource
+  canUserViewGroupResource,
+  resolveTargetGroupIdForCreate
 } = require("../src/services/groups");
 const { ROLE_KEYS, getSessionCapabilities } = require("../src/services/authorization");
 const {
@@ -189,4 +191,132 @@ test("Realtime ABAC: no publica sin visibility y no filtra entre Soporte e Infra
   assert.equal(infraestructura.writes.length, infraInitialWrites);
 
   closeAllRealtimeClients();
+});
+
+test("Creacion ABAC: usuario movido de General crea en su grupo actual y no cae a General", async () => {
+  const originalPoolQuery = pool.query.bind(pool);
+  const allGroups = [
+    {
+      id: 1,
+      name: "General",
+      slug: "general",
+      description: "",
+      is_system: true,
+      is_active: true,
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z"
+    },
+    {
+      id: 3,
+      name: "Seguridad Tecnologica",
+      slug: "seguridad-tecnologica",
+      description: "",
+      is_system: true,
+      is_active: true,
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z"
+    }
+  ];
+
+  pool.query = async (sqlText) => {
+    const sql = String(sqlText).toLowerCase().replace(/\s+/g, " ").trim();
+    if (sql.startsWith("select id, name, slug, description, is_system")) {
+      return { rowCount: allGroups.length, rows: allGroups };
+    }
+    if (sql.includes("from user_groups ug join groups g on g.id = ug.group_id")) {
+      return { rowCount: 1, rows: [allGroups[1]] };
+    }
+    if (sql.includes("from group_access_policies p")) {
+      return {
+        rowCount: 1,
+        rows: [
+          {
+            source_group_id: 3,
+            target_group_id: 3,
+            resource_type: "all",
+            can_view: true,
+            can_create: true,
+            can_edit: true,
+            can_delete: false,
+            can_export: true,
+            can_administer: false
+          }
+        ]
+      };
+    }
+    return { rowCount: 0, rows: [] };
+  };
+
+  try {
+    const result = await resolveTargetGroupIdForCreate({ id: 42, sub: 42, role: "funcionario" });
+    assert.equal(result.error, null);
+    assert.equal(result.groupId, 3);
+
+    const forbidden = await resolveTargetGroupIdForCreate({ id: 42, sub: 42, role: "funcionario" }, 1);
+    assert.equal(forbidden.error, "forbidden");
+    assert.equal(forbidden.groupId, null);
+  } finally {
+    pool.query = originalPoolQuery;
+  }
+});
+
+test("Creacion ABAC: multiples grupos creatables requieren seleccion explicita", async () => {
+  const originalPoolQuery = pool.query.bind(pool);
+  const groups = [
+    {
+      id: 1,
+      name: "General",
+      slug: "general",
+      description: "",
+      is_system: true,
+      is_active: true,
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z"
+    },
+    {
+      id: 3,
+      name: "Seguridad Tecnologica",
+      slug: "seguridad-tecnologica",
+      description: "",
+      is_system: true,
+      is_active: true,
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z"
+    }
+  ];
+
+  pool.query = async (sqlText) => {
+    const sql = String(sqlText).toLowerCase().replace(/\s+/g, " ").trim();
+    if (sql.startsWith("select id, name, slug, description, is_system")) {
+      return { rowCount: groups.length, rows: groups };
+    }
+    if (sql.includes("from user_groups ug join groups g on g.id = ug.group_id")) {
+      return { rowCount: groups.length, rows: groups };
+    }
+    if (sql.includes("from group_access_policies p")) {
+      return {
+        rowCount: 2,
+        rows: groups.map((group) => ({
+          source_group_id: group.id,
+          target_group_id: group.id,
+          resource_type: "all",
+          can_view: true,
+          can_create: true,
+          can_edit: true,
+          can_delete: false,
+          can_export: true,
+          can_administer: false
+        }))
+      };
+    }
+    return { rowCount: 0, rows: [] };
+  };
+
+  try {
+    const result = await resolveTargetGroupIdForCreate({ id: 55, sub: 55, role: "funcionario" });
+    assert.equal(result.error, "group_required");
+    assert.deepEqual(result.details.availableGroupIds, [1, 3]);
+  } finally {
+    pool.query = originalPoolQuery;
+  }
 });

@@ -306,6 +306,8 @@ async function auditTaskAccessDenied(req, details = {}) {
     entityId: details.taskId || null,
     metadata: {
       reason: details.reason || "forbidden",
+      availableGroupIds: details.availableGroupIds || undefined,
+      requestedGroupId: details.requestedGroupId || undefined,
       route: req.originalUrl,
       method: req.method
     },
@@ -595,6 +597,20 @@ router.post("/", authenticate, async (req, res, next) => {
     if (groupResolution.error === "forbidden") {
       await auditTaskAccessDenied(req, { reason: "group_create_forbidden" });
       return res.status(403).json({ error: "forbidden" });
+    }
+    if (groupResolution.error === "group_required") {
+      await auditTaskAccessDenied(req, {
+        reason: "group_required",
+        availableGroupIds: groupResolution.details?.availableGroupIds || []
+      });
+      return res.status(400).json({
+        error: "group_required",
+        availableGroupIds: groupResolution.details?.availableGroupIds || []
+      });
+    }
+    if (groupResolution.error === "group_not_found") {
+      await auditTaskAccessDenied(req, { reason: "group_not_found" });
+      return res.status(400).json({ error: "group_not_found" });
     }
     if (groupResolution.error) {
       return res.status(400).json({ error: "validation_error" });

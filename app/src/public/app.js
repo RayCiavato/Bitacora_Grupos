@@ -409,6 +409,8 @@ const ERROR_MESSAGES = {
   telegram_already_linked: "Este usuario ya tiene Telegram vinculado. Desvincula primero.",
   telegram_user_already_linked: "Esta cuenta de Telegram ya esta vinculada a otro usuario.",
   group_already_exists: "Ya existe un grupo con ese nombre.",
+  group_required: "Selecciona el grupo destino para guardar.",
+  group_not_found: "No tienes un grupo activo para crear registros.",
   system_group_confirmation_required: "Confirma el cambio del grupo del sistema.",
   system_group_status_protected: "No se puede activar/desactivar un grupo del sistema."
 };
@@ -1452,12 +1454,11 @@ function setRbacActiveTab(tabKey) {
 }
 
 function getActiveGroupsForUi() {
-  const adminGroups = Array.isArray(state.groupAdmin?.groups) ? state.groupAdmin.groups : [];
   const visibleGroups = Array.isArray(state.user?.groupAccess?.visibleGroups)
     ? state.user.groupAccess.visibleGroups
     : [];
   const userGroups = Array.isArray(state.user?.groups) ? state.user.groups : [];
-  const source = adminGroups.length ? adminGroups : visibleGroups.length ? visibleGroups : userGroups;
+  const source = visibleGroups.length ? visibleGroups : userGroups;
   return source.filter((group) => group && group.isActive !== false);
 }
 
@@ -1467,7 +1468,8 @@ function getCreatableGroupsForUi() {
     ? state.user.groupAccess.creatableGroups
     : [];
   const userGroups = Array.isArray(state.user?.groups) ? state.user.groups : [];
-  const source = adminGroups.length ? adminGroups : createGroups.length ? createGroups : userGroups;
+  const isAdmin = String(state.user?.role || "").toLowerCase() === "admin";
+  const source = createGroups.length ? createGroups : isAdmin && adminGroups.length ? adminGroups : userGroups;
   return source.filter((group) => group && group.isActive !== false);
 }
 
@@ -1478,14 +1480,22 @@ function populateGroupSelect(select, groups, options = {}) {
 
   const includeAll = Boolean(options.includeAll);
   const allLabel = options.allLabel || "Todos visibles";
+  const includePlaceholder = Boolean(options.includePlaceholder);
+  const placeholderLabel = options.placeholderLabel || "Selecciona un grupo";
   const selectedValue = String(options.selectedValue || select.value || "");
   clearElement(select);
+  select.required = Boolean(options.required);
 
   if (includeAll) {
     const allOption = document.createElement("option");
     allOption.value = "";
     allOption.textContent = allLabel;
     select.appendChild(allOption);
+  } else if (includePlaceholder) {
+    const placeholderOption = document.createElement("option");
+    placeholderOption.value = "";
+    placeholderOption.textContent = placeholderLabel;
+    select.appendChild(placeholderOption);
   }
 
   groups.forEach((group) => {
@@ -1497,14 +1507,25 @@ function populateGroupSelect(select, groups, options = {}) {
 
   if (selectedValue && Array.from(select.options).some((option) => option.value === selectedValue)) {
     select.value = selectedValue;
+  } else if (!includeAll && !includePlaceholder && select.options.length === 1) {
+    select.value = select.options[0].value;
   }
 }
 
 function syncResourceGroupControls() {
   const visibleGroups = getActiveGroupsForUi();
   const createGroups = getCreatableGroupsForUi();
-  populateGroupSelect(eventGroupSelect, createGroups);
-  populateGroupSelect(taskGroupSelect, createGroups);
+  const requiresCreateGroupChoice = createGroups.length > 1;
+  populateGroupSelect(eventGroupSelect, createGroups, {
+    includePlaceholder: requiresCreateGroupChoice,
+    placeholderLabel: "Selecciona grupo destino",
+    required: requiresCreateGroupChoice
+  });
+  populateGroupSelect(taskGroupSelect, createGroups, {
+    includePlaceholder: requiresCreateGroupChoice,
+    placeholderLabel: "Selecciona grupo destino",
+    required: requiresCreateGroupChoice
+  });
   populateGroupSelect(reportGroupFilter, visibleGroups, { includeAll: true });
   populateGroupSelect(tasksFilterGroup, visibleGroups, { includeAll: true });
   setElementVisible(eventGroupSelectWrap, createGroups.length > 1);
@@ -6624,6 +6645,23 @@ async function handleCreateEvent(event) {
     prioridad: document.getElementById("prioridad").value,
     templateId: isEditMode ? selectedTemplateId : selectedTemplateId || undefined
   };
+
+  if (!isEditMode) {
+    const creatableGroups = getCreatableGroupsForUi();
+    if (creatableGroups.length === 0) {
+      setButtonBusy(submitButton, false);
+      showToast("No tienes un grupo activo autorizado para crear registros.", "error");
+      return;
+    }
+    if (creatableGroups.length === 1 && eventGroupSelect && !eventGroupSelect.value) {
+      eventGroupSelect.value = String(creatableGroups[0].id);
+    }
+    if (creatableGroups.length > 1 && !eventGroupSelect?.value) {
+      setButtonBusy(submitButton, false);
+      showToast("Selecciona el grupo destino antes de guardar.", "error");
+      return;
+    }
+  }
 
   if (eventGroupSelect?.value) {
     payload.groupId = Number(eventGroupSelect.value);

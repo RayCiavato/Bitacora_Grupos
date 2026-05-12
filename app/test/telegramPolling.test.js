@@ -450,8 +450,41 @@ test("Telegram saliente: detalle solo va a chats autorizados por grupo y global 
     };
   };
   pool.query = async (sqlText, params = []) => {
-    const sql = String(sqlText).toLowerCase();
-    if (sql.includes("from group_access_policies")) {
+    const sql = String(sqlText).toLowerCase().replace(/\s+/g, " ").trim();
+    const groupRows = [
+      {
+        id: 10,
+        name: "Soporte",
+        slug: "soporte",
+        description: "Soporte",
+        is_system: true,
+        is_active: true,
+        created_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-01T00:00:00.000Z"
+      },
+      {
+        id: 20,
+        name: "Infraestructura",
+        slug: "infraestructura",
+        description: "Infra",
+        is_system: true,
+        is_active: true,
+        created_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-01T00:00:00.000Z"
+      },
+      {
+        id: 30,
+        name: "Seguridad Tecnologica",
+        slug: "seguridad-tecnologica",
+        description: "Seguridad",
+        is_system: true,
+        is_active: true,
+        created_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-01T00:00:00.000Z"
+      }
+    ];
+
+    if (sql.includes("from group_access_policies p join groups source") && sql.includes("p.target_group_id = $1")) {
       assert.deepEqual(params, [10]);
       return {
         rowCount: 2,
@@ -460,6 +493,108 @@ test("Telegram saliente: detalle solo va a chats autorizados por grupo y global 
           { id: 30, name: "Seguridad Tecnologica", slug: "seguridad-tecnologica" }
         ]
       };
+    }
+    if (sql.includes("from user_telegram_links l join users u")) {
+      return {
+        rowCount: 4,
+        rows: [
+          {
+            id: 101,
+            name: "Usuario Soporte",
+            email: "soporte@bitacora.local",
+            role: "funcionario",
+            telegramPrivateChatId: "soporte-user",
+            telegramUserId: 10101
+          },
+          {
+            id: 102,
+            name: "Usuario Infra",
+            email: "infra@bitacora.local",
+            role: "funcionario",
+            telegramPrivateChatId: "infra-user",
+            telegramUserId: 10202
+          },
+          {
+            id: 103,
+            name: "Usuario Seguridad",
+            email: "seguridad@bitacora.local",
+            role: "funcionario",
+            telegramPrivateChatId: "seguridad-user",
+            telegramUserId: 10303
+          },
+          {
+            id: 104,
+            name: "Admin",
+            email: "admin@bitacora.local",
+            role: "admin",
+            telegramPrivateChatId: "admin-user",
+            telegramUserId: 10404
+          }
+        ]
+      };
+    }
+    if (sql.startsWith("select id, name, slug, description, is_system")) {
+      return { rowCount: groupRows.length, rows: groupRows };
+    }
+    if (sql.includes("from user_groups ug join groups g on g.id = ug.group_id")) {
+      const userId = Number(params[0]);
+      const byUser = new Map([
+        [101, [groupRows[0]]],
+        [102, [groupRows[1]]],
+        [103, [groupRows[2]]],
+        [104, []]
+      ]);
+      const rows = byUser.get(userId) || [];
+      return { rowCount: rows.length, rows };
+    }
+    if (sql.includes("from group_access_policies p")) {
+      const rows = [
+        {
+          source_group_id: 10,
+          target_group_id: 10,
+          resource_type: "all",
+          can_view: true,
+          can_create: true,
+          can_edit: true,
+          can_delete: false,
+          can_export: true,
+          can_administer: false
+        },
+        {
+          source_group_id: 20,
+          target_group_id: 20,
+          resource_type: "all",
+          can_view: true,
+          can_create: true,
+          can_edit: true,
+          can_delete: false,
+          can_export: true,
+          can_administer: false
+        },
+        {
+          source_group_id: 30,
+          target_group_id: 30,
+          resource_type: "all",
+          can_view: true,
+          can_create: true,
+          can_edit: true,
+          can_delete: false,
+          can_export: true,
+          can_administer: false
+        },
+        {
+          source_group_id: 30,
+          target_group_id: 10,
+          resource_type: "all",
+          can_view: true,
+          can_create: false,
+          can_edit: false,
+          can_delete: false,
+          can_export: true,
+          can_administer: false
+        }
+      ];
+      return { rowCount: rows.length, rows };
     }
     if (sql.startsWith("insert into audit_logs")) {
       return { rowCount: 1, rows: [] };
@@ -496,8 +631,13 @@ test("Telegram saliente: detalle solo va a chats autorizados por grupo y global 
         const byChat = new Map(calls.map((call) => [call.body.chat_id, call.body.text]));
         assert.match(byChat.get("soporte-chat"), /Dato sensible de Soporte/);
         assert.match(byChat.get("seguridad-chat"), /Dato sensible de Soporte/);
+        assert.match(byChat.get("soporte-user"), /Dato sensible de Soporte/);
+        assert.match(byChat.get("seguridad-user"), /Dato sensible de Soporte/);
+        assert.match(byChat.get("admin-user"), /Dato sensible de Soporte/);
+        assert.equal(byChat.has("infra-user"), false);
         assert.match(byChat.get("global-chat"), /Detalle disponible solo/);
         assert.doesNotMatch(byChat.get("global-chat"), /Dato sensible de Soporte/);
+        assert.equal(calls.filter((call) => call.body.chat_id === "soporte-user").length, 1);
       }
     );
   } finally {

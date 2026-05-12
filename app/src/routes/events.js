@@ -1018,8 +1018,30 @@ router.post("/", authenticate, async (req, res, next) => {
 
     const payload = createEventSchema.parse(req.body);
     const groupResolution = await resolveTargetGroupIdForCreate(req.user, payload.groupId);
+    if (groupResolution.error) {
+      await createAuditLog({
+        userId: req.user.sub,
+        action: "events.create_group_denied",
+        entity: "event",
+        metadata: {
+          requestedGroupId: payload.groupId || null,
+          reason: groupResolution.error,
+          availableGroupIds: groupResolution.details?.availableGroupIds || []
+        },
+        req
+      });
+    }
     if (groupResolution.error === "forbidden") {
       return res.status(403).json({ error: "forbidden" });
+    }
+    if (groupResolution.error === "group_required") {
+      return res.status(400).json({
+        error: "group_required",
+        availableGroupIds: groupResolution.details?.availableGroupIds || []
+      });
+    }
+    if (groupResolution.error === "group_not_found") {
+      return res.status(400).json({ error: "group_not_found" });
     }
     if (groupResolution.error) {
       return res.status(400).json({ error: "validation_error" });
@@ -1077,6 +1099,7 @@ router.post("/", authenticate, async (req, res, next) => {
       entity: "event",
       entityId: event.id,
       metadata: {
+        groupId: event.groupId,
         prioridad: event.prioridad,
         templateId: event.templateId || null
       },

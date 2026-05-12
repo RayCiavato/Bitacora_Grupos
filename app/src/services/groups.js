@@ -309,34 +309,90 @@ async function getGroupById(groupId) {
   return result.rows[0] ? mapGroupRow(result.rows[0]) : null;
 }
 
-async function resolvePrimaryGroupIdForUser(user) {
-  const membershipIds = Array.isArray(user?.groupAccess?.memberGroupIds)
-    ? user.groupAccess.memberGroupIds.map(Number).filter((id) => Number.isInteger(id) && id > 0)
-    : [];
-  if (membershipIds.length) {
-    return membershipIds[0];
+async function getUserActiveGroups(userId) {
+  const safeUserId = toPositiveInteger(userId);
+  if (!safeUserId) {
+    return [];
   }
-  const defaultGroup = await getDefaultGroup();
-  return defaultGroup?.id || null;
+
+  const result = await pool.query(
+    `
+      SELECT
+        g.id,
+        g.name,
+        g.slug,
+        g.description,
+        g.is_system,
+        g.is_active,
+        g.created_at,
+        g.updated_at,
+        ug.role_in_group
+      FROM user_groups ug
+      JOIN groups g ON g.id = ug.group_id
+      WHERE ug.user_id = $1
+        AND g.is_active = TRUE
+      ORDER BY g.is_system DESC, g.name ASC
+    `,
+    [safeUserId]
+  );
+
+  return result.rows.map((row) => ({
+    ...mapGroupRow(row),
+    roleInGroup: row.role_in_group || "member"
+  }));
+}
+
+async function resolvePrimaryGroupIdForUser(user) {
+  const userId = toPositiveInteger(user?.sub ?? user?.id);
+  const groups = await getUserActiveGroups(userId);
+  return groups[0]?.id || null;
 }
 
 async function resolveTargetGroupIdForCreate(user, requestedGroupId) {
+  const freshGroupAccess = await getUserGroupAccess(user);
+  const freshUser = {
+    ...user,
+    groupAccess: freshGroupAccess,
+    groups: freshGroupAccess.memberships
+  };
+  const creatableGroupIds = getGroupAccessIds(freshUser, "create");
   const explicitGroupId = toPositiveInteger(requestedGroupId);
+
   if (explicitGroupId) {
-    if (!canUserCreateInGroup(user, explicitGroupId)) {
-      return { error: "forbidden", groupId: null };
+    if (!canUserCreateInGroup(freshUser, explicitGroupId)) {
+      return {
+        error: "forbidden",
+        groupId: null,
+        details: {
+          requestedGroupId: explicitGroupId,
+          availableGroupIds: creatableGroupIds
+        }
+      };
     }
-    return { error: null, groupId: explicitGroupId };
+    return { error: null, groupId: explicitGroupId, user: freshUser };
   }
 
-  const groupId = await resolvePrimaryGroupIdForUser(user);
-  if (!groupId) {
-    return { error: "group_not_found", groupId: null };
+  if (creatableGroupIds.length === 1) {
+    return { error: null, groupId: creatableGroupIds[0], user: freshUser };
   }
-  if (!canUserCreateInGroup(user, groupId)) {
-    return { error: "forbidden", groupId: null };
+
+  if (creatableGroupIds.length > 1) {
+    return {
+      error: "group_required",
+      groupId: null,
+      details: {
+        availableGroupIds: creatableGroupIds
+      }
+    };
   }
-  return { error: null, groupId };
+
+  return {
+    error: freshGroupAccess.memberGroupIds?.length ? "forbidden" : "group_not_found",
+    groupId: null,
+    details: {
+      availableGroupIds: []
+    }
+  };
 }
 
 async function createGroup({ name, description = "", actorId = null } = {}) {
@@ -845,6 +901,7 @@ module.exports = {
   getGroupById,
   getGroupIdFromResource,
   getGroupPolicy,
+  getUserActiveGroups,
   getUserGroupAccess,
   getUserGroupMembership,
   getVisibleGroupIdsForUser,

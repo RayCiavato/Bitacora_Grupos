@@ -99,6 +99,8 @@
     invalid_csrf_token: "La sesion de seguridad vencio. Recarga la pagina e intenta de nuevo.",
     forbidden: "No tienes permisos para realizar esta accion.",
     validation_error: "No se pudo validar la solicitud.",
+    group_required: "Selecciona el grupo destino para guardar.",
+    group_not_found: "No tienes un grupo activo para crear tareas.",
     past_date_not_allowed: "No se permite crear o editar tareas con fechas anteriores.",
     too_many_requests: "Demasiadas solicitudes. Intenta de nuevo en unos minutos."
   });
@@ -558,9 +560,12 @@
     }
     const selectedValue = String(options.selectedValue || select.value || "");
     clearNode(select);
+    select.required = Boolean(options.required);
 
     if (options.includeAll) {
       select.appendChild(createOption("", options.allLabel || "Todos visibles"));
+    } else if (options.includePlaceholder) {
+      select.appendChild(createOption("", options.placeholderLabel || "Selecciona un grupo"));
     }
 
     normalizeGroupList(groups).forEach((group) => {
@@ -569,6 +574,8 @@
 
     if (selectedValue && Array.from(select.options).some((option) => option.value === selectedValue)) {
       select.value = selectedValue;
+    } else if (!options.includeAll && !options.includePlaceholder && select.options.length === 1) {
+      select.value = select.options[0].value;
     }
   }
 
@@ -588,7 +595,11 @@
     state.creatableGroups = creatableGroups;
 
     populateGroupSelect(tasksFilterGroup, visibleGroups, { includeAll: true });
-    populateGroupSelect(taskGroupSelect, creatableGroups);
+    populateGroupSelect(taskGroupSelect, creatableGroups, {
+      includePlaceholder: creatableGroups.length > 1,
+      placeholderLabel: "Selecciona grupo destino",
+      required: creatableGroups.length > 1
+    });
 
     if (tasksFilterGroupWrap) {
       tasksFilterGroupWrap.classList.toggle("hidden", visibleGroups.length <= 1);
@@ -1239,11 +1250,31 @@
     if (canAssignTask()) {
       payload.assigneeIds = getSelectedAssigneeIds();
     }
-    if (taskGroupSelect?.value) {
-      payload.groupId = Number(taskGroupSelect.value);
-    }
 
     return payload;
+  }
+
+  function validateTaskCreateGroupSelection() {
+    if (state.editingTaskId) {
+      return true;
+    }
+
+    const creatableGroups = normalizeGroupList(state.creatableGroups);
+    if (creatableGroups.length === 0) {
+      showToast("No tienes un grupo activo autorizado para crear tareas.", "error");
+      return false;
+    }
+
+    if (creatableGroups.length === 1 && taskGroupSelect && !taskGroupSelect.value) {
+      taskGroupSelect.value = String(creatableGroups[0].id);
+    }
+
+    if (creatableGroups.length > 1 && !taskGroupSelect?.value) {
+      showToast("Selecciona el grupo destino antes de guardar.", "error");
+      return false;
+    }
+
+    return true;
   }
 
   function setFormForEdit(task) {
@@ -1282,6 +1313,15 @@
       setButtonBusy(submitButton, false);
       showToast("Completa titulo y descripcion (minimo 3 caracteres).", "error");
       return;
+    }
+
+    if (!validateTaskCreateGroupSelection()) {
+      setButtonBusy(submitButton, false);
+      return;
+    }
+
+    if (!state.editingTaskId && taskGroupSelect?.value) {
+      payload.groupId = Number(taskGroupSelect.value);
     }
 
     if (payload.startDate && payload.dueDate && payload.startDate > payload.dueDate) {
