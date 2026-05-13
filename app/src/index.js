@@ -26,6 +26,8 @@ const { startTelegramDueAlertsScheduler } = require("./services/telegramNotifier
 const { startTelegramPolling, stopTelegramPolling } = require("./services/telegramPolling");
 const { ensureRolePermissionPoliciesLoaded, seedMissingRolePolicies } = require("./services/rolePoliciesStore");
 const { ensureSystemSettingsLoaded } = require("./services/systemSettingsStore");
+const { createAuditLog } = require("./services/audit");
+const { getClientIp, isRequestFromAllowedNetwork } = require("./services/networkPolicy");
 const { verifyAccessToken } = require("./services/tokens");
 const {
   hardenPathExposure,
@@ -152,6 +154,27 @@ function createApp() {
     ];
     return apiPrefixes.some((prefix) => pathname.startsWith(prefix));
   };
+
+  app.use(async (req, res, next) => {
+    if (
+      config.internalNetworkOnly &&
+      isRateLimitedApiPath(req.path) &&
+      !isRequestFromAllowedNetwork(req)
+    ) {
+      await createAuditLog({
+        action: "auth.network_denied",
+        entity: "auth",
+        metadata: {
+          path: req.path,
+          method: req.method,
+          clientIp: getClientIp(req)
+        },
+        req
+      });
+      return res.status(403).json({ error: "network_denied" });
+    }
+    return next();
+  });
 
   app.use((req, res, next) => {
     if (

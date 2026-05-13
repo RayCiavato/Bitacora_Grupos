@@ -46,7 +46,17 @@ const config = {
   lockMinutes: Number(process.env.LOCK_MINUTES || 15),
   passwordMinLength: Number(process.env.PASSWORD_MIN_LENGTH || 12),
   mfaRequired: readBool(process.env.MFA_REQUIRED, true),
-  allowPublicRegistration: readBool(process.env.ALLOW_PUBLIC_REGISTRATION, true),
+  allowPublicRegistration: readBool(process.env.ALLOW_PUBLIC_REGISTRATION, false),
+  accountApprovalRequired: readBool(process.env.ACCOUNT_APPROVAL_REQUIRED, true),
+  inviteTtlHours: Number(process.env.INVITE_TTL_HOURS || 48),
+  allowedEmailDomains: readCsvList(
+    process.env.ALLOWED_EMAIL_DOMAINS || "bitacora.local,empresa.local,empresa.com,institucion.gob.ve"
+  ),
+  allowEmailSubdomains: readBool(process.env.ALLOW_EMAIL_SUBDOMAINS, true),
+  internalNetworkOnly: readBool(process.env.INTERNAL_NETWORK_ONLY, false),
+  allowedNetworks: readCsvList(
+    process.env.ALLOWED_NETWORKS || "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32"
+  ),
   uploadDir: process.env.UPLOAD_DIR || "/tmp/bitacora-uploads",
   uploadMaxBytes: Number(process.env.UPLOAD_MAX_BYTES || 10 * 1024 * 1024),
   reminderEnabled: readBool(process.env.REMINDER_ENABLED, false),
@@ -211,6 +221,23 @@ function assertConfig() {
     config.telegramLinkSessionTtlMinutes < 0
   ) {
     throw new Error("TELEGRAM_LINK_SESSION_TTL_MINUTES debe ser mayor o igual a 0.");
+  }
+
+  if (!Array.isArray(config.allowedEmailDomains) || config.allowedEmailDomains.length === 0) {
+    throw new Error("ALLOWED_EMAIL_DOMAINS debe incluir al menos un dominio institucional.");
+  }
+
+  if (
+    Number.isNaN(config.inviteTtlHours) ||
+    !Number.isFinite(config.inviteTtlHours) ||
+    config.inviteTtlHours < 1 ||
+    config.inviteTtlHours > 720
+  ) {
+    throw new Error("INVITE_TTL_HOURS debe estar entre 1 y 720 horas.");
+  }
+
+  if (config.internalNetworkOnly && config.allowedNetworks.length === 0) {
+    throw new Error("INTERNAL_NETWORK_ONLY=true requiere ALLOWED_NETWORKS.");
   }
 }
 

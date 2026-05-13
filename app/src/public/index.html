@@ -12,7 +12,7 @@
       href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/styles.css?v=33" />
+    <link rel="stylesheet" href="/styles.css?v=34" />
   </head>
   <body>
     <canvas id="matrixCanvas" class="matrix-canvas" aria-hidden="true"></canvas>
@@ -169,7 +169,7 @@
                   type="email"
                   autocomplete="email"
                   placeholder="usuario@gmail.com"
-                  title="Solo se permiten correos Gmail o Hotmail"
+                  title="No se permiten correos temporales o desechables."
                   required
                 />
               </label>
@@ -207,6 +207,56 @@
             </div>
           </div>
 
+          <div id="inviteAcceptCard" class="card auth-card hidden">
+            <h2>Activar invitacion</h2>
+            <p class="help-text">
+              Completa tus datos para activar la cuenta institucional. El acceso puede quedar pendiente de aprobacion.
+            </p>
+            <form id="inviteAcceptForm" class="form">
+              <label>
+                Codigo de invitacion
+                <input id="inviteToken" type="text" readonly required />
+              </label>
+              <label>
+                Nombre y apellido
+                <input
+                  id="inviteName"
+                  type="text"
+                  minlength="3"
+                  maxlength="120"
+                  autocomplete="name"
+                  required
+                />
+              </label>
+              <label>
+                Contrasena
+                <input
+                  id="invitePassword"
+                  type="password"
+                  minlength="12"
+                  pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{12,}"
+                  title="Minimo 12 caracteres, mayuscula, minuscula, numero y simbolo."
+                  autocomplete="new-password"
+                  required
+                />
+              </label>
+              <label>
+                Confirmar contrasena
+                <input
+                  id="invitePasswordConfirm"
+                  type="password"
+                  minlength="12"
+                  pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{12,}"
+                  title="Minimo 12 caracteres, mayuscula, minuscula, numero y simbolo."
+                  autocomplete="new-password"
+                  required
+                />
+              </label>
+              <button type="submit" class="btn btn-primary">Activar cuenta</button>
+              <button type="button" id="inviteBackToLogin" class="btn btn-ghost">Volver al inicio de sesion</button>
+            </form>
+          </div>
+
           <div id="mfaSetupCard" class="card hidden">
             <h2>Activar MFA de la cuenta</h2>
             <p class="help-text">
@@ -224,6 +274,11 @@
               </label>
               <button type="submit" class="btn btn-primary">Activar MFA</button>
             </form>
+            <div id="mfaRecoveryCodesBox" class="callout hidden">
+              <strong>Codigos de recuperacion</strong>
+              <p class="help-text">Guardalos en un lugar seguro. Solo se muestran una vez.</p>
+              <pre id="mfaRecoveryCodes"></pre>
+            </div>
           </div>
         </section>
 
@@ -1065,6 +1120,76 @@
                   </label>
                   <button type="submit" class="btn btn-secondary">Actualizar rol</button>
                 </form>
+                <form id="adminEmailForm" class="filter-row">
+                  <label>
+                    Usuario
+                    <select id="adminEmailUserSelect" required></select>
+                  </label>
+                  <label>
+                    Nuevo correo corporativo
+                    <input
+                      id="adminEmailInput"
+                      type="email"
+                      maxlength="254"
+                      placeholder="usuario@empresa.com"
+                      title="No se permiten correos temporales o desechables."
+                      autocomplete="off"
+                      required
+                    />
+                  </label>
+                  <button type="submit" class="btn btn-secondary">Actualizar correo</button>
+                </form>
+                <form id="adminStatusForm" class="filter-row">
+                  <label>
+                    Usuario
+                    <select id="adminStatusUserSelect" required></select>
+                  </label>
+                  <label>
+                    Estado de cuenta
+                    <select id="adminStatusSelect" required>
+                      <option value="approved">Aprobado</option>
+                      <option value="pending">Pendiente</option>
+                      <option value="rejected">Rechazado</option>
+                      <option value="suspended">Suspendido</option>
+                    </select>
+                  </label>
+                  <label>
+                    Motivo
+                    <input id="adminStatusReason" type="text" maxlength="200" placeholder="Opcional" />
+                  </label>
+                  <button type="submit" class="btn btn-secondary">Actualizar estado</button>
+                </form>
+                <form id="adminInviteForm" class="filter-row">
+                  <label>
+                    Correo institucional
+                    <input
+                      id="adminInviteEmail"
+                      type="email"
+                      maxlength="254"
+                      placeholder="usuario@empresa.com"
+                      autocomplete="off"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Rol inicial
+                    <select id="adminInviteRole" required>
+                      <option value="funcionario">Funcionario</option>
+                      <option value="supervisor">Supervisor</option>
+                      <option value="admin">Administrador</option>
+                    </select>
+                  </label>
+                  <label>
+                    Grupo
+                    <select id="adminInviteGroup" required></select>
+                  </label>
+                  <button type="submit" class="btn btn-secondary">Crear invitacion</button>
+                </form>
+                <div id="adminInviteResult" class="callout hidden"></div>
+                <div class="rbac-toolbar-actions">
+                  <button type="button" id="adminInvitesReload" class="btn btn-ghost">Recargar invitaciones</button>
+                </div>
+                <div id="adminInvitesList" class="audit-list"></div>
                 <button id="adminGeneratePassword" class="btn btn-ghost">Generar contrasena fuerte</button>
                 <button id="adminUnlockUser" class="btn btn-ghost">Desbloquear usuario</button>
                 <button id="adminDeleteUser" class="btn btn-ghost">Eliminar usuario</button>
@@ -1546,27 +1671,7 @@
     <div id="overlay-root" class="notifications-overlay-root" aria-hidden="true"></div>
     <div id="toast" class="toast hidden" aria-live="polite"></div>
     <script src="/assets/security.min.js?asset=sec" defer></script>
-    <script src="/assets/app.min.js?asset=web&v=33" defer></script>
-    <script src="/assets/tasks.min.js?asset=tasks&v=33" defer></script>
+    <script src="/assets/app.min.js?asset=web&v=34" defer></script>
+    <script src="/assets/tasks.min.js?asset=tasks&v=34" defer></script>
   </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

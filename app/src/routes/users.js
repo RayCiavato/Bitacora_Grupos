@@ -5,20 +5,33 @@ const { pool } = require("../db");
 const { authenticate, requireRole } = require("../middleware/auth");
 const { validatePasswordPolicy } = require("../services/passwordPolicy");
 const { validateFullName } = require("../services/namePolicy");
-const { validateRegistrationEmail } = require("../services/emailPolicy");
+const { getEmailDomain, normalizeEmail, validateRegistrationEmail } = require("../services/emailPolicy");
 const { createAuditLog } = require("../services/audit");
 const { ROLE_KEYS, canUserManageUsers, canUserViewUsers } = require("../services/authorization");
-const { addUserToGroup, getDefaultGroup } = require("../services/groups");
+const { addUserToGroup, getGroupById } = require("../services/groups");
+const {
+  createUserInvite,
+  listUserInvites,
+  revokeInvite
+} = require("../services/invites");
 
 const router = express.Router();
 const userRoleSchema = z.enum(ROLE_KEYS);
 
 const createUserSchema = z.object({
   name: z.string().min(2).max(120),
-  email: z.string().email(),
+  email: z.string().min(1).max(254),
   password: z.string().min(1),
-  role: userRoleSchema.default("funcionario")
+  role: userRoleSchema.default("funcionario"),
+  groupId: z.coerce.number().int().positive()
 });
+const inviteUserSchema = z
+  .object({
+    email: z.string().min(1).max(254),
+    role: userRoleSchema.default("funcionario"),
+    groupId: z.coerce.number().int().positive()
+  })
+  .strict();
 
 const resetPasswordSchema = z.object({
   newPassword: z.string().min(1)
@@ -26,6 +39,15 @@ const resetPasswordSchema = z.object({
 const updateRoleSchema = z.object({
   role: userRoleSchema
 });
+const updateEmailSchema = z.object({
+  email: z.string().min(1).max(254)
+});
+const updateAccountStatusSchema = z
+  .object({
+    status: z.enum(["pending", "approved", "rejected", "suspended"]),
+    reason: z.string().trim().max(300).optional().default("")
+  })
+  .strict();
 
 const selfPasswordSchema = z.object({
   currentPassword: z.string().min(1),
@@ -55,6 +77,18 @@ function parseBooleanQueryFlag(value) {
   const normalized = String(value).trim().toLowerCase();
   return normalized === "true" || normalized === "1" || normalized === "yes";
 }
+
+function maskEmailForAudit(email) {
+  const normalized = normalizeEmail(email);
+  const atIndex = normalized.indexOf("@");
+  if (atIndex <= 0) {
+    return "***";
+  }
+  const local = normalized.slice(0, atIndex);
+  const domain = normalized.slice(atIndex + 1);
+  const visible = local.length <= 2 ? local.slice(0, 1) : local.slice(0, 2);
+  return `${visible || "*"}***@${domain}`;
+}
 router.post("/", authenticate, requireRole(["admin"]), async (req, res, next) => {
   try {
     if (!ensureCanManageUsersOrForbidden(req, res)) {
@@ -62,8 +96,24 @@ router.post("/", authenticate, requireRole(["admin"]), async (req, res, next) =>
     }
 
     const payload = createUserSchema.parse(req.body);
+    const targetGroup = await getGroupById(payload.groupId);
+    if (!targetGroup || !targetGroup.isActive) {
+      return res.status(400).json({ error: "group_not_found" });
+    }
+
     const emailResult = validateRegistrationEmail(payload.email);
     if (!emailResult.valid) {
+      await createAuditLog({
+        userId: req.user.sub,
+        action: "users.email_update_denied",
+        entity: "user",
+        metadata: {
+          domain: emailResult.domain || null,
+          reason: emailResult.reason || emailResult.error,
+          operation: "create_user"
+        },
+        req
+      });
       return res.status(400).json({ error: emailResult.error });
     }
     const email = emailResult.value;
@@ -85,27 +135,24 @@ router.post("/", authenticate, requireRole(["admin"]), async (req, res, next) =>
     const passwordHash = await bcrypt.hash(payload.password, 12);
     const insertResult = await pool.query(
       `
-        INSERT INTO users (name, email, password_hash, role)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id, name, email, role, created_at
+        INSERT INTO users (name, email, password_hash, role, account_status)
+        VALUES ($1, $2, $3, $4, 'approved')
+        RETURNING id, name, email, role, account_status, created_at
       `,
       [nameResult.value, email, passwordHash, payload.role]
     );
-    const defaultGroup = await getDefaultGroup();
-    if (defaultGroup?.id) {
-      await addUserToGroup({
-        userId: insertResult.rows[0].id,
-        groupId: defaultGroup.id,
-        roleInGroup: "miembro"
-      });
-    }
+    await addUserToGroup({
+      userId: insertResult.rows[0].id,
+      groupId: payload.groupId,
+      roleInGroup: "miembro"
+    });
 
     await createAuditLog({
       userId: req.user.sub,
       action: "users.created",
       entity: "user",
       entityId: insertResult.rows[0].id,
-      metadata: { role: payload.role },
+      metadata: { role: payload.role, groupId: payload.groupId, accountStatus: "approved" },
       req
     });
 
@@ -136,6 +183,7 @@ router.get("/", authenticate, requireRole(["admin", "supervisor"]), async (req, 
             email,
             role,
             mfa_enabled,
+            account_status AS "accountStatus",
             is_active AS "isActive",
             deleted_at AS "deletedAt",
             created_at
@@ -151,6 +199,7 @@ router.get("/", authenticate, requireRole(["admin", "supervisor"]), async (req, 
             email,
             role,
             mfa_enabled,
+            account_status AS "accountStatus",
             is_active AS "isActive",
             deleted_at AS "deletedAt",
             created_at
@@ -159,6 +208,149 @@ router.get("/", authenticate, requireRole(["admin", "supervisor"]), async (req, 
         `;
     const result = await pool.query(sql);
     return res.json(result.rows);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/invites", authenticate, requireRole(["admin"]), async (req, res, next) => {
+  try {
+    if (!ensureCanManageUsersOrForbidden(req, res)) {
+      return;
+    }
+    const invites = await listUserInvites();
+    return res.json({ invites });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/invite", authenticate, requireRole(["admin"]), async (req, res, next) => {
+  try {
+    if (!ensureCanManageUsersOrForbidden(req, res)) {
+      return;
+    }
+
+    const payload = inviteUserSchema.parse(req.body);
+    const targetGroup = await getGroupById(payload.groupId);
+    if (!targetGroup || !targetGroup.isActive) {
+      return res.status(400).json({ error: "group_not_found" });
+    }
+
+    const emailResult = validateRegistrationEmail(payload.email);
+    if (!emailResult.valid) {
+      await createAuditLog({
+        userId: req.user.sub,
+        action:
+          emailResult.error === "disposable_email_not_allowed"
+            ? "auth.disposable_email_rejected"
+            : emailResult.error === "email_domain_not_allowed"
+              ? "auth.email_domain_denied"
+              : "auth.email_rejected",
+        entity: "user_invite",
+        metadata: {
+          domain: emailResult.domain || null,
+          reason: emailResult.reason || emailResult.error,
+          operation: "invite_user"
+        },
+        req
+      });
+      return res.status(400).json({ error: emailResult.error });
+    }
+
+    const existingUserResult = await pool.query(
+      `
+        SELECT id
+        FROM users
+        WHERE LOWER(email) = LOWER($1)
+          AND deleted_at IS NULL
+        LIMIT 1
+      `,
+      [emailResult.value]
+    );
+    if (existingUserResult.rowCount > 0) {
+      return res.status(409).json({ error: "email_already_exists" });
+    }
+
+    const existingInviteResult = await pool.query(
+      `
+        SELECT id
+        FROM user_invites
+        WHERE LOWER(email) = LOWER($1)
+          AND accepted_at IS NULL
+          AND revoked_at IS NULL
+          AND expires_at > NOW()
+        LIMIT 1
+      `,
+      [emailResult.value]
+    );
+    if (existingInviteResult.rowCount > 0) {
+      return res.status(409).json({ error: "invite_already_exists" });
+    }
+
+    const created = await createUserInvite({
+      email: emailResult.value,
+      role: payload.role,
+      groupId: payload.groupId,
+      invitedBy: Number(req.user.sub)
+    });
+
+    await createAuditLog({
+      userId: req.user.sub,
+      action: "users.invited",
+      entity: "user_invite",
+      entityId: created.invite.id,
+      metadata: {
+        domain: emailResult.domain,
+        role: payload.role,
+        groupId: payload.groupId,
+        expiresAt: created.invite.expiresAt
+      },
+      req
+    });
+
+    return res.status(201).json({
+      invite: created.invite,
+      token: created.token,
+      instructions: `Abre /?popup=auth&invite=${created.token} para activar la cuenta.`
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error" });
+    }
+    if (error.code === "23505") {
+      return res.status(409).json({ error: "invite_already_exists" });
+    }
+    return next(error);
+  }
+});
+
+router.delete("/invites/:id", authenticate, requireRole(["admin"]), async (req, res, next) => {
+  try {
+    if (!ensureCanManageUsersOrForbidden(req, res)) {
+      return;
+    }
+    const inviteId = Number(req.params.id);
+    if (!Number.isInteger(inviteId) || inviteId <= 0) {
+      return res.status(400).json({ error: "invalid_invite_id" });
+    }
+    const revoked = await revokeInvite(inviteId);
+    if (!revoked) {
+      return res.status(404).json({ error: "invite_not_found" });
+    }
+    await createAuditLog({
+      userId: req.user.sub,
+      action: "users.invite_revoked",
+      entity: "user_invite",
+      entityId: inviteId,
+      metadata: {
+        domain: getEmailDomain(revoked.email),
+        groupId: revoked.groupId,
+        role: revoked.role
+      },
+      req
+    });
+    return res.json({ message: "Invitacion revocada", invite: revoked });
   } catch (error) {
     return next(error);
   }
@@ -315,6 +507,219 @@ router.patch("/:id/password", authenticate, requireRole(["admin"]), async (req, 
         role: updateResult.rows[0].role,
         updated_at: updateResult.rows[0].updated_at
       }
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error" });
+    }
+    return next(error);
+  }
+});
+
+router.patch("/:id/email", authenticate, requireRole(["admin"]), async (req, res, next) => {
+  let emailResult = null;
+  try {
+    if (!ensureCanManageUsersOrForbidden(req, res)) {
+      return;
+    }
+
+    const userId = Number(req.params.id);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ error: "invalid_user_id" });
+    }
+
+    const payload = updateEmailSchema.parse(req.body);
+    emailResult = validateRegistrationEmail(payload.email);
+    if (!emailResult.valid) {
+      await createAuditLog({
+        userId: req.user.sub,
+        action: "users.email_update_denied",
+        entity: "user",
+        entityId: userId,
+        metadata: {
+          targetUserId: userId,
+          domain: emailResult.domain || null,
+          reason: emailResult.reason || emailResult.error,
+          operation: "update_user_email"
+        },
+        req
+      });
+      return res.status(400).json({ error: emailResult.error });
+    }
+
+    const targetResult = await pool.query(
+      `
+        SELECT id, name, email, role, is_active AS "isActive", deleted_at AS "deletedAt"
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [userId]
+    );
+
+    if (targetResult.rowCount === 0) {
+      return res.status(404).json({ error: "user_not_found" });
+    }
+
+    const targetUser = targetResult.rows[0];
+    if (!targetUser.isActive || targetUser.deletedAt) {
+      return res.status(400).json({ error: "user_inactive" });
+    }
+
+    const previousEmail = normalizeEmail(targetUser.email);
+    const newEmail = emailResult.value;
+    if (previousEmail === newEmail) {
+      return res.json({
+        message: "Correo electronico sin cambios",
+        user: {
+          id: targetUser.id,
+          name: targetUser.name,
+          email: targetUser.email,
+          role: targetUser.role
+        }
+      });
+    }
+
+    const updateResult = await pool.query(
+      `
+        UPDATE users
+        SET email = $2
+        WHERE id = $1
+          AND is_active = TRUE
+          AND deleted_at IS NULL
+        RETURNING id, name, email, role, updated_at
+      `,
+      [userId, newEmail]
+    );
+
+    if (updateResult.rowCount === 0) {
+      return res.status(404).json({ error: "user_not_found" });
+    }
+
+    await createAuditLog({
+      userId: req.user.sub,
+      action: "users.email_updated",
+      entity: "user",
+      entityId: userId,
+      metadata: {
+        targetUserId: userId,
+        before: {
+          email: maskEmailForAudit(previousEmail),
+          domain: getEmailDomain(previousEmail)
+        },
+        after: {
+          email: maskEmailForAudit(newEmail),
+          domain: emailResult.domain
+        }
+      },
+      req
+    });
+
+    return res.json({
+      message: "Correo electronico actualizado correctamente",
+      user: updateResult.rows[0]
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error" });
+    }
+    if (error.code === "23505") {
+      await createAuditLog({
+        userId: req.user?.sub || null,
+        action: "users.email_update_denied",
+        entity: "user",
+        entityId: Number(req.params.id) || null,
+        metadata: {
+          targetUserId: Number(req.params.id) || null,
+          domain: emailResult?.domain || null,
+          reason: "duplicate_email",
+          operation: "update_user_email"
+        },
+        req
+      });
+      return res.status(409).json({ error: "email_already_exists" });
+    }
+    return next(error);
+  }
+});
+
+router.patch("/:id/status", authenticate, requireRole(["admin"]), async (req, res, next) => {
+  try {
+    if (!ensureCanManageUsersOrForbidden(req, res)) {
+      return;
+    }
+
+    const userId = Number(req.params.id);
+    const actorUserId = Number(req.user?.sub);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ error: "invalid_user_id" });
+    }
+
+    const payload = updateAccountStatusSchema.parse(req.body);
+    const targetResult = await pool.query(
+      `
+        SELECT id, name, email, role, account_status AS "accountStatus", is_active AS "isActive", deleted_at AS "deletedAt"
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [userId]
+    );
+
+    if (targetResult.rowCount === 0) {
+      return res.status(404).json({ error: "user_not_found" });
+    }
+
+    const targetUser = targetResult.rows[0];
+    if (!targetUser.isActive || targetUser.deletedAt) {
+      return res.status(400).json({ error: "user_inactive" });
+    }
+    if (userId === actorUserId && payload.status !== "approved") {
+      return res.status(400).json({ error: "cannot_update_own_status" });
+    }
+
+    const updateResult = await pool.query(
+      `
+        UPDATE users
+        SET account_status = $2,
+            token_version = token_version + CASE WHEN $2 <> 'approved' THEN 1 ELSE 0 END
+        WHERE id = $1
+          AND is_active = TRUE
+          AND deleted_at IS NULL
+        RETURNING id, name, email, role, account_status AS "accountStatus", updated_at
+      `,
+      [userId, payload.status]
+    );
+
+    if (payload.status !== "approved") {
+      await pool.query("DELETE FROM refresh_tokens WHERE user_id = $1", [userId]);
+      await pool.query("DELETE FROM user_telegram_links WHERE user_id = $1", [userId]);
+    }
+
+    const actionByStatus = {
+      approved: "users.approved",
+      rejected: "users.rejected",
+      suspended: "users.suspended",
+      pending: "users.pending"
+    };
+
+    await createAuditLog({
+      userId: req.user.sub,
+      action: actionByStatus[payload.status] || "users.status_updated",
+      entity: "user",
+      entityId: userId,
+      metadata: {
+        before: { accountStatus: targetUser.accountStatus },
+        after: { accountStatus: payload.status },
+        reason: payload.reason || "",
+        targetUserId: userId
+      },
+      req
+    });
+
+    return res.json({
+      message: "Estado de cuenta actualizado correctamente",
+      user: updateResult.rows[0]
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -544,6 +949,7 @@ router.delete("/:id", authenticate, requireRole(["admin"]), async (req, res, nex
     );
 
     await client.query("DELETE FROM refresh_tokens WHERE user_id = $1", [userId]);
+    await client.query("DELETE FROM user_telegram_links WHERE user_id = $1", [userId]);
 
     await client.query("COMMIT");
     txStarted = false;

@@ -23,21 +23,27 @@ const USERS_FIXTURE = Object.freeze([
     name: "Admin Bitacora",
     email: "admin@bitacora.local",
     role: "admin",
-    token_version: 0
+    token_version: 0,
+    account_status: "approved",
+    mfa_enabled: true
   },
   {
     id: 2,
     name: "Supervisor Bitacora",
     email: "supervisor@bitacora.local",
     role: "supervisor",
-    token_version: 0
+    token_version: 0,
+    account_status: "approved",
+    mfa_enabled: true
   },
   {
     id: 3,
     name: "Funcionario Bitacora",
     email: "funcionario@bitacora.local",
     role: "funcionario",
-    token_version: 0
+    token_version: 0,
+    account_status: "approved",
+    mfa_enabled: true
   }
 ]);
 
@@ -130,6 +136,7 @@ function createRbacSettingsDbDouble() {
   let rolePoliciesByRole = new Map();
   let systemSettings = null;
   let eventTemplates = [];
+  let userInvites = [];
   let auditLogs = [];
 
   function parseJson(value) {
@@ -156,6 +163,7 @@ function createRbacSettingsDbDouble() {
     rolePoliciesByRole = new Map();
     systemSettings = null;
     eventTemplates = clone(TEMPLATES_FIXTURE);
+    userInvites = [];
     auditLogs = [];
   }
 
@@ -163,7 +171,7 @@ function createRbacSettingsDbDouble() {
     const sql = String(sqlText).replace(/\s+/g, " ").trim();
     const lower = sql.toLowerCase();
 
-    if (lower.startsWith("select id, name, email, role, token_version from users where id = $1")) {
+    if (lower.startsWith("select id, name, email, role, token_version")) {
       const userId = Number(params[0]);
       const user = usersById.get(userId);
       return {
@@ -307,6 +315,217 @@ function createRbacSettingsDbDouble() {
     }
 
     if (
+      lower.startsWith("select id, name, email, role, is_active as") &&
+      lower.includes("from users") &&
+      lower.includes("where id = $1")
+    ) {
+      const userId = Number(params[0]);
+      const user = usersById.get(userId);
+      return {
+        rowCount: user ? 1 : 0,
+        rows: user
+          ? [
+              {
+                id: user.id,
+                name: user.name,
+            email: user.email,
+            role: user.role,
+            accountStatus: user.account_status || "approved",
+            isActive: user.is_active !== false,
+            deletedAt: user.deleted_at || null
+          }
+            ]
+          : []
+      };
+    }
+
+    if (lower.startsWith("select id, name, email, role, account_status as") && lower.includes("where id = $1")) {
+      const userId = Number(params[0]);
+      const user = usersById.get(userId);
+      return {
+        rowCount: user ? 1 : 0,
+        rows: user
+          ? [
+              {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                accountStatus: user.account_status || "approved",
+                isActive: user.is_active !== false,
+                deletedAt: user.deleted_at || null
+              }
+            ]
+          : []
+      };
+    }
+
+    if (lower.startsWith("update users set account_status = $2")) {
+      const userId = Number(params[0]);
+      const nextStatus = String(params[1] || "approved");
+      const user = usersById.get(userId);
+      if (!user || user.is_active === false || user.deleted_at) {
+        return { rowCount: 0, rows: [] };
+      }
+      user.account_status = nextStatus;
+      if (nextStatus !== "approved") {
+        user.token_version = Number(user.token_version || 0) + 1;
+      }
+      user.updated_at = new Date().toISOString();
+      return {
+        rowCount: 1,
+        rows: [
+          {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            accountStatus: user.account_status,
+            updated_at: user.updated_at
+          }
+        ]
+      };
+    }
+
+    if (lower.startsWith("delete from refresh_tokens where user_id") || lower.startsWith("delete from user_telegram_links where user_id")) {
+      return { rowCount: 0, rows: [] };
+    }
+
+    if (lower.startsWith("select id from users where lower(email)")) {
+      const email = String(params[0] || "").toLowerCase();
+      const found = Array.from(usersById.values()).find(
+        (user) => String(user.email || "").toLowerCase() === email && !user.deleted_at
+      );
+      return { rowCount: found ? 1 : 0, rows: found ? [{ id: found.id }] : [] };
+    }
+
+    if (lower.startsWith("select id from user_invites")) {
+      const email = String(params[0] || "").toLowerCase();
+      const now = Date.now();
+      const found = userInvites.find(
+        (invite) =>
+          String(invite.email || "").toLowerCase() === email &&
+          !invite.accepted_at &&
+          !invite.revoked_at &&
+          new Date(invite.expires_at).getTime() > now
+      );
+      return { rowCount: found ? 1 : 0, rows: found ? [{ id: found.id }] : [] };
+    }
+
+    if (lower.startsWith("insert into user_invites")) {
+      const invite = {
+        id: userInvites.length + 1,
+        email: params[0],
+        role: params[1],
+        group_id: Number(params[2]),
+        invited_by: params[3] ? Number(params[3]) : null,
+        token_hash: params[4],
+        expires_at: params[5],
+        accepted_at: null,
+        revoked_at: null,
+        created_at: new Date().toISOString()
+      };
+      userInvites.push(invite);
+      return {
+        rowCount: 1,
+        rows: [
+          {
+            id: invite.id,
+            email: invite.email,
+            role: invite.role,
+            groupId: invite.group_id,
+            invitedBy: invite.invited_by,
+            expiresAt: invite.expires_at,
+            acceptedAt: invite.accepted_at,
+            revokedAt: invite.revoked_at,
+            createdAt: invite.created_at
+          }
+        ]
+      };
+    }
+
+    if (lower.includes("from user_invites i")) {
+      const rows = userInvites
+        .slice()
+        .sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)))
+        .map((invite) => {
+          const group = groups.find((item) => Number(item.id) === Number(invite.group_id));
+          const inviter = usersById.get(Number(invite.invited_by));
+          return {
+            id: invite.id,
+            email: invite.email,
+            role: invite.role,
+            groupId: invite.group_id,
+            groupName: group?.name || null,
+            groupSlug: group?.slug || null,
+            invitedBy: invite.invited_by,
+            invitedByName: inviter?.name || null,
+            expiresAt: invite.expires_at,
+            acceptedAt: invite.accepted_at,
+            revokedAt: invite.revoked_at,
+            createdAt: invite.created_at
+          };
+        });
+      return { rowCount: rows.length, rows };
+    }
+
+    if (lower.startsWith("update user_invites set revoked_at")) {
+      const inviteId = Number(params[0]);
+      const invite = userInvites.find((item) => Number(item.id) === inviteId && !item.accepted_at && !item.revoked_at);
+      if (!invite) {
+        return { rowCount: 0, rows: [] };
+      }
+      invite.revoked_at = new Date().toISOString();
+      return {
+        rowCount: 1,
+        rows: [
+          {
+            id: invite.id,
+            email: invite.email,
+            role: invite.role,
+            groupId: invite.group_id,
+            invitedBy: invite.invited_by,
+            expiresAt: invite.expires_at,
+            acceptedAt: invite.accepted_at,
+            revokedAt: invite.revoked_at,
+            createdAt: invite.created_at
+          }
+        ]
+      };
+    }
+
+    if (lower.startsWith("update users set email = $2")) {
+      const userId = Number(params[0]);
+      const nextEmail = String(params[1] || "");
+      const duplicate = Array.from(usersById.values()).find(
+        (user) => Number(user.id) !== userId && String(user.email || "").toLowerCase() === nextEmail.toLowerCase()
+      );
+      if (duplicate) {
+        const error = new Error("duplicate email");
+        error.code = "23505";
+        throw error;
+      }
+      const user = usersById.get(userId);
+      if (!user || user.is_active === false || user.deleted_at) {
+        return { rowCount: 0, rows: [] };
+      }
+      user.email = nextEmail;
+      user.updated_at = new Date().toISOString();
+      return {
+        rowCount: 1,
+        rows: [
+          {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            updated_at: user.updated_at
+          }
+        ]
+      };
+    }
+
+    if (
       lower.startsWith("select") &&
       lower.includes("from users") &&
       lower.includes("mfa_enabled") &&
@@ -322,6 +541,7 @@ function createRbacSettingsDbDouble() {
           email: user.email,
           role: user.role,
           mfa_enabled: true,
+          accountStatus: user.account_status || "approved",
           isActive: user.is_active !== false,
           deletedAt: user.deleted_at || null,
           created_at: "2026-04-01T00:00:00.000Z"
@@ -713,6 +933,75 @@ test("RBAC y Configuracion: seguridad, validaciones, auditoria e integridad", as
     const auditActions = fakeDb.getAuditLogs().map((entry) => entry.action);
     assert.ok(auditActions.includes("groups.updated"));
     assert.ok(auditActions.includes("groups.access_denied"));
+  });
+
+  await t.test("Usuarios: admin actualiza correo corporativo validado y auditado", async () => {
+    fakeDb.reset();
+
+    const updateResponse = await attachSession(request(app).patch("/users/2/email"), admin).send({
+      email: "  supervisor@empresa.com  "
+    });
+    assert.equal(updateResponse.status, 200);
+    assert.equal(updateResponse.body.user.email, "supervisor@empresa.com");
+
+    const disposableResponse = await attachSession(request(app).patch("/users/2/email"), admin).send({
+      email: "supervisor@yopmail.com"
+    });
+    assert.equal(disposableResponse.status, 400);
+    assert.equal(disposableResponse.body.error, "disposable_email_not_allowed");
+
+    const duplicateResponse = await attachSession(request(app).patch("/users/2/email"), admin).send({
+      email: "admin@bitacora.local"
+    });
+    assert.equal(duplicateResponse.status, 409);
+    assert.equal(duplicateResponse.body.error, "email_already_exists");
+
+    const deniedResponse = await attachSession(request(app).patch("/users/2/email"), funcionario).send({
+      email: "supervisor@empresa.local"
+    });
+    assert.equal(deniedResponse.status, 403);
+    assert.equal(deniedResponse.body.error, "forbidden");
+
+    const auditActions = fakeDb.getAuditLogs().map((entry) => entry.action);
+    assert.ok(auditActions.includes("users.email_updated"));
+    assert.ok(auditActions.includes("users.email_update_denied"));
+  });
+
+  await t.test("Usuarios institucionales: invitaciones y estados requieren admin y auditan cambios", async () => {
+    fakeDb.reset();
+
+    const inviteResponse = await attachSession(request(app).post("/users/invite"), admin).send({
+      email: "nuevo@empresa.com",
+      role: "funcionario",
+      groupId: 1
+    });
+    assert.equal(inviteResponse.status, 201);
+    assert.equal(inviteResponse.body.invite.email, "nuevo@empresa.com");
+    assert.ok(inviteResponse.body.token);
+
+    const deniedInvite = await attachSession(request(app).post("/users/invite"), funcionario).send({
+      email: "otro@empresa.com",
+      role: "funcionario",
+      groupId: 1
+    });
+    assert.equal(deniedInvite.status, 403);
+
+    const statusResponse = await attachSession(request(app).patch("/users/2/status"), admin).send({
+      status: "suspended",
+      reason: "Prueba QA"
+    });
+    assert.equal(statusResponse.status, 200, JSON.stringify(statusResponse.body));
+    assert.equal(statusResponse.body.user.accountStatus, "suspended");
+
+    const selfSuspend = await attachSession(request(app).patch("/users/1/status"), admin).send({
+      status: "suspended"
+    });
+    assert.equal(selfSuspend.status, 400);
+    assert.equal(selfSuspend.body.error, "cannot_update_own_status");
+
+    const auditActions = fakeDb.getAuditLogs().map((entry) => entry.action);
+    assert.ok(auditActions.includes("users.invited"));
+    assert.ok(auditActions.includes("users.suspended"));
   });
 
   await t.test("Configuracion: validacion estricta, persistencia, flags y auditoria", async () => {

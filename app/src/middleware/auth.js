@@ -79,7 +79,7 @@ async function authenticate(req, res, next) {
 
     const result = await pool.query(
       `
-        SELECT id, name, email, role, token_version
+        SELECT id, name, email, role, token_version, account_status, mfa_enabled
         FROM users
         WHERE id = $1
           AND is_active = TRUE
@@ -94,8 +94,17 @@ async function authenticate(req, res, next) {
     }
 
     const user = result.rows[0];
+    const accountStatus = String(user.account_status || "approved");
+    if (accountStatus !== "approved") {
+      return res.status(403).json({ error: `account_${accountStatus}` });
+    }
+
     if (typeof payload.tokenVersion !== "number" || payload.tokenVersion !== user.token_version) {
       return res.status(401).json({ error: "session_revoked" });
+    }
+
+    if (config.mfaRequired && !user.mfa_enabled && payload.purpose !== "mfa_setup") {
+      return res.status(403).json({ error: "mfa_setup_required" });
     }
 
     if (shouldValidateCsrf(req) && !hasValidCsrfToken(req)) {
@@ -108,6 +117,8 @@ async function authenticate(req, res, next) {
       role: user.role,
       name: user.name,
       email: user.email,
+      accountStatus,
+      mfaEnabled: Boolean(user.mfa_enabled),
       purpose: payload.purpose || null,
       tokenVersion: user.token_version
     };

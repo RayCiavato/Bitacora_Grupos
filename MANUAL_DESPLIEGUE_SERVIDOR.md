@@ -183,7 +183,7 @@ bash scripts/install-server-safe.sh \
 Notas:
 
 - Usa una DB password simple para URL: letras, numeros, `_` o `-`.
-- El admin inicial `admin@n1njahack.local` es creado por provisioning, aunque el registro publico acepte solo Gmail/Hotmail.
+- El admin inicial `admin@n1njahack.local` es creado por provisioning. El registro publico queda deshabilitado por defecto y los usuarios nuevos deben entrar por invitacion.
 - Cambia la password admin despues del primer login.
 
 Verificar:
@@ -268,10 +268,20 @@ mkdir -p backups
 sudo chown -R "$USER:$USER" backups
 ```
 
-### 5.4 Migracion incremental multi-area
+### 5.4 Migraciones incrementales multi-area e institucionales
 
 ```bash
-cat db/migrations/008_groups_abac.sql | $DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}"
+for migration in \
+  db/migrations/008_groups_abac.sql \
+  db/migrations/009_gerencial_role.sql \
+  db/migrations/010_remove_gerencial_role_usage.sql \
+  db/migrations/011_institutional_access.sql
+do
+  if [ -f "$migration" ]; then
+    echo "Aplicando $migration"
+    cat "$migration" | $DC exec -T postgres psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}"
+  fi
+done
 ```
 
 Validar migracion:
@@ -281,9 +291,38 @@ $DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTG
 $DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS tasks_sin_grupo FROM tasks WHERE group_id IS NULL;"
 $DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS events_sin_grupo FROM events WHERE group_id IS NULL;"
 $DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS attachments_sin_grupo FROM event_attachments WHERE group_id IS NULL;"
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT account_status, COUNT(*) FROM users GROUP BY account_status ORDER BY account_status;"
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS invitaciones FROM user_invites;"
 ```
 
 Esperado: los conteos `sin_grupo` deben ser `0`.
+
+### 5.4.1 Variables institucionales recomendadas
+
+Despues de actualizar, revisa `.env`:
+
+```bash
+cp .env ".env.backup.institucional.$(date +%F-%H%M%S)"
+
+grep -q '^ALLOW_PUBLIC_REGISTRATION=' .env && sed -i 's/^ALLOW_PUBLIC_REGISTRATION=.*/ALLOW_PUBLIC_REGISTRATION=false/' .env || echo 'ALLOW_PUBLIC_REGISTRATION=false' >> .env
+grep -q '^ACCOUNT_APPROVAL_REQUIRED=' .env && sed -i 's/^ACCOUNT_APPROVAL_REQUIRED=.*/ACCOUNT_APPROVAL_REQUIRED=true/' .env || echo 'ACCOUNT_APPROVAL_REQUIRED=true' >> .env
+grep -q '^MFA_REQUIRED=' .env && sed -i 's/^MFA_REQUIRED=.*/MFA_REQUIRED=true/' .env || echo 'MFA_REQUIRED=true' >> .env
+grep -q '^INVITE_TTL_HOURS=' .env && sed -i 's/^INVITE_TTL_HOURS=.*/INVITE_TTL_HOURS=48/' .env || echo 'INVITE_TTL_HOURS=48' >> .env
+grep -q '^ALLOWED_EMAIL_DOMAINS=' .env && sed -i 's/^ALLOWED_EMAIL_DOMAINS=.*/ALLOWED_EMAIL_DOMAINS=bitacora.local,empresa.local,empresa.com,institucion.gob.ve/' .env || echo 'ALLOWED_EMAIL_DOMAINS=bitacora.local,empresa.local,empresa.com,institucion.gob.ve' >> .env
+grep -q '^ALLOW_EMAIL_SUBDOMAINS=' .env && sed -i 's/^ALLOW_EMAIL_SUBDOMAINS=.*/ALLOW_EMAIL_SUBDOMAINS=true/' .env || echo 'ALLOW_EMAIL_SUBDOMAINS=true' >> .env
+grep -q '^INTERNAL_NETWORK_ONLY=' .env && sed -i 's/^INTERNAL_NETWORK_ONLY=.*/INTERNAL_NETWORK_ONLY=false/' .env || echo 'INTERNAL_NETWORK_ONLY=false' >> .env
+grep -q '^ALLOWED_NETWORKS=' .env && sed -i 's#^ALLOWED_NETWORKS=.*#ALLOWED_NETWORKS=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32#' .env || echo 'ALLOWED_NETWORKS=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32' >> .env
+```
+
+Si necesitas dominios reales de la institucion, reemplaza `ALLOWED_EMAIL_DOMAINS` por los dominios aprobados antes de recrear la app.
+
+El flujo nuevo es:
+
+1. Admin crea invitacion desde Usuarios.
+2. Usuario acepta token.
+3. Admin aprueba cuenta pendiente.
+4. Usuario inicia sesion y configura MFA.
+5. Usuarios pendientes/suspendidos no acceden a dashboard, SSE ni Telegram.
 
 ### 5.5 Rebuild solo app
 

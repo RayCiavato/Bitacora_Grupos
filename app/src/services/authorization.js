@@ -1171,6 +1171,8 @@ function buildSessionUser(user) {
     name: user.name,
     email: user.email,
     role: normalizedRole,
+    accountStatus: user.accountStatus || user.account_status || "approved",
+    mfaEnabled: Boolean(user.mfaEnabled || user.mfa_enabled),
     groups: Array.isArray(user.groups) ? user.groups : [],
     groupAccess: user.groupAccess || null,
     capabilities

@@ -1,4 +1,5 @@
 const express = require("express");
+const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const speakeasy = require("speakeasy");
 const QRCode = require("qrcode");
@@ -10,10 +11,21 @@ const { logger } = require("../logger");
 const { authenticate, requirePurpose } = require("../middleware/auth");
 const { validatePasswordPolicy } = require("../services/passwordPolicy");
 const { validateFullName } = require("../services/namePolicy");
-const { normalizeEmail, validateRegistrationEmail } = require("../services/emailPolicy");
+const {
+  getAllowedEmailDomains,
+  getEmailDomain,
+  normalizeEmail,
+  validateRegistrationEmail
+} = require("../services/emailPolicy");
 const { createAuditLog } = require("../services/audit");
 const { buildSessionUser } = require("../services/authorization");
 const { addUserToGroup, enrichUserWithGroupAccess, getDefaultGroup } = require("../services/groups");
+const {
+  getInviteFailureReason,
+  getValidInviteByToken,
+  markInviteAccepted,
+  sanitizeInviteToken
+} = require("../services/invites");
 const { getSystemSettings } = require("../services/systemSettings");
 const {
   createAccessToken,
@@ -31,7 +43,7 @@ const router = express.Router();
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
-  mfaToken: z.string().regex(/^[0-9]{6}$/).optional()
+  mfaToken: z.string().trim().min(6).max(32).regex(/^[A-Za-z0-9-]+$/).optional()
 });
 
 const mfaEnableSchema = z.object({
@@ -40,7 +52,12 @@ const mfaEnableSchema = z.object({
 
 const registerSchema = z.object({
   name: z.string().min(1),
-  email: z.string().email(),
+  email: z.string().min(1).max(254),
+  password: z.string().min(1)
+});
+const acceptInviteSchema = z.object({
+  token: z.string().trim().min(16).max(256).regex(/^[A-Za-z0-9_-]+$/),
+  name: z.string().min(1),
   password: z.string().min(1)
 });
 const recoverPasswordSchema = z.object({
@@ -220,6 +237,72 @@ function clearSessionCookies(res) {
   res.clearCookie(config.csrfCookieName, cookieOptionsForClear(getCsrfCookieOptions()));
 }
 
+function createRecoveryCode() {
+  const left = crypto.randomBytes(3).toString("hex").toUpperCase();
+  const right = crypto.randomBytes(3).toString("hex").toUpperCase();
+  return `${left}-${right}`;
+}
+
+async function rotateRecoveryCodes(userId, client = pool) {
+  const codes = Array.from({ length: 8 }, createRecoveryCode);
+  await client.query("DELETE FROM user_mfa_recovery_codes WHERE user_id = $1", [userId]);
+  for (const code of codes) {
+    // eslint-disable-next-line no-await-in-loop
+    const hash = await bcrypt.hash(code, 12);
+    // eslint-disable-next-line no-await-in-loop
+    await client.query(
+      "INSERT INTO user_mfa_recovery_codes (user_id, code_hash) VALUES ($1, $2)",
+      [userId, hash]
+    );
+  }
+  return codes;
+}
+
+async function consumeRecoveryCode(userId, token) {
+  const cleanToken = String(token || "").trim().toUpperCase();
+  if (!cleanToken || /^[0-9]{6}$/.test(cleanToken)) {
+    return false;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await client.query(
+      `
+        SELECT id, code_hash
+        FROM user_mfa_recovery_codes
+        WHERE user_id = $1
+          AND used_at IS NULL
+        ORDER BY id ASC
+      `,
+      [userId]
+    );
+
+    for (const row of result.rows) {
+      // eslint-disable-next-line no-await-in-loop
+      const valid = await bcrypt.compare(cleanToken, row.code_hash);
+      if (!valid) {
+        continue;
+      }
+      // eslint-disable-next-line no-await-in-loop
+      await client.query(
+        "UPDATE user_mfa_recovery_codes SET used_at = NOW() WHERE id = $1 AND used_at IS NULL",
+        [row.id]
+      );
+      await client.query("COMMIT");
+      return true;
+    }
+
+    await client.query("ROLLBACK");
+    return false;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function issueSession({ user, req, res, auditAction = "auth.session_created" }) {
   const accessToken = createAccessToken(user);
   const refreshTokenObj = createRefreshToken(user);
@@ -247,6 +330,15 @@ async function issueSession({ user, req, res, auditAction = "auth.session_create
   };
 }
 
+router.get("/public-config", (_req, res) => {
+  return res.json({
+    allowPublicRegistration: Boolean(config.allowPublicRegistration),
+    mfaRequired: Boolean(config.mfaRequired),
+    accountApprovalRequired: Boolean(config.accountApprovalRequired),
+    allowedEmailDomains: getAllowedEmailDomains()
+  });
+});
+
 router.post("/login", async (req, res, next) => {
   try {
     const payload = loginSchema.parse(req.body);
@@ -255,7 +347,7 @@ router.post("/login", async (req, res, next) => {
     const userResult = await pool.query(
       `
         SELECT id, name, email, role, password_hash, failed_attempts, lock_until, mfa_enabled, mfa_secret,
-               token_version
+               account_status, token_version
         FROM users
         WHERE LOWER(email) = LOWER($1)
           AND is_active = TRUE
@@ -270,6 +362,20 @@ router.post("/login", async (req, res, next) => {
     }
 
     const user = userResult.rows[0];
+    const accountStatus = String(user.account_status || "approved");
+    if (accountStatus !== "approved") {
+      await createAuditLog({
+        userId: user.id,
+        action: `auth.account_${accountStatus}_denied`,
+        entity: "auth",
+        entityId: user.id,
+        metadata: {
+          accountStatus
+        },
+        req
+      });
+      return res.status(403).json({ error: `account_${accountStatus}` });
+    }
 
     if (user.role !== "admin" && user.lock_until && new Date(user.lock_until) > new Date()) {
       return res.status(423).json({
@@ -320,9 +426,31 @@ router.post("/login", async (req, res, next) => {
         window: 1
       });
 
+      let recoveryValid = false;
       if (!mfaValid) {
+        recoveryValid = await consumeRecoveryCode(user.id, payload.mfaToken);
+      }
+
+      if (!mfaValid && !recoveryValid) {
+        await createAuditLog({
+          userId: user.id,
+          action: "auth.mfa_failed",
+          entity: "auth",
+          entityId: user.id,
+          req
+        });
         await registerFailedAttempt(user);
         return res.status(401).json({ error: "invalid_mfa_token" });
+      }
+
+      if (recoveryValid) {
+        await createAuditLog({
+          userId: user.id,
+          action: "auth.mfa_recovery_code_used",
+          entity: "auth",
+          entityId: user.id,
+          req
+        });
       }
     }
 
@@ -345,12 +473,36 @@ router.post("/register", async (req, res, next) => {
   let email = "";
   try {
     if (!config.allowPublicRegistration) {
+      await createAuditLog({
+        userId: null,
+        action: "auth.public_registration_denied",
+        entity: "auth",
+        metadata: {
+          reason: "public_registration_disabled"
+        },
+        req
+      });
       return res.status(403).json({ error: "registration_disabled" });
     }
 
     const payload = registerSchema.parse(req.body);
     const emailResult = validateRegistrationEmail(payload.email);
     if (!emailResult.valid) {
+      await createAuditLog({
+        userId: null,
+        action:
+          emailResult.error === "disposable_email_not_allowed"
+            ? "auth.disposable_email_rejected"
+            : emailResult.error === "email_domain_not_allowed"
+              ? "auth.email_domain_denied"
+              : "auth.email_rejected",
+        entity: "auth",
+        metadata: {
+          domain: emailResult.domain || null,
+          reason: emailResult.reason || emailResult.error
+        },
+        req
+      });
       return res.status(400).json({ error: emailResult.error });
     }
     email = emailResult.value;
@@ -376,13 +528,14 @@ router.post("/register", async (req, res, next) => {
     }
 
     const passwordHash = await bcrypt.hash(payload.password, 12);
+    const accountStatus = config.accountApprovalRequired ? "pending" : "approved";
     const insertResult = await pool.query(
       `
-        INSERT INTO users (name, email, password_hash, role)
-        VALUES ($1, $2, $3, 'funcionario')
-        RETURNING id, name, email, role, token_version
+        INSERT INTO users (name, email, password_hash, role, account_status)
+        VALUES ($1, $2, $3, 'funcionario', $4)
+        RETURNING id, name, email, role, account_status, token_version
       `,
-      [normalizedName, email, passwordHash]
+      [normalizedName, email, passwordHash, accountStatus]
     );
 
     const user = insertResult.rows[0];
@@ -395,15 +548,30 @@ router.post("/register", async (req, res, next) => {
       });
     }
 
-    const setupToken = createMfaSetupToken(user);
     await createAuditLog({
       userId: user.id,
       action: "auth.register_success",
       entity: "auth",
       entityId: user.id,
-      metadata: { role: user.role },
+      metadata: { role: user.role, accountStatus },
       req
     });
+
+    if (accountStatus !== "approved") {
+      return res.status(201).json({
+        message: "Registro recibido. Tu cuenta queda pendiente de aprobacion.",
+        pendingApproval: true,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          accountStatus
+        }
+      });
+    }
+
+    const setupToken = createMfaSetupToken(user);
 
     return res.status(201).json({
       message: "Usuario registrado correctamente. Escanea el QR para activar MFA.",
@@ -423,6 +591,162 @@ router.post("/register", async (req, res, next) => {
     if (error.code === "23505") {
       logger.warn({ email }, "Register failed due to duplicate email");
       return res.status(400).json({ error: "registration_unavailable" });
+    }
+    return next(error);
+  }
+});
+
+router.post("/accept-invite", async (req, res, next) => {
+  let invite = null;
+  try {
+    const payload = acceptInviteSchema.parse(req.body);
+    const token = sanitizeInviteToken(payload.token);
+    invite = await getValidInviteByToken(token);
+    const inviteFailure = getInviteFailureReason(invite);
+    if (inviteFailure) {
+      await createAuditLog({
+        userId: null,
+        action: "auth.invite_accept_denied",
+        entity: "user_invite",
+        entityId: invite?.id || null,
+        metadata: {
+          reason: inviteFailure,
+          domain: invite?.email ? getEmailDomain(invite.email) : null
+        },
+        req
+      });
+      return res.status(400).json({ error: inviteFailure });
+    }
+
+    if (!invite.groupId) {
+      return res.status(400).json({ error: "invite_group_required" });
+    }
+
+    const emailResult = validateRegistrationEmail(invite.email);
+    if (!emailResult.valid) {
+      await createAuditLog({
+        userId: invite.invitedBy || null,
+        action:
+          emailResult.error === "disposable_email_not_allowed"
+            ? "auth.disposable_email_rejected"
+            : emailResult.error === "email_domain_not_allowed"
+              ? "auth.email_domain_denied"
+              : "auth.email_rejected",
+        entity: "user_invite",
+        entityId: invite.id,
+        metadata: {
+          domain: emailResult.domain || null,
+          reason: emailResult.reason || emailResult.error,
+          operation: "accept_invite"
+        },
+        req
+      });
+      return res.status(400).json({ error: emailResult.error });
+    }
+
+    const nameResult = validateFullName(payload.name);
+    if (!nameResult.valid) {
+      return res.status(400).json({ error: "invalid_name" });
+    }
+
+    const policyResult = validatePasswordPolicy(payload.password, {
+      email: invite.email,
+      name: nameResult.value
+    });
+    if (!policyResult.valid) {
+      return res.status(400).json({ error: "weak_password" });
+    }
+
+    const accountStatus = config.accountApprovalRequired ? "pending" : "approved";
+    const passwordHash = await bcrypt.hash(payload.password, 12);
+    const client = await pool.connect();
+    let user = null;
+    try {
+      await client.query("BEGIN");
+      const insertResult = await client.query(
+        `
+          INSERT INTO users (name, email, password_hash, role, account_status)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING id, name, email, role, account_status, token_version
+        `,
+        [nameResult.value, invite.email, passwordHash, invite.role, accountStatus]
+      );
+      user = insertResult.rows[0];
+      await client.query(
+        `
+          INSERT INTO user_groups (user_id, group_id, role_in_group)
+          VALUES ($1, $2, 'miembro')
+          ON CONFLICT (user_id, group_id) DO NOTHING
+        `,
+        [user.id, invite.groupId]
+      );
+      await markInviteAccepted(invite.id, client);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    await createAuditLog({
+      userId: invite.invitedBy || user.id,
+      action: "auth.invite_accepted",
+      entity: "user_invite",
+      entityId: invite.id,
+      metadata: {
+        targetUserId: user.id,
+        groupId: invite.groupId,
+        role: invite.role,
+        accountStatus
+      },
+      req
+    });
+
+    if (accountStatus !== "approved") {
+      return res.status(201).json({
+        message: "Cuenta creada y pendiente de aprobacion.",
+        pendingApproval: true,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          accountStatus
+        }
+      });
+    }
+
+    const setupToken = createMfaSetupToken(user);
+    return res.status(201).json({
+      message: "Cuenta activada. Configura MFA para ingresar.",
+      setupRequired: true,
+      setupToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        accountStatus
+      }
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: "validation_error" });
+    }
+    if (error.code === "23505") {
+      await createAuditLog({
+        userId: invite?.invitedBy || null,
+        action: "auth.invite_accept_denied",
+        entity: "user_invite",
+        entityId: invite?.id || null,
+        metadata: {
+          reason: "email_already_exists",
+          domain: invite?.email ? getEmailDomain(invite.email) : null
+        },
+        req
+      });
+      return res.status(409).json({ error: "email_already_exists" });
     }
     return next(error);
   }
@@ -567,7 +891,7 @@ router.post("/refresh", async (req, res, next) => {
 
     const userResult = await pool.query(
       `
-        SELECT id, name, email, role, token_version
+        SELECT id, name, email, role, token_version, account_status, mfa_enabled
         FROM users
         WHERE id = $1
           AND is_active = TRUE
@@ -582,9 +906,18 @@ router.post("/refresh", async (req, res, next) => {
     }
 
     const user = userResult.rows[0];
+    const accountStatus = String(user.account_status || "approved");
+    if (accountStatus !== "approved") {
+      await revokeRefreshTokenById(tokenId);
+      return res.status(403).json({ error: `account_${accountStatus}` });
+    }
     if (Number(payload.tokenVersion) !== Number(user.token_version)) {
       await revokeRefreshTokenById(tokenId);
       return res.status(401).json({ error: "session_revoked" });
+    }
+    if (config.mfaRequired && !user.mfa_enabled) {
+      await revokeRefreshTokenById(tokenId);
+      return res.status(403).json({ error: "mfa_setup_required" });
     }
 
     await revokeRefreshTokenById(tokenId);
@@ -631,24 +964,7 @@ router.get("/me", authenticate, async (req, res, next) => {
     if (!req.cookies?.[config.csrfCookieName]) {
       res.cookie(config.csrfCookieName, createCsrfToken(), getCsrfCookieOptions());
     }
-
-    const result = await pool.query(
-      `
-        SELECT id, name, email, role
-        FROM users
-        WHERE id = $1
-          AND is_active = TRUE
-          AND deleted_at IS NULL
-        LIMIT 1
-      `,
-      [req.user.sub]
-    );
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({ error: "user_not_found" });
-    }
-
-    return res.json(buildSessionUser(result.rows[0]));
+    return res.json(buildSessionUser(req.user));
   } catch (error) {
     return next(error);
   }
@@ -752,10 +1068,12 @@ router.post("/mfa/enable", authenticate, requirePurpose("mfa_setup"), async (req
       `,
       [user.id]
     );
+    const recoveryCodes = await rotateRecoveryCodes(user.id);
 
     const session = await issueSession({ user, req, res, auditAction: "auth.mfa_enabled" });
     return res.json({
       message: "MFA habilitado correctamente",
+      recoveryCodes,
       ...session,
       tokenType: "cookie"
     });

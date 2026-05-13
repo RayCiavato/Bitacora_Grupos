@@ -212,6 +212,7 @@ async function listActiveLinkedTelegramUsers() {
       WHERE l.telegram_private_chat_id IS NOT NULL
         AND u.is_active = TRUE
         AND u.deleted_at IS NULL
+        AND u.account_status = 'approved'
         AND (l.session_expires_at IS NULL OR l.session_expires_at > NOW())
       ORDER BY u.id ASC
     `

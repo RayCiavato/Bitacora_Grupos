@@ -5,6 +5,8 @@ const landingPanel = document.getElementById("landingPanel");
 const mfaSetupCard = document.getElementById("mfaSetupCard");
 const mfaQr = document.getElementById("mfaQr");
 const mfaManualKey = document.getElementById("mfaManualKey");
+const mfaRecoveryCodesBox = document.getElementById("mfaRecoveryCodesBox");
+const mfaRecoveryCodes = document.getElementById("mfaRecoveryCodes");
 const sessionInfo = document.getElementById("sessionInfo");
 const toast = document.getElementById("toast");
 const reportRange = document.getElementById("reportRange");
@@ -146,6 +148,13 @@ const logoutBtn = document.getElementById("logoutBtn");
 const registerForm = document.getElementById("registerForm");
 const loginCard = document.getElementById("loginCard");
 const registerCard = document.getElementById("registerCard");
+const inviteAcceptCard = document.getElementById("inviteAcceptCard");
+const inviteAcceptForm = document.getElementById("inviteAcceptForm");
+const inviteTokenInput = document.getElementById("inviteToken");
+const inviteNameInput = document.getElementById("inviteName");
+const invitePasswordInput = document.getElementById("invitePassword");
+const invitePasswordConfirmInput = document.getElementById("invitePasswordConfirm");
+const inviteBackToLoginBtn = document.getElementById("inviteBackToLogin");
 const authLoginTab = document.getElementById("authLoginTab");
 const authRegisterTab = document.getElementById("authRegisterTab");
 const switchToRegisterBtn = document.getElementById("switchToRegisterBtn");
@@ -184,6 +193,20 @@ const adminUserSelect = document.getElementById("adminUserSelect");
 const adminRoleForm = document.getElementById("adminRoleForm");
 const adminRoleUserSelect = document.getElementById("adminRoleUserSelect");
 const adminRoleSelect = document.getElementById("adminRoleSelect");
+const adminEmailForm = document.getElementById("adminEmailForm");
+const adminEmailUserSelect = document.getElementById("adminEmailUserSelect");
+const adminEmailInput = document.getElementById("adminEmailInput");
+const adminStatusForm = document.getElementById("adminStatusForm");
+const adminStatusUserSelect = document.getElementById("adminStatusUserSelect");
+const adminStatusSelect = document.getElementById("adminStatusSelect");
+const adminStatusReason = document.getElementById("adminStatusReason");
+const adminInviteForm = document.getElementById("adminInviteForm");
+const adminInviteEmail = document.getElementById("adminInviteEmail");
+const adminInviteRole = document.getElementById("adminInviteRole");
+const adminInviteGroup = document.getElementById("adminInviteGroup");
+const adminInviteResult = document.getElementById("adminInviteResult");
+const adminInvitesReload = document.getElementById("adminInvitesReload");
+const adminInvitesList = document.getElementById("adminInvitesList");
 const adminNewPassword = document.getElementById("adminNewPassword");
 const adminGeneratePassword = document.getElementById("adminGeneratePassword");
 const adminUnlockUser = document.getElementById("adminUnlockUser");
@@ -364,7 +387,24 @@ const FULL_NAME_MIN_LENGTH = 2;
 const FULL_NAME_MAX_LENGTH = 120;
 const FULL_NAME_REGEX = /^[A-Za-z0-9]+(?:[ -][A-Za-z0-9]+)*$/;
 const STRONG_PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{12,}$/;
-const ALLOWED_REGISTRATION_EMAIL_DOMAINS = new Set(["gmail.com", "hotmail.com"]);
+const DISPOSABLE_REGISTRATION_EMAIL_DOMAINS = new Set([
+  "10minutemail.com",
+  "guerrillamail.com",
+  "guerrillamail.net",
+  "grr.la",
+  "mailinator.com",
+  "sharklasers.com",
+  "temp-mail.org",
+  "tempmail.com",
+  "throwawaymail.com",
+  "fakeinbox.com",
+  "getnada.com",
+  "trashmail.com",
+  "yopmail.com",
+  "yopmail.net",
+  "yopmail.fr",
+  "yopmail.gq"
+]);
 
 const ERROR_MESSAGES = {
   unauthorized: "Acceso no autorizado. Inicia sesion.",
@@ -380,12 +420,23 @@ const ERROR_MESSAGES = {
   invalid_mfa_setup: "No se pudo completar la operacion de MFA.",
   mfa_setup_not_started: "Primero debes iniciar la configuracion MFA.",
   mfa_setup_required: "Configura MFA para completar el acceso.",
+  account_pending: "Tu cuenta esta pendiente de aprobacion.",
+  account_rejected: "Tu cuenta no fue aprobada.",
+  account_suspended: "Tu cuenta esta suspendida.",
+  network_denied: "Acceso permitido solo desde la red institucional.",
   weak_password:
     "La contrasena debe tener minimo 12 caracteres, mayuscula, minuscula, numero y simbolo.",
   invalid_name: "Nombre completo invalido. Usa letras, numeros, espacios y guion medio.",
   registration_disabled: "No se pudo completar el registro.",
-  email_domain_not_allowed: "Solo se permiten correos Gmail o Hotmail para registrarse.",
+  email_domain_not_allowed: "El dominio del correo no esta permitido.",
+  invalid_email: "El correo electronico no es valido.",
+  disposable_email_not_allowed: "No se permiten correos temporales o desechables.",
   email_already_exists: "No se pudo completar el registro.",
+  invite_not_found: "La invitacion no es valida.",
+  invite_expired: "La invitacion expiro.",
+  invite_used: "La invitacion ya fue utilizada.",
+  invite_revoked: "La invitacion fue revocada.",
+  invite_group_required: "La invitacion no tiene grupo asignado.",
   registration_unavailable: "No se pudo completar el registro.",
   recover_failed: "No se pudo completar la recuperacion de contrasena.",
   validation_error: "No se pudo validar la solicitud.",
@@ -444,6 +495,12 @@ const state = {
   },
   authView: "login",
   authPopup: false,
+  publicConfig: {
+    allowPublicRegistration: false,
+    allowedEmailDomains: []
+  },
+  inviteToken: "",
+  userInvites: [],
   pendingRefresh: null,
   chartJsPromise: null,
   performanceLite: false,
@@ -497,6 +554,7 @@ const state = {
 };
 
 const APP_TIMEZONE = "America/Caracas";
+const MFA_RECOVERY_CODES_STORAGE_KEY = "bitacora_mfa_recovery_codes_v1";
 const APP_TIMEZONE_OFFSET_MINUTES = 240;
 const CARACAS_DATE_FORMATTER = new Intl.DateTimeFormat("es-VE", {
   timeZone: APP_TIMEZONE,
@@ -668,14 +726,98 @@ function validateFullNameInput(value) {
   return { valid: true, value: normalized };
 }
 
+function normalizeEmailInput(value) {
+  return String(value || "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function isDisposableRegistrationEmailDomain(domain) {
+  const normalized = String(domain || "").trim().toLowerCase().replace(/\.$/, "");
+  if (!normalized) {
+    return false;
+  }
+  if (DISPOSABLE_REGISTRATION_EMAIL_DOMAINS.has(normalized)) {
+    return true;
+  }
+  return Array.from(DISPOSABLE_REGISTRATION_EMAIL_DOMAINS).some((blockedDomain) =>
+    normalized.endsWith(`.${blockedDomain}`)
+  );
+}
+
+function isAllowedInstitutionalEmailDomain(domain) {
+  const normalized = String(domain || "").trim().toLowerCase().replace(/^\.+|\.+$/g, "");
+  const allowedDomains = Array.isArray(state.publicConfig?.allowedEmailDomains)
+    ? state.publicConfig.allowedEmailDomains
+    : [];
+  const cleanAllowed = allowedDomains
+    .map((item) => String(item || "").trim().toLowerCase())
+    .filter(Boolean);
+  if (!cleanAllowed.length) {
+    return true;
+  }
+  return cleanAllowed.some((allowedDomain) =>
+    normalized === allowedDomain || normalized.endsWith(`.${allowedDomain}`)
+  );
+}
+
+function hasEmailControlCharacters(value) {
+  const raw = String(value || "");
+  for (let index = 0; index < raw.length; index += 1) {
+    const code = raw.charCodeAt(index);
+    if (code <= 31 || code === 127) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasEmailInnerWhitespace(value) {
+  return Array.from(String(value || "").trim()).some((character) => /\s/.test(character));
+}
+
 function validateAllowedRegistrationEmailInput(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  const domain = normalized.split("@").pop();
-  if (!normalized || !ALLOWED_REGISTRATION_EMAIL_DOMAINS.has(domain)) {
+  const raw = String(value || "");
+  const normalized = normalizeEmailInput(raw);
+  const invalidFormat =
+    hasEmailControlCharacters(raw) ||
+    !normalized ||
+    normalized.length > 254 ||
+    hasEmailInnerWhitespace(normalized) ||
+    (normalized.match(/@/g) || []).length !== 1 ||
+    !/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/.test(
+      normalized
+    );
+
+  if (invalidFormat) {
     return {
       valid: false,
       value: normalized,
-      message: "Solo se permiten correos Gmail o Hotmail para registrarse."
+      message: "El correo electronico no es valido."
+    };
+  }
+
+  const [localPart, domain] = normalized.split("@");
+  if (
+    !localPart ||
+    localPart.length > 64 ||
+    localPart.startsWith(".") ||
+    localPart.endsWith(".") ||
+    localPart.includes("..") ||
+    !domain ||
+    domain.split(".").length < 2 ||
+    isDisposableRegistrationEmailDomain(domain) ||
+    !isAllowedInstitutionalEmailDomain(domain)
+  ) {
+    return {
+      valid: false,
+      value: normalized,
+      message: isDisposableRegistrationEmailDomain(domain)
+        ? "No se permiten correos temporales o desechables."
+        : !isAllowedInstitutionalEmailDomain(domain)
+          ? "El dominio del correo no esta permitido."
+          : "El correo electronico no es valido."
     };
   }
 
@@ -822,6 +964,20 @@ function formatRoleLabel(role) {
     return "Supervisor";
   }
   return "Funcionario";
+}
+
+function formatAccountStatusLabel(status) {
+  const value = String(status || "approved").toLowerCase();
+  if (value === "pending") {
+    return "Pendiente";
+  }
+  if (value === "rejected") {
+    return "Rechazado";
+  }
+  if (value === "suspended") {
+    return "Suspendido";
+  }
+  return "Aprobado";
 }
 
 function resolveErrorMessage(errorCode, details) {
@@ -1528,6 +1684,11 @@ function syncResourceGroupControls() {
   });
   populateGroupSelect(reportGroupFilter, visibleGroups, { includeAll: true });
   populateGroupSelect(tasksFilterGroup, visibleGroups, { includeAll: true });
+  populateGroupSelect(adminInviteGroup, createGroups, {
+    includePlaceholder: createGroups.length > 1,
+    placeholderLabel: "Selecciona grupo",
+    required: true
+  });
   setElementVisible(eventGroupSelectWrap, createGroups.length > 1);
   setElementVisible(taskGroupSelectWrap, createGroups.length > 1);
   setElementVisible(reportGroupFilterWrap, visibleGroups.length > 1);
@@ -2536,20 +2697,69 @@ function canUploadToSelectedEvent() {
   return Boolean(state.eventAccess?.canUpload);
 }
 
+function applyPublicAuthConfig() {
+  const canRegister = Boolean(state.publicConfig?.allowPublicRegistration);
+  authRegisterTab?.classList.toggle("hidden", !canRegister);
+  switchToRegisterBtn?.classList.toggle("hidden", !canRegister);
+  authLaunchButtons.forEach((button) => {
+    if (button?.dataset?.auth === "register") {
+      button.classList.toggle("hidden", !canRegister);
+    }
+  });
+  if (!canRegister && state.authView === "register") {
+    setAuthView("login");
+  }
+}
+
+function getInviteTokenFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const token = String(params.get("invite") || "").trim();
+  if (!token || token.length > 160 || !/^[A-Za-z0-9_-]+$/.test(token)) {
+    return "";
+  }
+  return token;
+}
+
+async function loadPublicAuthConfig() {
+  const { response, data, networkError } = await api("/auth/public-config");
+  if (!networkError && response.ok && data && typeof data === "object") {
+    state.publicConfig = {
+      allowPublicRegistration: Boolean(data.allowPublicRegistration),
+      allowedEmailDomains: Array.isArray(data.allowedEmailDomains) ? data.allowedEmailDomains : []
+    };
+  }
+  applyPublicAuthConfig();
+}
+
 function setAuthView(view) {
-  const normalizedView = view === "register" ? "register" : "login";
+  const registrationAllowed = Boolean(state.publicConfig?.allowPublicRegistration);
+  const normalizedView =
+    view === "invite" && state.inviteToken
+      ? "invite"
+      : view === "register" && registrationAllowed
+        ? "register"
+        : "login";
   state.authView = normalizedView;
 
   loginCard.classList.toggle("hidden", normalizedView !== "login");
   registerCard.classList.toggle("hidden", normalizedView !== "register");
+  inviteAcceptCard?.classList.toggle("hidden", normalizedView !== "invite");
   authLoginTab.classList.toggle("is-active", normalizedView === "login");
   authRegisterTab.classList.toggle("is-active", normalizedView === "register");
+  if (inviteTokenInput && state.inviteToken) {
+    inviteTokenInput.value = state.inviteToken;
+  }
 }
 
 function getRequestedAuthView() {
   const params = new URLSearchParams(window.location.search);
   const requested = params.get("auth");
-  if (requested === "register") {
+  const inviteToken = getInviteTokenFromUrl();
+  if (inviteToken) {
+    state.inviteToken = inviteToken;
+    return "invite";
+  }
+  if (requested === "register" && state.publicConfig?.allowPublicRegistration) {
     return "register";
   }
   return "login";
@@ -3013,6 +3223,9 @@ function clearSession() {
   if (adminRoleForm) {
     adminRoleForm.reset();
   }
+  if (adminEmailForm) {
+    adminEmailForm.reset();
+  }
   if (rbacRoleSelect) {
     rbacRoleSelect.replaceChildren();
   }
@@ -3064,6 +3277,8 @@ function applySessionUser(userPayload) {
     name: String(userPayload.name || ""),
     email: String(userPayload.email || ""),
     role: String(userPayload.role || ""),
+    accountStatus: String(userPayload.accountStatus || "approved"),
+    mfaEnabled: Boolean(userPayload.mfaEnabled),
     groups: Array.isArray(userPayload.groups) ? userPayload.groups : [],
     groupAccess:
       userPayload.groupAccess && typeof userPayload.groupAccess === "object"
@@ -4474,6 +4689,12 @@ function renderUsersOptions() {
   if (adminRoleUserSelect) {
     clearElement(adminRoleUserSelect);
   }
+  if (adminEmailUserSelect) {
+    clearElement(adminEmailUserSelect);
+  }
+  if (adminStatusUserSelect) {
+    clearElement(adminStatusUserSelect);
+  }
   clearElement(userFilterInput);
 
   const allOption = document.createElement("option");
@@ -4492,13 +4713,28 @@ function renderUsersOptions() {
       emptyRoleOption.textContent = "No hay usuarios";
       adminRoleUserSelect.appendChild(emptyRoleOption);
     }
+    if (adminEmailUserSelect) {
+      const emptyEmailOption = document.createElement("option");
+      emptyEmailOption.value = "";
+      emptyEmailOption.textContent = "No hay usuarios";
+      adminEmailUserSelect.appendChild(emptyEmailOption);
+    }
+    if (adminStatusUserSelect) {
+      const emptyStatusOption = document.createElement("option");
+      emptyStatusOption.value = "";
+      emptyStatusOption.textContent = "No hay usuarios";
+      adminStatusUserSelect.appendChild(emptyStatusOption);
+    }
     syncAdminUserActionState();
     return;
   }
 
   state.users.forEach((user) => {
     const statusText = isUserActiveForUi(user) ? "" : " (inactivo)";
-    const userText = `${user.name}${statusText} (${user.email}) - ${formatRoleLabel(user.role)}`;
+    const accountText = user.accountStatus && user.accountStatus !== "approved"
+      ? ` - ${formatAccountStatusLabel(user.accountStatus)}`
+      : "";
+    const userText = `${user.name}${statusText} (${user.email}) - ${formatRoleLabel(user.role)}${accountText}`;
 
     const adminOption = document.createElement("option");
     adminOption.value = String(user.id);
@@ -4510,6 +4746,20 @@ function renderUsersOptions() {
       roleOption.value = String(user.id);
       roleOption.textContent = userText;
       adminRoleUserSelect.appendChild(roleOption);
+    }
+
+    if (adminEmailUserSelect) {
+      const emailOption = document.createElement("option");
+      emailOption.value = String(user.id);
+      emailOption.textContent = userText;
+      adminEmailUserSelect.appendChild(emailOption);
+    }
+
+    if (adminStatusUserSelect) {
+      const statusOption = document.createElement("option");
+      statusOption.value = String(user.id);
+      statusOption.textContent = userText;
+      adminStatusUserSelect.appendChild(statusOption);
     }
 
     const filterOption = document.createElement("option");
@@ -4527,6 +4777,8 @@ function renderUsersOptions() {
       ? selectedRole
       : "funcionario";
   }
+  syncSelectedEmailUser();
+  syncSelectedStatusUser();
   syncAdminUserActionState();
 }
 
@@ -5281,6 +5533,7 @@ function handleUnauthorized(shouldNotify = true) {
 async function loadUsers() {
   if (!canFilterByUser()) {
     state.users = [];
+    state.userInvites = [];
     syncAttachmentsOwnerFilter();
     return;
   }
@@ -5303,6 +5556,70 @@ async function loadUsers() {
   state.users = Array.isArray(data) ? data : [];
   renderUsersOptions();
   syncAttachmentsOwnerFilter();
+}
+
+function renderUserInvites() {
+  if (!adminInvitesList) {
+    return;
+  }
+  clearElement(adminInvitesList);
+  const invites = Array.isArray(state.userInvites) ? state.userInvites : [];
+  if (!invites.length) {
+    const empty = document.createElement("p");
+    empty.className = "help-text";
+    empty.textContent = "No hay invitaciones activas o recientes.";
+    adminInvitesList.appendChild(empty);
+    return;
+  }
+
+  invites.slice(0, 12).forEach((invite) => {
+    const item = document.createElement("article");
+    item.className = "audit-item";
+    const status = invite.revokedAt
+      ? "Revocada"
+      : invite.acceptedAt
+        ? "Aceptada"
+        : new Date(invite.expiresAt).getTime() < Date.now()
+          ? "Expirada"
+          : "Activa";
+    const groupLabel = invite.groupName || `Grupo #${invite.groupId || "-"}`;
+    const title = document.createElement("strong");
+    title.textContent = `${invite.email} - ${status}`;
+    const meta = document.createElement("span");
+    meta.textContent = `${formatRoleLabel(invite.role)} | ${groupLabel} | vence ${formatDateTime(invite.expiresAt)}`;
+    item.append(title, meta);
+
+    if (!invite.revokedAt && !invite.acceptedAt && status !== "Expirada") {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn btn-ghost";
+      button.textContent = "Revocar";
+      button.addEventListener("click", () => handleInviteRevoke(invite.id));
+      item.appendChild(button);
+    }
+    adminInvitesList.appendChild(item);
+  });
+}
+
+async function loadUserInvites() {
+  if (!canManageUsers() || !adminInvitesList) {
+    return;
+  }
+  const { response, data, networkError } = await apiAuth("/users/invites");
+  if (networkError) {
+    showToast("No hay conexion para cargar invitaciones.", "error");
+    return;
+  }
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+  state.userInvites = Array.isArray(data?.invites) ? data.invites : [];
+  renderUserInvites();
 }
 
 async function loadTemplates() {
@@ -6458,8 +6775,20 @@ async function handleMfaEnable(event) {
     return;
   }
 
+  if (Array.isArray(data?.recoveryCodes) && data.recoveryCodes.length) {
+    try {
+      window.sessionStorage?.setItem(MFA_RECOVERY_CODES_STORAGE_KEY, JSON.stringify(data.recoveryCodes));
+    } catch (_error) {
+      // Si el navegador bloquea sessionStorage, igual continuamos con MFA activo.
+    }
+  }
+
   state.setupToken = null;
   mfaSetupCard.classList.add("hidden");
+  mfaRecoveryCodesBox?.classList.add("hidden");
+  if (mfaRecoveryCodes) {
+    security.setSafeText(mfaRecoveryCodes, "");
+  }
   mfaEnableForm.reset();
   const sessionApplied = applySessionUser(data?.user);
 
@@ -6478,8 +6807,46 @@ async function handleMfaEnable(event) {
   window.location.href = "/dashboard";
 }
 
+function maybeShowMfaRecoveryCodes() {
+  let raw = "";
+  try {
+    raw = window.sessionStorage?.getItem(MFA_RECOVERY_CODES_STORAGE_KEY) || "";
+    window.sessionStorage?.removeItem(MFA_RECOVERY_CODES_STORAGE_KEY);
+  } catch (_error) {
+    raw = "";
+  }
+  if (!raw) {
+    return;
+  }
+  let codes = [];
+  try {
+    codes = JSON.parse(raw);
+  } catch (_error) {
+    codes = [];
+  }
+  if (!Array.isArray(codes) || !codes.length) {
+    return;
+  }
+  openEntityModal({
+    title: "Codigos MFA de recuperacion",
+    meta: "Guardalos ahora. Solo se muestran una vez.",
+    body: codes.map((code) => `- ${code}`).join("\n"),
+    actions: [
+      {
+        label: "Cerrar",
+        onClick: closeEntityModal
+      }
+    ]
+  });
+}
+
 async function handleRegister(event) {
   event.preventDefault();
+  if (!state.publicConfig?.allowPublicRegistration) {
+    showToast("El registro publico esta deshabilitado.", "error");
+    setAuthView("login");
+    return;
+  }
   const submitButton = event.submitter || registerForm.querySelector('button[type="submit"]');
   setButtonBusy(submitButton, true, "Creando...");
 
@@ -6569,6 +6936,94 @@ async function handleRegister(event) {
   }
 
   showToast("Cuenta creada. Inicia sesion para continuar.", "success");
+}
+
+async function handleInviteAccept(event) {
+  event.preventDefault();
+  const submitButton = event.submitter || inviteAcceptForm?.querySelector('button[type="submit"]');
+  setButtonBusy(submitButton, true, "Activando...");
+
+  const token = String(inviteTokenInput?.value || state.inviteToken || "").trim();
+  const nameValidation = validateFullNameInput(inviteNameInput?.value || "");
+  if (!token) {
+    setButtonBusy(submitButton, false);
+    showToast("La invitacion no es valida.", "error");
+    return;
+  }
+  if (!nameValidation.valid) {
+    setButtonBusy(submitButton, false);
+    showToast(nameValidation.message, "error");
+    return;
+  }
+  const password = invitePasswordInput?.value || "";
+  const confirmPassword = invitePasswordConfirmInput?.value || "";
+  if (password !== confirmPassword) {
+    setButtonBusy(submitButton, false);
+    showToast("Las contrasenas no coinciden.", "error");
+    return;
+  }
+  const passwordValidation = validateStrongPasswordInput(password, {
+    email: "",
+    name: nameValidation.value
+  });
+  if (!passwordValidation.valid) {
+    setButtonBusy(submitButton, false);
+    showToast(passwordValidation.message, "error");
+    return;
+  }
+
+  const { response, data, networkError, timedOut } = await api("/auth/accept-invite", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, name: nameValidation.value, password })
+  });
+
+  setButtonBusy(submitButton, false);
+
+  if (networkError) {
+    showToast(
+      timedOut
+        ? "Tiempo de espera agotado al activar invitacion."
+        : "No hay conexion para activar invitacion.",
+      "error"
+    );
+    return;
+  }
+
+  if (!response.ok) {
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  inviteAcceptForm?.reset();
+  state.inviteToken = "";
+
+  if (data?.setupRequired && data?.setupToken) {
+    state.setupToken = data.setupToken;
+    setAuthView("login");
+    mfaSetupCard.classList.remove("hidden");
+    await loadMfaSetup();
+    showToast("Cuenta activada. Configura MFA para completar el acceso.", "info");
+    return;
+  }
+
+  if (data?.pendingApproval) {
+    showToast("Cuenta activada. Queda pendiente de aprobacion institucional.", "success");
+    setAuthView("login");
+    return;
+  }
+
+  const sessionApplied = applySessionUser(data?.user);
+  if (sessionApplied) {
+    if (completeAuthPopupNavigation()) {
+      return;
+    }
+    window.location.href = "/dashboard";
+    return;
+  }
+
+  showToast("Invitacion activada. Inicia sesion para continuar.", "success");
+  setAuthView("login");
 }
 
 async function uploadEventAttachmentByFile(eventId, file) {
@@ -7115,6 +7570,27 @@ function syncSelectedRoleUser() {
     : "funcionario";
 }
 
+function syncSelectedEmailUser() {
+  if (!adminEmailUserSelect || !adminEmailInput) {
+    return;
+  }
+  const userId = Number(adminEmailUserSelect.value || 0);
+  const selectedUser = state.users.find((user) => Number(user.id) === userId);
+  adminEmailInput.value = selectedUser?.email || "";
+}
+
+function syncSelectedStatusUser() {
+  if (!adminStatusUserSelect || !adminStatusSelect) {
+    return;
+  }
+  const userId = Number(adminStatusUserSelect.value || 0);
+  const selectedUser = state.users.find((user) => Number(user.id) === userId);
+  const status = String(selectedUser?.accountStatus || "approved").toLowerCase();
+  adminStatusSelect.value = Array.from(adminStatusSelect.options).some((option) => option.value === status)
+    ? status
+    : "approved";
+}
+
 function isUserActiveForUi(user) {
   return Boolean(user) && user.isActive !== false && !user.deletedAt;
 }
@@ -7129,6 +7605,173 @@ function syncAdminUserActionState() {
   const isActive = isUserActiveForUi(selectedUser);
   adminDeleteUser.disabled = !userId || !isActive || isCurrentUser;
   adminDeleteUser.textContent = !isActive && userId ? "Usuario desactivado" : "Eliminar usuario";
+}
+
+async function handleAdminStatusUpdate(event) {
+  event.preventDefault();
+  const submitButton = event.submitter || adminStatusForm?.querySelector('button[type="submit"]');
+  setButtonBusy(submitButton, true, "Actualizando...");
+
+  if (!canManageUsers()) {
+    setButtonBusy(submitButton, false);
+    showToast("Operacion solo disponible para administradores.", "error");
+    return;
+  }
+
+  const userId = Number(adminStatusUserSelect?.value || 0);
+  const status = String(adminStatusSelect?.value || "").trim();
+  const reason = String(adminStatusReason?.value || "").trim();
+  if (!userId || !status) {
+    setButtonBusy(submitButton, false);
+    showToast("Selecciona usuario y estado.", "error");
+    return;
+  }
+
+  const selectedUser = state.users.find((user) => Number(user.id) === userId);
+  const confirmed = await openEnterpriseConfirmDialog({
+    title: "Actualizar estado de cuenta",
+    meta: `${selectedUser?.name || `Usuario #${userId}`} -> ${formatAccountStatusLabel(status)}`,
+    body:
+      status === "approved"
+        ? "El usuario podra operar si cumple MFA y permisos vigentes."
+        : "El usuario perdera acceso activo y sus sesiones/links sensibles seran revocados.",
+    confirmLabel: "Actualizar estado",
+    danger: status !== "approved"
+  });
+  if (!confirmed) {
+    setButtonBusy(submitButton, false);
+    return;
+  }
+
+  const { response, data, networkError } = await apiAuth(`/users/${userId}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status, reason })
+  });
+
+  setButtonBusy(submitButton, false);
+
+  if (networkError) {
+    showToast("No hay conexion para actualizar estado.", "error");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  showToast("Estado de cuenta actualizado.", "success");
+  if (adminStatusReason) {
+    adminStatusReason.value = "";
+  }
+  await loadUsers();
+}
+
+async function handleInviteCreate(event) {
+  event.preventDefault();
+  const submitButton = event.submitter || adminInviteForm?.querySelector('button[type="submit"]');
+  setButtonBusy(submitButton, true, "Creando...");
+
+  if (!canManageUsers()) {
+    setButtonBusy(submitButton, false);
+    showToast("Operacion solo disponible para administradores.", "error");
+    return;
+  }
+
+  const emailValidation = validateAllowedRegistrationEmailInput(adminInviteEmail?.value || "");
+  const role = String(adminInviteRole?.value || "funcionario").trim();
+  const groupId = Number(adminInviteGroup?.value || 0);
+  if (!emailValidation.valid) {
+    setButtonBusy(submitButton, false);
+    showToast(emailValidation.message, "error");
+    return;
+  }
+  if (!groupId) {
+    setButtonBusy(submitButton, false);
+    showToast("Selecciona el grupo de la invitacion.", "error");
+    return;
+  }
+
+  const { response, data, networkError } = await apiAuth("/users/invite", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: emailValidation.value, role, groupId })
+  });
+
+  setButtonBusy(submitButton, false);
+
+  if (networkError) {
+    showToast("No hay conexion para crear invitacion.", "error");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    if (response.status === 409) {
+      showToast("Ya existe una invitacion activa o usuario con ese correo.", "error");
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  const token = String(data?.token || "").trim();
+  const inviteUrl = token ? `${window.location.origin}/?popup=auth&invite=${encodeURIComponent(token)}` : "";
+  if (adminInviteResult) {
+    adminInviteResult.classList.remove("hidden");
+    security.setSafeText(
+      adminInviteResult,
+      inviteUrl
+        ? `Invitacion creada. Enlace de activacion: ${inviteUrl}`
+        : "Invitacion creada correctamente."
+    );
+  }
+  adminInviteForm?.reset();
+  syncResourceGroupControls();
+  showToast("Invitacion creada correctamente.", "success");
+  await loadUserInvites();
+}
+
+async function handleInviteRevoke(inviteId) {
+  if (!canManageUsers()) {
+    showToast("Operacion solo disponible para administradores.", "error");
+    return;
+  }
+  const confirmed = await openEnterpriseConfirmDialog({
+    title: "Revocar invitacion",
+    meta: `Invitacion #${inviteId}`,
+    body: "El enlace dejara de funcionar inmediatamente.",
+    confirmLabel: "Revocar",
+    danger: true
+  });
+  if (!confirmed) {
+    return;
+  }
+  const { response, data, networkError } = await apiAuth(`/users/invites/${inviteId}`, {
+    method: "DELETE"
+  });
+  if (networkError) {
+    showToast("No hay conexion para revocar invitacion.", "error");
+    return;
+  }
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+  showToast("Invitacion revocada.", "success");
+  await loadUserInvites();
 }
 
 async function handleAdminRoleUpdate(event) {
@@ -7173,6 +7816,64 @@ async function handleAdminRoleUpdate(event) {
   }
 
   showToast("Rol actualizado correctamente.", "success");
+  await loadUsers();
+}
+
+async function handleAdminEmailUpdate(event) {
+  event.preventDefault();
+  const submitButton = event.submitter || adminEmailForm?.querySelector('button[type="submit"]');
+  setButtonBusy(submitButton, true, "Actualizando...");
+
+  if (!canManageUsers()) {
+    setButtonBusy(submitButton, false);
+    showToast("Operacion solo disponible para administradores.", "error");
+    return;
+  }
+
+  const userId = Number(adminEmailUserSelect?.value || 0);
+  const emailValidation = validateAllowedRegistrationEmailInput(adminEmailInput?.value || "");
+  if (!userId) {
+    setButtonBusy(submitButton, false);
+    showToast("Selecciona un usuario.", "error");
+    return;
+  }
+  if (!emailValidation.valid) {
+    setButtonBusy(submitButton, false);
+    showToast(emailValidation.message, "error");
+    return;
+  }
+
+  if (adminEmailInput) {
+    adminEmailInput.value = emailValidation.value;
+  }
+
+  const { response, data, networkError } = await apiAuth(`/users/${userId}/email`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: emailValidation.value })
+  });
+
+  setButtonBusy(submitButton, false);
+
+  if (networkError) {
+    showToast("No hay conexion para actualizar correo.", "error");
+    return;
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+    }
+    if (data?.error === "email_already_exists") {
+      showToast("Ese correo ya esta asignado a otro usuario.", "error");
+      return;
+    }
+    showToast(resolveErrorMessage(data?.error, data?.details), "error");
+    return;
+  }
+
+  showToast("Correo actualizado correctamente.", "success");
   await loadUsers();
 }
 
@@ -7672,6 +8373,11 @@ function handleAuthLaunchClick(event) {
   }
 
   const requestedView = target.dataset.auth === "register" ? "register" : "login";
+  if (requestedView === "register" && !state.publicConfig?.allowPublicRegistration) {
+    showToast("El registro publico esta deshabilitado.", "info");
+    setAuthView("login");
+    return;
+  }
   if (state.authPopup) {
     setAuthView(requestedView);
     const focusId = requestedView === "register" ? "registerName" : "email";
@@ -7695,6 +8401,11 @@ function handleAuthTabClick(event) {
   }
 
   if (target.id === "authRegisterTab") {
+    if (!state.publicConfig?.allowPublicRegistration) {
+      showToast("El registro publico esta deshabilitado.", "info");
+      setAuthView("login");
+      return;
+    }
     setAuthView("register");
     return;
   }
@@ -7703,6 +8414,11 @@ function handleAuthTabClick(event) {
 }
 
 function handleSwitchToRegister() {
+  if (!state.publicConfig?.allowPublicRegistration) {
+    showToast("El registro publico esta deshabilitado.", "info");
+    setAuthView("login");
+    return;
+  }
   setAuthView("register");
   const nameInput = document.getElementById("registerName");
   if (nameInput instanceof HTMLInputElement) {
@@ -8713,8 +9429,10 @@ async function bootstrap() {
   }
   window.__BITACORA_APP_BOOTSTRAPPED__ = true;
 
+  await loadPublicAuthConfig();
   state.authView = getRequestedAuthView();
   state.authPopup = getAuthPopupMode();
+  state.userInvites = [];
   applyPerformanceProfile();
   mountNotificationsOverlay();
   setAuthView(state.authView);
@@ -8729,6 +9447,15 @@ async function bootstrap() {
 
   loginForm.addEventListener("submit", handleLogin);
   registerForm.addEventListener("submit", handleRegister);
+  if (inviteAcceptForm) {
+    inviteAcceptForm.addEventListener("submit", handleInviteAccept);
+  }
+  if (inviteBackToLoginBtn) {
+    inviteBackToLoginBtn.addEventListener("click", () => {
+      state.inviteToken = "";
+      setAuthView("login");
+    });
+  }
   if (registerNameInput instanceof HTMLInputElement) {
     registerNameInput.addEventListener("blur", () => {
       registerNameInput.value = normalizeFullNameInput(registerNameInput.value);
@@ -8952,6 +9679,24 @@ async function bootstrap() {
   if (adminRoleUserSelect) {
     adminRoleUserSelect.addEventListener("change", syncSelectedRoleUser);
   }
+  if (adminEmailForm) {
+    adminEmailForm.addEventListener("submit", handleAdminEmailUpdate);
+  }
+  if (adminEmailUserSelect) {
+    adminEmailUserSelect.addEventListener("change", syncSelectedEmailUser);
+  }
+  if (adminStatusForm) {
+    adminStatusForm.addEventListener("submit", handleAdminStatusUpdate);
+  }
+  if (adminStatusUserSelect) {
+    adminStatusUserSelect.addEventListener("change", syncSelectedStatusUser);
+  }
+  if (adminInviteForm) {
+    adminInviteForm.addEventListener("submit", handleInviteCreate);
+  }
+  if (adminInvitesReload) {
+    adminInvitesReload.addEventListener("click", loadUserInvites);
+  }
   adminGeneratePassword.addEventListener("click", handleGenerateAdminPassword);
   adminUnlockUser.addEventListener("click", handleAdminUnlockUser);
   adminDeleteUser.addEventListener("click", handleAdminUserDelete);
@@ -9163,6 +9908,8 @@ async function bootstrap() {
 
   renderDashboardView();
   await loadDashboardData();
+  await loadUserInvites();
+  maybeShowMfaRecoveryCodes();
 }
 
 bootstrap();

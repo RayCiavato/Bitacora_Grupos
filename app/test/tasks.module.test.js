@@ -17,28 +17,36 @@ const USERS_FIXTURE = Object.freeze([
     name: "Admin Bitacora",
     email: "admin@bitacora.local",
     role: "admin",
-    token_version: 0
+    token_version: 0,
+    account_status: "approved",
+    mfa_enabled: true
   },
   {
     id: 2,
     name: "Supervisor Bitacora",
     email: "supervisor@bitacora.local",
     role: "supervisor",
-    token_version: 0
+    token_version: 0,
+    account_status: "approved",
+    mfa_enabled: true
   },
   {
     id: 3,
     name: "Funcionario Uno",
     email: "funcionario1@bitacora.local",
     role: "funcionario",
-    token_version: 0
+    token_version: 0,
+    account_status: "approved",
+    mfa_enabled: true
   },
   {
     id: 4,
     name: "Funcionario Dos",
     email: "funcionario2@bitacora.local",
     role: "funcionario",
-    token_version: 0
+    token_version: 0,
+    account_status: "approved",
+    mfa_enabled: true
   }
 ]);
 
@@ -452,7 +460,7 @@ function createFakeTasksDb() {
     const sql = String(sqlText).replace(/\s+/g, " ").trim();
     const lower = sql.toLowerCase();
 
-    if (lower.startsWith("select id, name, email, role, token_version from users")) {
+    if (lower.startsWith("select id, name, email, role, token_version") || lower.startsWith("select id, name, email, role, account_status")) {
       const userId = Number(params[0]);
       const user = usersById.get(userId);
       return {

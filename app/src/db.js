@@ -4,6 +4,7 @@ const { config } = require("./config");
 const { logger } = require("./logger");
 const { validatePasswordPolicy } = require("./services/passwordPolicy");
 const { validateFullName } = require("./services/namePolicy");
+const { validateEmailDomain } = require("./services/emailPolicy");
 
 const pool = new Pool({
   connectionString: config.databaseUrl
@@ -40,9 +41,30 @@ async function ensureDatabaseSchema() {
         mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         mfa_secret TEXT,
         mfa_temp_secret TEXT,
+        account_status VARCHAR(24) NOT NULL DEFAULT 'approved'
+          CHECK (account_status IN ('pending', 'approved', 'rejected', 'suspended')),
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
+    `,
+    `
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS account_status VARCHAR(24) NOT NULL DEFAULT 'approved'
+    `,
+    `
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conname = 'users_account_status_check'
+            AND conrelid = 'users'::regclass
+        ) THEN
+          ALTER TABLE users
+          ADD CONSTRAINT users_account_status_check
+            CHECK (account_status IN ('pending', 'approved', 'rejected', 'suspended'));
+        END IF;
+      END $$;
     `,
     `
       ALTER TABLE users
@@ -122,6 +144,15 @@ async function ensureDatabaseSchema() {
       )
     `,
     `
+      CREATE TABLE IF NOT EXISTS user_mfa_recovery_codes (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        code_hash TEXT NOT NULL,
+        used_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `,
+    `
       CREATE TABLE IF NOT EXISTS groups (
         id BIGSERIAL PRIMARY KEY,
         name VARCHAR(120) NOT NULL,
@@ -131,6 +162,20 @@ async function ensureDatabaseSchema() {
         is_active BOOLEAN NOT NULL DEFAULT TRUE,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `,
+    `
+      CREATE TABLE IF NOT EXISTS user_invites (
+        id BIGSERIAL PRIMARY KEY,
+        email CITEXT NOT NULL,
+        role user_role NOT NULL DEFAULT 'funcionario',
+        group_id BIGINT REFERENCES groups(id) ON DELETE RESTRICT,
+        invited_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+        token_hash VARCHAR(128) NOT NULL UNIQUE,
+        expires_at TIMESTAMPTZ NOT NULL,
+        accepted_at TIMESTAMPTZ,
+        revoked_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `,
     `
@@ -538,6 +583,11 @@ async function ensureDatabaseSchema() {
     `,
     "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)",
     "CREATE INDEX IF NOT EXISTS idx_users_active_state ON users(is_active, deleted_at)",
+    "CREATE INDEX IF NOT EXISTS idx_users_account_status ON users(account_status)",
+    "CREATE INDEX IF NOT EXISTS idx_user_invites_email ON user_invites(email)",
+    "CREATE INDEX IF NOT EXISTS idx_user_invites_expires_at ON user_invites(expires_at)",
+    "CREATE INDEX IF NOT EXISTS idx_user_invites_state ON user_invites(accepted_at, revoked_at, expires_at)",
+    "CREATE INDEX IF NOT EXISTS idx_user_mfa_recovery_codes_user_unused ON user_mfa_recovery_codes(user_id) WHERE used_at IS NULL",
     "CREATE INDEX IF NOT EXISTS idx_events_fecha ON events(fecha)",
     "CREATE INDEX IF NOT EXISTS idx_events_encargado ON events(encargado_id)",
     "CREATE INDEX IF NOT EXISTS idx_events_template_id ON events(template_id)",
@@ -723,9 +773,15 @@ async function ensureAdminUser() {
     throw new Error(`ADMIN_DEFAULT_NAME no cumple politica: ${nameResult.errors.join(", ")}`);
   }
 
+  const emailResult = validateEmailDomain(config.adminDefaultEmail);
+  if (!emailResult.valid) {
+    throw new Error(`ADMIN_DEFAULT_EMAIL no cumple politica: ${emailResult.error}`);
+  }
+  const adminEmail = emailResult.value;
+
   const existing = await pool.query(
     "SELECT id FROM users WHERE email = $1 LIMIT 1",
-    [config.adminDefaultEmail]
+    [adminEmail]
   );
 
   if (existing.rowCount > 0) {
@@ -733,7 +789,7 @@ async function ensureAdminUser() {
   }
 
   const policyResult = validatePasswordPolicy(config.adminDefaultPassword, {
-    email: config.adminDefaultEmail,
+    email: adminEmail,
     name: nameResult.value
   });
   if (!policyResult.valid) {
@@ -749,24 +805,14 @@ async function ensureAdminUser() {
       ON CONFLICT (email) DO NOTHING
       RETURNING id
     `,
-    [nameResult.value, config.adminDefaultEmail, passwordHash]
+    [nameResult.value, adminEmail, passwordHash]
   );
 
   if (insertResult.rowCount > 0) {
-    logger.info({ email: config.adminDefaultEmail }, "Admin inicial creado");
+    logger.info({ email: adminEmail }, "Admin inicial creado");
   } else {
-    logger.info({ email: config.adminDefaultEmail }, "Admin inicial ya existia");
+    logger.info({ email: adminEmail }, "Admin inicial ya existia");
   }
 }
 
 module.exports = { pool, ensureDatabaseSchema, ensureAdminUser };
-
-
-
-
-
-
-
-
-
-

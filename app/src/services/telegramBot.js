@@ -1426,6 +1426,7 @@ async function getLinkedUserByTelegramUserId(telegramUserId) {
       WHERE l.telegram_user_id = $1
         AND u.is_active = TRUE
         AND u.deleted_at IS NULL
+        AND u.account_status = 'approved'
         AND (l.session_expires_at IS NULL OR l.session_expires_at > NOW())
       LIMIT 1
     `,
@@ -1618,7 +1619,8 @@ async function consumeTelegramLinkCode({ code, from, chat, reqMeta = null } = {}
           t.user_id AS "userId",
           t.expires_at AS "expiresAt",
           u.is_active AS "isActive",
-          u.deleted_at AS "deletedAt"
+          u.deleted_at AS "deletedAt",
+          u.account_status AS "accountStatus"
         FROM telegram_link_tokens t
         JOIN users u ON u.id = t.user_id
         WHERE t.token_hash = $1
@@ -1637,10 +1639,10 @@ async function consumeTelegramLinkCode({ code, from, chat, reqMeta = null } = {}
     }
 
     const tokenRow = tokenResult.rows[0];
-    if (!tokenRow.isActive || tokenRow.deletedAt) {
+    if (!tokenRow.isActive || tokenRow.deletedAt || tokenRow.accountStatus !== "approved") {
       await client.query("ROLLBACK");
       txStarted = false;
-      return { ok: false, error: "user_inactive" };
+      return { ok: false, error: tokenRow.accountStatus === "approved" ? "user_inactive" : "account_not_approved" };
     }
 
     if (!tokenRow.expiresAt || new Date(tokenRow.expiresAt).getTime() <= Date.now()) {
@@ -2306,7 +2308,8 @@ async function handleStartCommand(update, context = {}) {
       expired_code: "El codigo expiro. Genera uno nuevo en el sistema.",
       telegram_already_linked: "Ese usuario ya tiene Telegram vinculado. Desvincula primero desde Configuracion.",
       telegram_user_already_linked: "Esta cuenta de Telegram ya esta vinculada a otro usuario.",
-      user_inactive: "El usuario del sistema esta inactivo."
+      user_inactive: "El usuario del sistema esta inactivo.",
+      account_not_approved: "Tu cuenta aun no esta aprobada para vincular Telegram."
     };
     const reason = linkErrorMessages[linkResult.error] ||
       "Codigo invalido. Verifica el token e intentalo de nuevo.";

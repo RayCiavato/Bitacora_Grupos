@@ -214,7 +214,13 @@ cd ~/apps/Bitacora_Grupos
 cp .env .env.backup.$(date +%F-%H%M%S)
 
 sed -i 's/^ALLOW_PUBLIC_REGISTRATION=.*/ALLOW_PUBLIC_REGISTRATION=false/' .env
+grep -q '^ACCOUNT_APPROVAL_REQUIRED=' .env && sed -i 's/^ACCOUNT_APPROVAL_REQUIRED=.*/ACCOUNT_APPROVAL_REQUIRED=true/' .env || echo 'ACCOUNT_APPROVAL_REQUIRED=true' >> .env
 sed -i 's/^MFA_REQUIRED=.*/MFA_REQUIRED=true/' .env
+grep -q '^INVITE_TTL_HOURS=' .env && sed -i 's/^INVITE_TTL_HOURS=.*/INVITE_TTL_HOURS=48/' .env || echo 'INVITE_TTL_HOURS=48' >> .env
+grep -q '^ALLOWED_EMAIL_DOMAINS=' .env && sed -i 's/^ALLOWED_EMAIL_DOMAINS=.*/ALLOWED_EMAIL_DOMAINS=bitacora.local,empresa.local,empresa.com,institucion.gob.ve/' .env || echo 'ALLOWED_EMAIL_DOMAINS=bitacora.local,empresa.local,empresa.com,institucion.gob.ve' >> .env
+grep -q '^ALLOW_EMAIL_SUBDOMAINS=' .env && sed -i 's/^ALLOW_EMAIL_SUBDOMAINS=.*/ALLOW_EMAIL_SUBDOMAINS=true/' .env || echo 'ALLOW_EMAIL_SUBDOMAINS=true' >> .env
+grep -q '^INTERNAL_NETWORK_ONLY=' .env && sed -i 's/^INTERNAL_NETWORK_ONLY=.*/INTERNAL_NETWORK_ONLY=false/' .env || echo 'INTERNAL_NETWORK_ONLY=false' >> .env
+grep -q '^ALLOWED_NETWORKS=' .env && sed -i 's#^ALLOWED_NETWORKS=.*#ALLOWED_NETWORKS=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32#' .env || echo 'ALLOWED_NETWORKS=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32' >> .env
 sed -i 's/^COOKIE_SAMESITE=.*/COOKIE_SAMESITE=strict/' .env
 ```
 
@@ -226,6 +232,15 @@ $DC up -d --no-deps --force-recreate app
 ```
 
 Nota: si usas HTTPS interno con CA instalada, puedes usar `COOKIE_SECURE=true`. Si sigues en HTTP interno, `COOKIE_SECURE=true` puede impedir login en algunos navegadores.
+
+Politica recomendada:
+
+- Registro publico desactivado.
+- Usuarios nuevos solo por invitacion.
+- Cuentas nuevas quedan pendientes hasta aprobacion.
+- MFA obligatorio antes de operar.
+- Solo dominios institucionales en `ALLOWED_EMAIL_DOMAINS`.
+- `INTERNAL_NETWORK_ONLY=true` solo cuando tengas claros los rangos LAN/VPN permitidos.
 
 ---
 

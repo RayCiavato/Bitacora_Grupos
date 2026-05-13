@@ -7,9 +7,15 @@ const request = require("supertest");
 
 require("./_env");
 const { createApp } = require("../src/index");
+const { config } = require("../src/config");
 const { validateFullName } = require("../src/services/namePolicy");
 const { validatePasswordPolicy } = require("../src/services/passwordPolicy");
-const { validateRegistrationEmail } = require("../src/services/emailPolicy");
+const {
+  isDisposableEmail,
+  normalizeEmail,
+  validateEmailDomain,
+  validateRegistrationEmail
+} = require("../src/services/emailPolicy");
 
 const app = createApp();
 const {
@@ -51,6 +57,45 @@ test("POST /auth/refresh sin refresh token devuelve 401", async () => {
   const response = await request(app).post("/auth/refresh");
   assert.equal(response.status, 401);
   assert.equal(response.body.error, "refresh_token_required");
+});
+
+test("GET /auth/public-config expone registro cerrado y dominios permitidos", async () => {
+  const response = await request(app).get("/auth/public-config");
+  assert.equal(response.status, 200);
+  assert.equal(response.body.allowPublicRegistration, false);
+  assert.equal(Array.isArray(response.body.allowedEmailDomains), true);
+  assert.ok(response.body.allowedEmailDomains.includes("empresa.com"));
+});
+
+test("POST /auth/register queda bloqueado cuando el registro publico esta deshabilitado", async () => {
+  const response = await request(app).post("/auth/register").send({
+    name: "Usuario Externo",
+    email: "usuario@empresa.com",
+    password: "N1njaHack@2026!"
+  });
+
+  assert.equal(response.status, 403);
+  assert.equal(response.body.error, "registration_disabled");
+});
+
+test("Politica de red institucional bloquea API sensible fuera de rangos permitidos", async () => {
+  const previousInternalOnly = config.internalNetworkOnly;
+  const previousAllowedNetworks = config.allowedNetworks;
+  config.internalNetworkOnly = true;
+  config.allowedNetworks = ["10.156.0.0/16"];
+
+  try {
+    const response = await request(app)
+      .post("/auth/login")
+      .set("X-Forwarded-For", "203.0.113.10")
+      .send({ email: "admin@bitacora.local", password: "N1njaHack@2026!" });
+
+    assert.equal(response.status, 403);
+    assert.equal(response.body.error, "network_denied");
+  } finally {
+    config.internalNetworkOnly = previousInternalOnly;
+    config.allowedNetworks = previousAllowedNetworks;
+  }
 });
 
 test("GET /assets/app.min.js con perfil de navegacion directa devuelve 404", async () => {
@@ -126,8 +171,8 @@ test("GET /assets/tasks.min.js como asset controlado devuelve 200", async () => 
 test("GET /tareas sirve index con referencias a assets minificados", async () => {
   const response = await request(app).get("/tareas");
   assert.equal(response.status, 200);
-  assert.match(String(response.text || ""), /\/assets\/app\.min\.js\?asset=web&v=33/);
-  assert.match(String(response.text || ""), /\/assets\/tasks\.min\.js\?asset=tasks&v=33/);
+  assert.match(String(response.text || ""), /\/assets\/app\.min\.js\?asset=web&v=34/);
+  assert.match(String(response.text || ""), /\/assets\/tasks\.min\.js\?asset=tasks&v=34/);
   assert.match(String(response.text || ""), /\/assets\/security\.min\.js\?asset=sec/);
   assert.doesNotMatch(String(response.text || ""), /\/tasks\.js\?asset=tasks/);
 });
@@ -136,9 +181,9 @@ test("service worker usa cache versionada para invalidar bundles antiguos", () =
   const swPath = path.join(__dirname, "..", "src", "public", "sw.js");
   const swSource = fs.readFileSync(swPath, "utf8");
 
-  assert.match(swSource, /bitacora-v33/);
-  assert.match(swSource, /\/assets\/app\.min\.js\?asset=web&v=33/);
-  assert.match(swSource, /\/assets\/tasks\.min\.js\?asset=tasks&v=33/);
+  assert.match(swSource, /bitacora-v34/);
+  assert.match(swSource, /\/assets\/app\.min\.js\?asset=web&v=34/);
+  assert.match(swSource, /\/assets\/tasks\.min\.js\?asset=tasks&v=34/);
   assert.doesNotMatch(swSource, /bitacora-v24/);
 });
 
@@ -342,11 +387,72 @@ test("Politica de nombre acepta formatos validos y normaliza espacios", () => {
   assert.equal(normalized.value, "Juan Perez");
 });
 
-test("Politica de correo de registro permite solo Gmail y Hotmail", () => {
-  assert.equal(validateRegistrationEmail("persona@gmail.com").valid, true);
-  assert.equal(validateRegistrationEmail("persona@hotmail.com").valid, true);
-  assert.equal(validateRegistrationEmail("persona@outlook.com").valid, false);
-  assert.equal(validateRegistrationEmail("persona@bitacora.local").valid, false);
+test("Politica de correo permite dominios institucionales y bloquea temporales", () => {
+  const allowed = [
+    "usuario@empresa.local",
+    "usuario@empresa.com",
+    "usuario@institucion.gob.ve",
+    "usuario@sub.empresa.com",
+    "usuario@bitacora.local",
+    "  Usuario@Empresa.COM  "
+  ];
+
+  allowed.forEach((email) => {
+    assert.equal(validateRegistrationEmail(email).valid, true, email);
+  });
+
+  assert.equal(normalizeEmail("  Usuario@Empresa.COM  "), "usuario@empresa.com");
+});
+
+test("Politica de correo rechaza dominios externos no autorizados", () => {
+  const blocked = [
+    "usuario@gmail.com",
+    "usuario@outlook.com",
+    "usuario@hotmail.com",
+    "usuario@yahoo.com",
+    "usuario@protonmail.com"
+  ];
+
+  blocked.forEach((email) => {
+    const result = validateRegistrationEmail(email);
+    assert.equal(result.valid, false, email);
+    assert.equal(result.error, "email_domain_not_allowed", email);
+  });
+});
+
+test("Politica de correo rechaza proveedores temporales conocidos", () => {
+  const blocked = [
+    "test@yopmail.com",
+    "test@mailinator.com",
+    "test@guerrillamail.com",
+    "test@10minutemail.com",
+    "test@temp-mail.org",
+    "test@sub.yopmail.com"
+  ];
+
+  blocked.forEach((email) => {
+    const result = validateEmailDomain(email);
+    assert.equal(result.valid, false, email);
+    assert.equal(result.error, "disposable_email_not_allowed", email);
+    assert.equal(isDisposableEmail(email), true, email);
+  });
+});
+
+test("Politica de correo rechaza formatos sospechosos", () => {
+  const invalid = [
+    "persona@@empresa.com",
+    "persona empresa@empresa.com",
+    "persona@empresa.com\r\nBcc:evil@example.com",
+    "persona@empresa",
+    "persona@empresa..com",
+    "per" + String.fromCodePoint(0x1f600) + "sona@empresa.com"
+  ];
+
+  invalid.forEach((email) => {
+    const result = validateRegistrationEmail(email);
+    assert.equal(result.valid, false, email);
+    assert.equal(result.error, "invalid_email", email);
+  });
 });
 
 test("Politica de password rechaza contrasena debil", () => {

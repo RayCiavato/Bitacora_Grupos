@@ -24,6 +24,7 @@ Manuales principales:
 - Telegram en modo polling para no depender de dominio publico ni HTTPS publico.
 - SSE/realtime autenticado y filtrado por permisos.
 - Exportes Excel/PDF/CSV con control por grupo exportable.
+- Acceso institucional cerrado: registro publico desactivado, invitaciones, aprobacion manual, MFA obligatorio y dominios permitidos.
 - Soft delete de usuarios para conservar historico.
 
 ---
@@ -90,6 +91,41 @@ curl -sS http://127.0.0.1/health
 
 ---
 
+## Seguridad institucional
+
+Por defecto el sistema queda en modo cerrado:
+
+- `ALLOW_PUBLIC_REGISTRATION=false`: nadie se registra libremente desde Internet o la LAN.
+- `ACCOUNT_APPROVAL_REQUIRED=true`: usuarios nuevos por invitacion quedan pendientes hasta aprobacion.
+- `MFA_REQUIRED=true`: usuarios aprobados deben configurar MFA antes de operar.
+- `ALLOWED_EMAIL_DOMAINS`: solo dominios institucionales/corporativos autorizados.
+- `INTERNAL_NETWORK_ONLY=false`: opcional; si se activa, valida rangos de red/VPN con `ALLOWED_NETWORKS`.
+
+Ejemplo `.env`:
+
+```env
+ALLOW_PUBLIC_REGISTRATION=false
+ACCOUNT_APPROVAL_REQUIRED=true
+MFA_REQUIRED=true
+ALLOWED_EMAIL_DOMAINS=bitacora.local,empresa.local,empresa.com,institucion.gob.ve
+ALLOW_EMAIL_SUBDOMAINS=true
+INTERNAL_NETWORK_ONLY=false
+ALLOWED_NETWORKS=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32
+INVITE_TTL_HOURS=48
+```
+
+Flujo recomendado:
+
+1. Admin entra al panel Usuarios.
+2. Crea una invitacion con correo, rol y grupo.
+3. El usuario acepta el token de invitacion.
+4. Admin aprueba la cuenta.
+5. El usuario inicia sesion y configura MFA.
+
+Los usuarios existentes no se eliminan ni se modifican retroactivamente. Si un usuario viejo necesita cambiar correo, un admin puede actualizarlo a un dominio corporativo permitido desde Usuarios.
+
+---
+
 ## Actualizacion de una Bitacora vieja
 
 Si ya tienes data cargada, no reinstales desde cero y no borres volumenes.
@@ -127,7 +163,14 @@ POSTGRES_DB_VALUE="$(grep -E '^POSTGRES_DB=' .env 2>/dev/null | tail -n1 | cut -
 
 $DC exec -T postgres pg_dump -U "${POSTGRES_USER_VALUE:-bitacora_user}" "${POSTGRES_DB_VALUE:-bitacora}" | gzip > "backups/pre-update-$(date +%F-%H%M%S).sql.gz"
 
-cat db/migrations/008_groups_abac.sql | $DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}"
+for migration in \
+  db/migrations/008_groups_abac.sql \
+  db/migrations/009_gerencial_role.sql \
+  db/migrations/010_remove_gerencial_role_usage.sql \
+  db/migrations/011_institutional_access.sql
+do
+  [ -f "$migration" ] && cat "$migration" | $DC exec -T postgres psql -v ON_ERROR_STOP=1 -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}"
+done
 
 docker ps -aq --filter "name=bitacora-app" | xargs -r docker rm -f
 $DC build --no-cache app
@@ -143,6 +186,8 @@ Validar grupos:
 $DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT slug, is_active FROM groups ORDER BY id;"
 $DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS tasks_sin_grupo FROM tasks WHERE group_id IS NULL;"
 $DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS events_sin_grupo FROM events WHERE group_id IS NULL;"
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT account_status, COUNT(*) FROM users GROUP BY account_status ORDER BY account_status;"
+$DC exec -T postgres psql -U "${POSTGRES_USER_VALUE:-bitacora_user}" -d "${POSTGRES_DB_VALUE:-bitacora}" -c "SELECT COUNT(*) AS invitaciones FROM user_invites;"
 ```
 
 ---
